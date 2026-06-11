@@ -1,0 +1,36 @@
+﻿appId: com.uphone.crm-marketing-uphone
+productName: CRM Marketing Uphone
+copyright: Copyright © 2026 UPHONE
+
+compression: store
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - "out/**/*"
+  - "resources/**/*"
+
+extraResources:
+  - from: scrcpy-win64-v3.1/
+    to: scrcpy-win64-v3.1/
+  - from: resources/scripts/
+    to: scripts/
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  unicode: true
+  runAfterFinish: true
+  createDesktopShortcut: always
+  shortcutName: "CRM Marketing Uphone"
+  include: installer-hooks.nsi
+
+publish: null

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50">
+  <style>
+    .text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 800; font-size: 32px; fill: #ffffff; }
+    .u { fill: #4CAF50; }
+    .check { fill: #4CAF50; stroke: #4CAF50; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+    .circle { fill: none; stroke: rgba(255,255,255,0.2); stroke-width: 2; }
+  </style>
+  <text x="10" y="38" class="text"><tspan class="u">U</tspan>PHONE</text>
+  <circle cx="115" cy="25" r="14" class="circle"/>
+  <path d="M108 25 L113 30 L122 18" class="check" fill="none" />
+</svg>

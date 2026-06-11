@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Usuario {
+  id           Int      @id @default(autoincrement())
+  nombre       String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  rol          String   @default("asesor") // En sqlite simplificamos de enum a string
+  estado       String   @default("activo")
+  creadoEn     DateTime @default(now()) @map("creado_en")
+  cdrs         Cdr[]
+
+  @@map("usuarios")
+}
+
+model Campana {
+  id          Int        @id @default(autoincrement())
+  nombre      String
+  descripcion String?
+  fechaInicio DateTime?  @map("fecha_inicio")
+  fechaFin    DateTime?  @map("fecha_fin")
+  estado      String     @default("activa")
+  contactos   Contacto[]
+
+  @@map("campanas")
+}
+
+model Contacto {
+  id              Int      @id @default(autoincrement())
+  campanaId       Int      @map("campana_id")
+  campana         Campana  @relation(fields: [campanaId], references: [id])
+  nombreDeudor    String?  @map("nombre_deudor")
+  telefono        String
+  montoDeuda      Float?   @map("monto_deuda") // sqlite no soporta Decimal
+  producto        String?
+  estadoMarcacion String   @default("PENDIENTE") @map("estado_marcacion")
+  asignadoA       Int?     @map("asignado_a")
+  cdrs            Cdr[]
+
+  @@map("contactos")
+}
+
+model Tipificacion {
+  id           Int     @id @default(autoincrement())
+  codigo       String  @unique
+  descripcion  String
+  requiereAgd  Boolean @default(false) @map("requiere_agd")
+  cdrs         Cdr[]
+
+  @@map("tipificaciones")
+}
+
+model Cdr {
+  id              Int           @id @default(autoincrement())
+  contactoId      Int           @map("contacto_id")
+  contacto        Contacto      @relation(fields: [contactoId], references: [id])
+  usuarioId       Int           @map("usuario_id")
+  usuario         Usuario       @relation(fields: [usuarioId], references: [id])
+  tipificacionId  Int?          @map("tipificacion_id")
+  tipificacion    Tipificacion? @relation(fields: [tipificacionId], references: [id])
+  timestampInicio DateTime      @map("timestamp_inicio")
+  timestampFin    DateTime?     @map("timestamp_fin")
+  duracionSeg     Int           @default(0) @map("duracion_seg")
+  resultado       String?
+  urlGrabacion    String?       @map("url_grabacion")
+  notas           String?
+  creadoEn        DateTime      @default(now()) @map("creado_en")
+
+  @@map("cdrs")
+}
