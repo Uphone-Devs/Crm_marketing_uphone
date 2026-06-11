@@ -1,0 +1,52 @@
+﻿{
+  "name": "crm-marketing-uphone",
+  "version": "3.0.0",
+  "description": "CRM Marketing Uphone — Plataforma de cobranza (Asesor / Supervisor / Admin)",
+  "main": "out/main/index.js",
+  "author": "Alexis Pillajo",
+  "license": "ISC",
+  "private": true,
+  "scripts": {
+    "copy-main": "node scripts/copy-main.js",
+    "dev": "cmd /c \"set ELECTRON_RUN_AS_NODE=&& electron-vite dev\"",
+    "build": "electron-vite build && electron-builder",
+    "build:app": "electron-vite build",
+    "dist": "electron-builder",
+    "preview": "electron-vite preview",
+    "check-ffmpeg": "node scripts/check-ffmpeg.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "rebuild:electron": "npx @electron/rebuild -f -w better-sqlite3",
+    "rebuild:node": "npm rebuild better-sqlite3"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.3.2",
+    "helmet": "^8.2.0",
+    "jsonwebtoken": "^9.0.2",
+    "pdfkit": "^0.15.0",
+    "recharts": "^3.8.1",
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^29.1.4",
+    "electron-builder": "^26.8.1",
+    "electron-vite": "^2.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "supertest": "^7.2.2",
+    "vite": "^5.4.21",
+    "vitest": "^4.1.6"
+  },
+  "build": {
+    "extends": "./electron-builder.yml"
+  }
+}

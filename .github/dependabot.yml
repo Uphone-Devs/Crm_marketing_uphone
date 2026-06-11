@@ -1,0 +1,30 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Bogota"
+    labels:
+      - "dependencies"
+      - "security"
+    # Agrupar actualizaciones para reducir ruido
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react*"
+      electron:
+        patterns:
+          - "electron*"
+      express:
+        patterns:
+          - "express*"
+    # No actualizar major versions de Electron automáticamente
+    ignore:
+      - dependency-name: "electron"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 10

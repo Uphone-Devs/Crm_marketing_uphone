@@ -1,0 +1,101 @@
+/* ── ActivityLog (As Notification) ─────────────────────────────── */
+.activity-log {
+  position: fixed;
+  top: calc(var(--header-height) + var(--space-lg));
+  right: var(--space-lg);
+  width: 320px;
+  background: var(--color-surface-container-high);
+  border: 1px solid rgba(84, 233, 138, 0.2);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4), 
+              0 0 0 1px rgba(84, 233, 138, 0.1);
+  padding: var(--space-md);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: auto;
+  backdrop-filter: blur(20px);
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%) scale(0.9); opacity: 0; }
+  to { transform: translateX(0) scale(1); opacity: 1; }
+}
+
+.activity-log--hidden {
+  animation: slide-out-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slide-out-right {
+  from { transform: translateX(0) scale(1); opacity: 1; }
+  to { transform: translateX(100%) scale(0.9); opacity: 0; }
+}
+
+.activity-log__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.activity-log__header h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+}
+
+.activity-log__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: hidden;
+}
+
+.activity-log__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.activity-log__icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.activity-log__icon--success { color: var(--color-primary); }
+.activity-log__icon--error   { color: var(--color-error); }
+.activity-log__icon--warning { color: var(--color-tertiary); }
+.activity-log__icon--info    { color: var(--color-secondary); }
+.activity-log__icon--neutral { color: var(--color-on-surface-variant); }
+
+.activity-log__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-log__message {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-on-surface);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-log__time {
+  font-size: 9px;
+  color: var(--color-on-surface-variant);
+  opacity: 0.5;
+}
+

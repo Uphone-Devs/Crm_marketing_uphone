@@ -1,0 +1,32 @@
+name: CI + Security Audit
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  audit:
+    name: npm audit + Build Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: npm audit (vulnerabilidades)
+        run: npm audit --audit-level=high
+        continue-on-error: false
+
+      - name: Build check (compila sin errores)
+        run: npx electron-vite build
