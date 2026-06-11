@@ -1,0 +1,97 @@
+/* ── MetricsOverview ─────────────────────────────────────────── */
+.metrics-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.mo-card {
+  background: linear-gradient(145deg, #151515, #080808);
+  border: 1px solid rgba(0, 255, 127, 0.05);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  transition: all var(--transition-base);
+  position: relative;
+  box-shadow: var(--shadow-card);
+}
+
+.mo-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(0, 255, 127, 0.2), transparent, rgba(50, 50, 50, 0.1));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.mo-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(0, 255, 127, 0.4);
+  box-shadow: var(--shadow-glow);
+}
+
+.mo-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+
+.mo-card__icon {
+  font-size: 18px;
+  padding: 7px;
+  border-radius: 8px;
+  background: rgba(0, 255, 127, 0.05);
+  color: var(--color-primary);
+  box-shadow: inset 0 0 10px rgba(0, 255, 127, 0.05);
+}
+
+.mo-card--tertiary .mo-card__icon  { color: var(--color-tertiary); background: rgba(255, 192, 172, 0.05); }
+.mo-card--secondary .mo-card__icon { color: var(--color-secondary); background: rgba(154, 212, 165, 0.05); }
+.mo-card--danger .mo-card__icon    { color: var(--color-danger); background: rgba(255, 82, 82, 0.08); }
+.mo-card--warning .mo-card__icon   { color: #ffc107; background: rgba(255, 193, 7, 0.08); }
+.mo-card--warning .mo-card__value  { color: #ffc107; }
+
+.mo-card--highlight {
+  border-color: rgba(255, 82, 82, 0.15);
+}
+.mo-card--danger.mo-card--highlight .mo-card__value { color: var(--color-danger); }
+
+.mo-card__sub {
+  font-size: 10px;
+  opacity: 0.55;
+  margin-top: 4px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mo-card__label {
+  font-family: var(--font-label);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-on-surface-variant);
+  opacity: 0.75;
+  line-height: 1.2;
+}
+
+.mo-card__value {
+  font-family: var(--font-headline);
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: var(--color-on-surface);
+  letter-spacing: -0.03em;
+  text-shadow: 0 0 20px rgba(255, 255, 255, 0.05);
+  line-height: 1.1;
+}

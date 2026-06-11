@@ -1,0 +1,76 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+
+# Build output
+out/
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Agent communication (optional - keep estado_proyecto.md tracked)
+.agentes/handoffs/
+.agentes/validaciones/
+.agentes/incidencias/
+.agentes/archivo/
+
+# AI tool directories (IDE/assistant configs - local only)
+.adal/
+.agents/
+.antigravity/
+.augment/
+.bob/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+
+# Temporary/scratch
+scratch/
+data/
+
+# Skills config (local) — scaffolding de agentes IA, no es parte del producto
+skills-lock.json
+skills/
