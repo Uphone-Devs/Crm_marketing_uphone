@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "crm-marketing-uphone",
   "version": "3.0.0",
   "description": "CRM Marketing Uphone — Plataforma de cobranza (Asesor / Supervisor / Admin)",
@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.3",
-    "@vitejs/plugin-react": "^4.2.1",
+    "@vitejs/plugin-react": "^6.0.2",
     "electron": "^29.1.4",
     "electron-builder": "^26.8.1",
     "electron-vite": "^2.1.0",
