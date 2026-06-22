@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "^12.11.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
