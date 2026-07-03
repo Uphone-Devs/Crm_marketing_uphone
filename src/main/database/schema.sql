@@ -40,7 +40,11 @@ CREATE TABLE IF NOT EXISTS contactos (
   asignado_a       INTEGER REFERENCES usuarios(id),
   metadata         TEXT,
   whatsapp_status  TEXT    DEFAULT 'INACTIVO',
-  rcs_status       TEXT    DEFAULT 'ACTIVO'
+  rcs_status       TEXT    DEFAULT 'ACTIVO',
+  correo_status    TEXT    DEFAULT 'INACTIVO',
+  wsp_enviado_fecha     TEXT DEFAULT NULL,
+  rcs_enviado_fecha     TEXT DEFAULT NULL,
+  correo_enviado_fecha  TEXT DEFAULT NULL
 );
 
 -- ── Tipificaciones de llamadas ──────────────────────────────

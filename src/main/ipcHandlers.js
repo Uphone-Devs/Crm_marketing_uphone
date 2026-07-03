@@ -337,8 +337,8 @@ function registerIpcHandlers() {
   ipcMain.handle('db:getRefsBitacora', async (event, asesorId, limite) =>
     getRefsBitacora(asesorId, limite || 1000)
   );
-  ipcMain.handle('db:getCarteraAsesor', async (event, asesorId) =>
-    getCarteraAsesor(Number(asesorId))
+  ipcMain.handle('db:getCarteraAsesor', async (event, asesorId, campanaId) =>
+    getCarteraAsesor(Number(asesorId), campanaId ? Number(campanaId) : null)
   );
   ipcMain.handle('db:getCarteraFiltradaAsesor', async (event, asesorId, filterIntentos) =>
     getCarteraAsesor(Number(asesorId), filterIntentos)
