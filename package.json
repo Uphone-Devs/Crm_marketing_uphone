@@ -9,9 +9,9 @@
   "scripts": {
     "copy-main": "node scripts/copy-main.js",
     "dev": "cmd /c \"set ELECTRON_RUN_AS_NODE=&& electron-vite dev\"",
-    "build": "electron-vite build && electron-builder",
+    "build": "cmd /c \"set CSC_IDENTITY_AUTO_DISCOVERY=false && electron-vite build && electron-builder\"",
     "build:app": "electron-vite build",
-    "dist": "electron-builder",
+    "dist": "cmd /c \"set CSC_IDENTITY_AUTO_DISCOVERY=false && electron-builder\"",
     "preview": "electron-vite preview",
     "check-ffmpeg": "node scripts/check-ffmpeg.js",
     "test": "vitest run",
