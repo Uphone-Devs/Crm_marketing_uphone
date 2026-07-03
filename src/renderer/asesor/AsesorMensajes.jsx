@@ -195,7 +195,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
         <div>
           <h3 className="text-headline-sm" style={{ marginBottom: 8 }}>
             <span className="material-symbols-outlined" style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--color-primary)' }}>forum</span>
-            Mensajes del Supervisor
+            Mensajes
           </h3>
           <p className="text-body-sm" style={{ opacity: 0.6, maxWidth: 600 }}>
             Aquí encontrarás los textos redactados por tu supervisor para enviarlos por WhatsApp o SMS a tu cartera asignada.

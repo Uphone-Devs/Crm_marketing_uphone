@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import './NavigationDrawer.css';
 
 /**
@@ -42,9 +42,9 @@ const NAV_ITEMS_ASESOR = [
     ]
   },
   { id: 'compromisos',    icon: 'handshake',              label: 'Mis Compromisos' },
-  { id: 'mensajes_sv',    icon: 'mark_unread_chat_alt',   label: 'Mensajes del Supervisor' },
+  { id: 'mensajes_sv',    icon: 'mark_unread_chat_alt',   label: 'Mensajes' },
   { id: 'indicadores',    icon: 'bar_chart',              label: 'Indicadores' },
-  { id: 'config',         icon: 'settings_input_component', label: 'Configuración del sistema' },
+
 ];
 
 export default function NavigationDrawer({ role, activePage, onNavigate, usuario, onLogout, compactContent, collapsed = false, onToggleCollapse }) {
@@ -55,6 +55,21 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
       return campaignIds.includes(activePage) ? 'campanas_group' : null;
     }
   );
+  // Flyout para modo colapsado con sub-items
+  const [flyout, setFlyout] = useState(null); // { itemId, top }
+  const flyoutRef = useRef(null);
+
+  // Cerrar flyout al hacer click fuera
+  useEffect(() => {
+    if (!flyout) return;
+    const handler = (e) => {
+      if (flyoutRef.current && !flyoutRef.current.contains(e.target)) {
+        setFlyout(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [flyout]);
 
   const toggleExpand = (id) => setExpanded(prev => (prev === id ? null : id));
 
@@ -70,7 +85,7 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
         {role === 'asesor' ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: 6 }}>
             {onToggleCollapse && (
-              <button className="nav-drawer__toggle" onClick={onToggleCollapse} title={collapsed ? 'Expandir' : 'Colapsar'}>
+              <button className="nav-drawer__toggle" onClick={onToggleCollapse} title={collapsed ? 'Expandir menú' : 'Colapsar menú'}>
                 <span className="material-symbols-outlined">
                   {collapsed ? 'menu' : 'menu_open'}
                 </span>
@@ -115,26 +130,32 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
       )}
 
       {/* Navigation Items */}
-      <nav className="nav-drawer__nav">
+      <nav className="nav-drawer__nav" style={{ position: 'relative' }}>
         {items.map(item => (
-          <div key={item.id}>
+          <div key={item.id} style={{ position: 'relative' }}>
             <button
               className={`nav-drawer__item ${
                 (!item.subItems && activePage === item.id) || isSubActive(item)
                   ? 'nav-drawer__item--active'
                   : ''
               }`}
-              onClick={() => {
+              title={collapsed ? item.label : undefined}
+              onClick={(e) => {
                 if (item.subItems) {
-                  if (expanded !== item.id) {
-                    setExpanded(item.id);
+                  if (collapsed) {
+                    // Modo colapsado: mostrar flyout flotante
+                    if (flyout?.itemId === item.id) {
+                      setFlyout(null);
+                    } else {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setFlyout({ itemId: item.id, top: rect.top });
+                    }
                   } else {
-                    setExpanded(null);
-                  }
-                  if (collapsed && onToggleCollapse) {
-                    onToggleCollapse();
+                    // Modo expandido: accordion normal
+                    toggleExpand(item.id);
                   }
                 } else {
+                  setFlyout(null);
                   onNavigate(item.id);
                 }
               }}
@@ -143,7 +164,7 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
                 {item.icon}
               </span>
               <span className="nav-drawer__item-label">{item.label}</span>
-              {item.subItems && (
+              {item.subItems && !collapsed && (
                 <span
                   className="material-symbols-outlined"
                   style={{ marginLeft: 'auto', fontSize: 16, opacity: 0.6 }}
@@ -151,9 +172,19 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
                   {expanded === item.id ? 'expand_less' : 'expand_more'}
                 </span>
               )}
+              {/* Indicador flyout disponible en modo colapsado */}
+              {item.subItems && collapsed && (
+                <span
+                  className="material-symbols-outlined"
+                  style={{ fontSize: 10, position: 'absolute', right: 2, bottom: 4, opacity: 0.5 }}
+                >
+                  chevron_right
+                </span>
+              )}
             </button>
 
-            {item.subItems && expanded === item.id && (
+            {/* Accordion (modo expandido) */}
+            {item.subItems && expanded === item.id && !collapsed && (
               <div className="nav-drawer__subitems">
                 {item.subItems.map(sub => (
                   <button
@@ -171,6 +202,54 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
             )}
           </div>
         ))}
+
+        {/* Flyout flotante (modo colapsado) */}
+        {flyout && (() => {
+          const item = items.find(i => i.id === flyout.itemId);
+          if (!item?.subItems) return null;
+          return (
+            <div
+              ref={flyoutRef}
+              style={{
+                position: 'fixed',
+                top: flyout.top,
+                left: 60,
+                zIndex: 9999,
+                background: 'rgba(18,18,28,0.97)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 10,
+                padding: '6px 0',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                minWidth: 170,
+              }}
+            >
+              <div style={{ padding: '4px 14px 8px', fontSize: 10, opacity: 0.4, letterSpacing: 1, textTransform: 'uppercase' }}>
+                {item.label}
+              </div>
+              {item.subItems.map(sub => (
+                <button
+                  key={sub.id}
+                  onClick={() => { onNavigate(sub.id); setFlyout(null); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    width: '100%', padding: '9px 14px',
+                    background: activePage === sub.id ? 'rgba(0,230,118,0.12)' : 'transparent',
+                    border: 'none', cursor: 'pointer', color: activePage === sub.id ? 'var(--color-primary)' : 'rgba(255,255,255,0.75)',
+                    fontSize: 13, textAlign: 'left', borderRadius: 0,
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}
+                  onMouseLeave={e => e.currentTarget.style.background = activePage === sub.id ? 'rgba(0,230,118,0.12)' : 'transparent'}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, color: activePage === sub.id ? 'var(--color-primary)' : 'inherit' }}>
+                    {sub.icon}
+                  </span>
+                  {sub.label}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
       </nav>
 
       {/* Contenido compacto extra (ej: mensajes activos) */}

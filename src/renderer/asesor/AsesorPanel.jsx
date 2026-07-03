@@ -81,6 +81,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   // ── Tipificación y Historial ──
   const [showTipificacion, setShowTipificacion] = useState(false);
+  const [tipifInicial, setTipifInicial] = useState(null);
   const [historialGestiones, setHistorialGestiones] = useState([]);
   const [totalGestiones, setTotalGestiones] = useState(0);
   const [totalCompromisos, setTotalCompromisos] = useState(0);
@@ -1239,22 +1240,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const nIntentosActual = intentosContactoRef.current;
       const nIntentosMax = Number(intentosConfig);
 
-      // Marcar GESTIONADO si: contacto efectivo, modo manual, o alcanzó máximo de intentos
-      const debeMarcarGestionado =
-        esContactoEfectivo ||
-        dialingMode !== 'AUTOMATICA' ||
-        nIntentosActual >= nIntentosMax;
-
       if (contactoSnapshot?.id && typeof contactoSnapshot.id === 'number') {
-        // Siempre incrementar en DB primero (registra el intento real)
+        // Registrar el intento
         await callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax);
-
-        // Si además debe quedar como GESTIONADO, marcarlo explícitamente
-        if (debeMarcarGestionado && !esContactoEfectivo && dialingMode === 'AUTOMATICA') {
-          // incrementarIntentoContacto ya lo marca GESTIONADO si alcanzó max
-        } else if (debeMarcarGestionado) {
-          await callApi('db:marcarContactoGestionado', contactoSnapshot.id);
-        }
+        // Regla de negocio: cualquier tipificación = contacto GESTIONADO
+        await callApi('db:marcarContactoGestionado', contactoSnapshot.id);
 
         // Si existe agendamiento, registrarlo en la base de datos
         if (agendamiento) {
@@ -1345,6 +1335,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       // Sin esto el form queda "pegado" abierto con enLlamada=true tras un fallo.
       setEnLlamada(false);
       setShowTipificacion(false);
+      setTipifInicial(null);
       setCdrId(null);
       setDeviceGrabando(false);
     }
@@ -1422,7 +1413,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
       <NavigationDrawer
         role="asesor"
         activePage={activePage}
-        onNavigate={setActivePage}
+        onNavigate={(page) => {
+          setActivePage(page);
+          // Al entrar a la consola (dashboard) activar timer productivo automáticamente
+          if (page === 'dashboard' && estadoActual?.id !== 1) {
+            handleEstadoChange(ESTADOS[0]); // ESTADOS[0] = { id:1, nombre:'En Gestión' }
+          }
+        }}
         usuario={usuario}
         onLogout={onLogout}
         compactContent={<AsesorMensajes compact={true} usuario={usuario} />}
@@ -2264,6 +2261,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         try {
                                           await callApi('db:marcarLoteEnviado', usuario.id, canalApi, [c.id]);
                                           cargarCartera();
+                                          fetchMetricasYEnviar();
                                         } catch (e) { showToast('Error: ' + e.message, 'error'); }
                                       }}
                                       style={{
@@ -2286,7 +2284,26 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   <select 
                                     className="input-field" 
                                     style={{ padding: '3px 6px', fontSize: 10, borderRadius: 4, height: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', outline: 'none', maxWidth: 100 }}
-                                    defaultValue=""
+                                    value=""
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      if (!val) return;
+                                      const codeMap = {
+                                        cuelga: 'CUE',
+                                        no_contesta: 'NC',
+                                        referencia: 'REF',
+                                        equivocado: 'EQ',
+                                        suspendido: 'SUS',
+                                        negativa_pago: 'NEG',
+                                        promesa_pago: 'PMP',
+                                        tercero: 'TER',
+                                        volver_llamar: 'VOL_CALL',
+                                        buzon_voz: 'BUZON'
+                                      };
+                                      setContactoActual(c);
+                                      setTipifInicial(codeMap[val] || val);
+                                      setShowTipificacion(true);
+                                    }}
                                   >
                                     <option value="" disabled>Tipificar...</option>
                                     <option value="cuelga">Cuelga</option>
@@ -2798,9 +2815,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 {/* ── Panel de Tipificación Inline (se despliega después de llamada) ── */}
                 <TipificacionDialog
                   open={showTipificacion}
+                  tipifInicial={tipifInicial}
                   mode="inline"
                   onSave={handleSaveTipificacion}
-                  onCancel={() => setShowTipificacion(false)}
+                  onCancel={() => {
+                    setShowTipificacion(false);
+                    setTipifInicial(null);
+                  }}
                   contacto={contactoActual}
                   asesorNombre={usuario.nombre}
                   asesorId={usuario.id}
@@ -3038,9 +3059,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
               </div>
           ) : (
             <div className="card" style={{ maxWidth: 600, margin: '0 auto' }}>
-              <h3 className="text-headline-sm" style={{ marginBottom: 16 }}>Configuración del Sistema</h3>
+              <h3 className="text-headline-sm" style={{ marginBottom: 16 }}>Configuración de Red</h3>
               <p className="text-body-sm" style={{ opacity: 0.7, marginBottom: 24 }}>
-                Ajustes de conexión (QA Multi-PC).
+                Configura la IP del servidor para conectarte en modo Multi-PC.
               </p>
               
               <div style={{ marginBottom: 24 }}>
