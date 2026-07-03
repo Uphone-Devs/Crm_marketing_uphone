@@ -152,7 +152,7 @@ function buildInternationalPhone(telefono, codigoPais) {
  *   - asesorNombre: nombre del asesor actual
  *   - callApi: funcion opcional para resolucion remota (Multi-PC)
  */
-export default function TipificacionDialog({ open, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida }) {
+export default function TipificacionDialog({ open, tipifInicial, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida }) {
   const [tipificaciones, setTipificaciones] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [notas, setNotas] = useState('');
@@ -190,6 +190,13 @@ export default function TipificacionDialog({ open, mode = 'inline', onSave, onCa
       setMontoAcordado('');
     }
   }, [selectedId, tipificaciones, contacto]);
+
+  useEffect(() => {
+    if (open && tipifInicial && tipificaciones.length > 0 && !selectedId) {
+      const matched = tipificaciones.find(t => t.codigo === tipifInicial);
+      if (matched) setSelectedId(matched.id.toString());
+    }
+  }, [tipifInicial, tipificaciones, open, selectedId]);
 
   // Plantillas cargadas desde la config del supervisor
   const [templates, setTemplates] = useState({});
@@ -233,6 +240,11 @@ export default function TipificacionDialog({ open, mode = 'inline', onSave, onCa
         const getTipFn = callApi || window.api.invoke;
         const data = await getTipFn('db:getTipificaciones');
         setTipificaciones(data);
+        if (tipifInicial) {
+          const initCode = typeof tipifInicial === 'string' ? tipifInicial : tipifInicial.codigo;
+          const found = data.find(t => t.codigo === initCode);
+          if (found) setSelectedId(found.id.toString());
+        }
       } catch (err) {
         console.error('Error al cargar tipificaciones:', err);
       } finally {
@@ -389,431 +401,313 @@ export default function TipificacionDialog({ open, mode = 'inline', onSave, onCa
     }
   }
 
-  // ── Contenido reutilizable del formulario ──────────────────
-  const formContent = (
+  // ── Helpers compartidos ──────────────────────────────────────
+  const selectedTip  = tipificaciones.find(t => t.id.toString() === selectedId);
+  const isAgendable  = selectedTip?.requiere_agd === 1;
+  const COMP_CODES   = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
+  const showMonto    = selectedTip && COMP_CODES.includes(selectedTip.codigo);
+  const valorMora    = (() => {
+    const raw = contacto?.metadata?.['VALOR EN MORA'];
+    if (raw == null) return null;
+    const p = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
+    return isNaN(p) ? null : p;
+  })();
+  const labelMonto = { PMP:'Monto comprometido a pagar', PAGO_REAL:'Monto realmente pagado', AB_PARC:'Monto del abono parcial', PEND_COMP:'Monto pendiente de comprobar' };
+
+  // ── Sección: Agendar promesa ──────────────────────────────────
+  const seccionAgendar = isAgendable ? (
+    <div style={{ marginBottom: 12, padding: '14px', background: 'linear-gradient(135deg,rgba(0,230,118,0.07),rgba(0,230,118,0.03))', borderRadius: 12, border: '1px solid rgba(0,230,118,0.25)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:12 }}>
+        <div style={{ width:28, height:28, borderRadius:'50%', background:'rgba(0,230,118,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <span className="material-symbols-outlined" style={{ fontSize:16, color:'#00e676' }}>schedule</span>
+        </div>
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:'#00e676' }}>Agendar promesa</div>
+          <div style={{ fontSize:9, opacity:0.55 }}>¿Cuándo se realiza el pago?</div>
+        </div>
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+        <div>
+          <div style={{ fontSize:9, fontWeight:700, opacity:0.5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:5 }}>📅 Fecha</div>
+          <input type="date" value={fechaAgendamiento} onChange={e=>setFechaAgendamiento(e.target.value)} min={todayLocalISO()}
+            style={{ fontSize:13, padding:'8px 10px', colorScheme:'dark', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(0,230,118,0.3)', borderRadius:8, color:'#fff', outline:'none', width:'100%' }} />
+        </div>
+        <div>
+          <div style={{ fontSize:9, fontWeight:700, opacity:0.5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:5 }}>🕐 Hora</div>
+          <input type="time" value={horaAgendamiento} onChange={e=>setHoraAgendamiento(e.target.value)}
+            style={{ fontSize:13, padding:'8px 10px', colorScheme:'dark', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(0,230,118,0.3)', borderRadius:8, color:'#fff', outline:'none', width:'100%' }} />
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  // ── Sección: Monto ────────────────────────────────────────────
+  const seccionMonto = showMonto ? (
+    <div style={{ marginBottom:12, padding:'12px 14px', background:'linear-gradient(135deg,rgba(255,193,7,0.07),rgba(255,193,7,0.03))', borderRadius:12, border:'1px solid rgba(255,193,7,0.25)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+        <div style={{ width:28, height:28, borderRadius:'50%', background:'rgba(255,193,7,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <span className="material-symbols-outlined" style={{ fontSize:16, color:'#ffc107' }}>payments</span>
+        </div>
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:'#ffc107' }}>{labelMonto[selectedTip.codigo] || 'Monto acordado'} <span style={{ color:'#ff5252' }}>*</span></div>
+          <div style={{ fontSize:9, opacity:0.5 }}>Campo obligatorio</div>
+        </div>
+      </div>
+      <div style={{ display:'flex', gap:8 }}>
+        <div style={{ position:'relative', flex:1 }}>
+          <span style={{ position:'absolute', left:11, top:'50%', transform:'translateY(-50%)', fontSize:14, fontWeight:700, color:'#ffc107', opacity:0.7 }}>$</span>
+          <input type="number" min="0" step="0.01" value={montoAcordado} onChange={e=>setMontoAcordado(e.target.value)} placeholder="0.00" required
+            style={{ width:'100%', fontSize:15, padding:'8px 10px 8px 26px', fontWeight:700, background:'rgba(0,0,0,0.35)', border:'1px solid rgba(255,193,7,0.3)', borderRadius:8, color:'#fff', outline:'none' }} />
+        </div>
+        {valorMora != null && (
+          <button type="button" onClick={() => setMontoAcordado(String(valorMora))} title={`Mora: $${valorMora.toFixed(2)}`}
+            style={{ padding:'0 12px', fontSize:10, whiteSpace:'nowrap', fontWeight:700, background:'rgba(255,193,7,0.15)', border:'1px solid rgba(255,193,7,0.35)', color:'#ffc107', borderRadius:8, cursor:'pointer' }}>
+            💰 ${valorMora.toFixed(2)}
+          </button>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  // ── Sección: Notas ────────────────────────────────────────────
+  const seccionNotas = (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
+        <span className="material-symbols-outlined" style={{ fontSize:14, opacity:0.4 }}>edit_note</span>
+        <span style={{ fontSize:9, fontWeight:700, opacity:0.4, letterSpacing:'0.08em', textTransform:'uppercase' }}>Notas / Comentario</span>
+      </div>
+      <textarea
+        style={{ width:'100%', minHeight:52, resize:'none', padding:'9px 12px', fontSize:12, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, lineHeight:1.5, color:'#fff', outline:'none', transition:'border-color 0.2s' }}
+        onFocus={e=>e.target.style.borderColor='rgba(100,181,246,0.45)'}
+        onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.1)'}
+        placeholder="Escribe detalles relevantes de la gestión..."
+        value={notas} onChange={e=>setNotas(e.target.value)}
+      />
+    </div>
+  );
+
+  // ── Sección: Acciones rápidas ─────────────────────────────────
+  const seccionAcciones = (
+    <div style={{ background:'rgba(255,255,255,0.02)', padding:'10px 12px', borderRadius:10, border:'1px solid rgba(255,255,255,0.06)', marginBottom:14 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+        <span className="material-symbols-outlined" style={{ fontSize:13, opacity:0.35 }}>bolt</span>
+        <span style={{ fontSize:9, fontWeight:700, opacity:0.35, letterSpacing:'0.1em', textTransform:'uppercase' }}>Acciones Rápidas</span>
+      </div>
+      <div style={{ display:'flex', gap:6, marginBottom:8, alignItems:'center' }}>
+        <button disabled={!telefonoAlt.trim()} onClick={()=>{ if(!telefonoAlt.trim()) return; setShowRefPanel(true); setRefNombre(''); setRefParentesco(''); }}
+          style={{ flexShrink:0, width:26, height:26, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background: telefonoAlt.trim()?'rgba(76,175,80,0.8)':'rgba(255,255,255,0.08)', opacity: telefonoAlt.trim()?1:0.35, transition:'all 0.2s' }}>
+          <span className="material-symbols-outlined" style={{ fontSize:13, color:'#000' }}>save</span>
+        </button>
+        <input type="tel" value={telefonoAlt} onChange={e=>setTelefonoAlt(e.target.value)} placeholder={contacto?.telefono || 'Otro número'}
+          style={{ padding:'5px 8px', fontSize:11, width:'100%', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#fff', outline:'none' }} />
+        <button disabled={!telefonoAlt.trim()} onClick={async()=>{ let num=telefonoAlt.trim(); if(!num.startsWith('0')) num='0'+num; const fn=callApi||window.api.invoke; try{await fn('adb:dial',num); if(onExternalDial) onExternalDial(num); showToast(`Marcando ${num}...`,'info');}catch(e){showToast('Error: '+(e?.message||e),'error');} }}
+          style={{ flexShrink:0, width:26, height:26, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background: telefonoAlt.trim()?'rgba(33,150,243,0.8)':'rgba(255,255,255,0.08)', opacity: telefonoAlt.trim()?1:0.35, transition:'all 0.2s' }}>
+          <span className="material-symbols-outlined" style={{ fontSize:13, color:'#fff' }}>call</span>
+        </button>
+      </div>
+      {showRefPanel && (
+        <div style={{ marginBottom:8, padding:'9px 10px', background:'rgba(100,181,246,0.06)', border:'1px solid rgba(100,181,246,0.2)', borderRadius:8 }}>
+          <div style={{ fontSize:9, fontWeight:700, color:'#64b5f6', marginBottom:7 }}>GUARDAR REFERENCIA</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:7 }}>
+            <input type="text" placeholder="Nombre del referido" value={refNombre} onChange={e=>setRefNombre(e.target.value)}
+              style={{ fontSize:10, padding:'4px 8px', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(100,181,246,0.25)', borderRadius:6, color:'#fff', outline:'none' }} />
+            <select value={refParentesco} onChange={e=>setRefParentesco(e.target.value)}
+              style={{ fontSize:10, padding:'4px 8px', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(100,181,246,0.25)', borderRadius:6, color:'#fff' }}>
+              <option value="">Parentesco...</option>
+              <option value="conyuge">Cónyuge</option><option value="padre/madre">Padre/Madre</option>
+              <option value="hijo/a">Hijo/a</option><option value="hermano/a">Hermano/a</option>
+              <option value="amigo/a">Amigo/a</option><option value="otro">Otro</option>
+            </select>
+          </div>
+          <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+            <button style={{ fontSize:10, padding:'3px 10px', background:'transparent', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#aaa', cursor:'pointer' }} onClick={()=>setShowRefPanel(false)}>Omitir</button>
+            <button style={{ fontSize:10, padding:'3px 10px', background:'rgba(100,181,246,0.2)', border:'1px solid rgba(100,181,246,0.4)', borderRadius:6, color:'#64b5f6', cursor:'pointer', fontWeight:700 }}
+              onClick={()=>{ let num=telefonoAlt.trim(); if(!num.startsWith('0')) num='0'+num; if(onAltDialed) onAltDialed(num, notas, refNombre.trim()||null, refParentesco||null); showToast('Subgestión guardada','success'); setShowRefPanel(false); setTelefonoAlt(''); setRefNombre(''); setRefParentesco(''); }}>
+              Confirmar
+            </button>
+          </div>
+        </div>
+      )}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+        {[{label:'WhatsApp',icon:'chat',handler:handleSendWSP,color:'#25D366',disabled:!contacto?.telefono},{label:'SMS',icon:'sms',handler:handleSendSMS,color:'#64b5f6',disabled:!contacto?.telefono},{label:'Correo',icon:'email',handler:handleSendEmail,color:'#f48fb1',disabled:false}].map(({label,icon,handler,color,disabled})=>(
+          <button key={label} onClick={handler} disabled={disabled}
+            style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:'7px 4px', borderRadius:8, border:`1px solid ${disabled?'rgba(255,255,255,0.06)':color+'33'}`, background:disabled?'rgba(255,255,255,0.02)':color+'11', color:disabled?'rgba(255,255,255,0.2)':color, cursor:disabled?'not-allowed':'pointer', fontSize:9, fontWeight:700, letterSpacing:'0.04em' }}>
+            <span className="material-symbols-outlined" style={{ fontSize:16 }}>{icon}</span>
+            {label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Botones principales ───────────────────────────────────────
+  const seccionBotones = (canSave) => (
+    <div style={{ display:'flex', gap:8 }}>
+      <button onClick={onCancel} style={{ flex:1, fontSize:12, padding:'11px 8px', borderRadius:10, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.55)', cursor:'pointer', fontWeight:600 }}>
+        Cancelar
+      </button>
+      <button onClick={handleSave} disabled={!canSave || isSaving}
+        style={{ flex:2.5, fontSize:12, padding:'11px 8px', borderRadius:10, cursor:(!canSave||isSaving)?'not-allowed':'pointer', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:7, border:'none', background:(!canSave||isSaving)?'rgba(255,255,255,0.06)':'linear-gradient(135deg,#00e676,#00c853)', color:(!canSave||isSaving)?'rgba(255,255,255,0.3)':'#000', boxShadow:(!canSave||isSaving)?'none':'0 4px 20px rgba(0,230,118,0.35)', transition:'all 0.2s' }}>
+        <span className="material-symbols-outlined" style={{ fontSize:17 }}>{isSaving?'hourglass_top':'task_alt'}</span>
+        {isSaving?'Guardando...':'Guardar Gestión'}
+      </button>
+    </div>
+  );
+
+  // ── Modo COMPACTO: cuando viene de "Promesa de pago" ─────────
+  const formContentCompacto = (
+    <>
+      {loading ? (
+        <div className="spinner-container"><span className="spinner" /></div>
+      ) : (
+        <div style={{ padding: '0 4px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: 12, marginBottom: 20 }}>
+            <div>
+              <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: '0.05em' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>calendar_today</span> FECHA
+              </label>
+              <input type="date" value={fechaAgendamiento} onChange={e=>setFechaAgendamiento(e.target.value)} min={todayLocalISO()}
+                style={{ fontSize: 13, padding: '10px 12px', width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', outline: 'none', transition: 'border 0.2s', colorScheme: 'dark' }} 
+                onFocus={e => e.target.style.borderColor = '#00e676'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: '0.05em' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span> HORA
+              </label>
+              <input type="time" value={horaAgendamiento} onChange={e=>setHoraAgendamiento(e.target.value)}
+                style={{ fontSize: 13, padding: '10px 12px', width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', outline: 'none', transition: 'border 0.2s', colorScheme: 'dark' }}
+                onFocus={e => e.target.style.borderColor = '#00e676'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: '0.05em' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>payments</span> MONTO $
+                </label>
+                {valorMora != null && (
+                  <span onClick={() => setMontoAcordado(String(valorMora))} style={{ fontSize: 10, color: '#ffc107', cursor: 'pointer', fontWeight: 700, background: 'rgba(255,193,7,0.15)', padding: '2px 6px', borderRadius: 4, transition: 'background 0.2s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,193,7,0.25)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(255,193,7,0.15)'}>
+                    Mora: ${valorMora.toFixed(2)}
+                  </span>
+                )}
+              </div>
+              <input type="number" min="0" step="0.01" value={montoAcordado} onChange={e=>setMontoAcordado(e.target.value)} placeholder="0.00"
+                style={{ fontSize: 13, padding: '10px 12px', width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', outline: 'none', transition: 'border 0.2s' }}
+                onFocus={e => e.target.style.borderColor = '#ffc107'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+            </div>
+          </div>
+          
+          <div style={{ marginBottom: 20 }}>
+            <textarea
+              style={{ width: '100%', minHeight: 60, resize: 'none', padding: '12px', fontSize: 13, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', outline: 'none', transition: 'border 0.2s', lineHeight: 1.5 }}
+              onFocus={e => e.target.style.borderColor = 'rgba(100,181,246,0.5)'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+              placeholder="Escribe notas relevantes sobre este compromiso..."
+              value={notas} onChange={e=>setNotas(e.target.value)}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
+            {[{label:'WhatsApp',icon:'chat',handler:handleSendWSP,color:'#25D366',disabled:!contacto?.telefono},{label:'SMS',icon:'sms',handler:handleSendSMS,color:'#64b5f6',disabled:!contacto?.telefono},{label:'Correo',icon:'email',handler:handleSendEmail,color:'#f48fb1',disabled:false}].map(({label,icon,handler,color,disabled})=>(
+              <button key={label} onClick={handler} disabled={disabled}
+                style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent: 'center', gap:6, padding:'12px 6px', borderRadius:10, border:`1px solid ${disabled?'rgba(255,255,255,0.05)':color+'40'}`, background:disabled?'rgba(255,255,255,0.02)':`linear-gradient(180deg, ${color}15, transparent)`, color:disabled?'rgba(255,255,255,0.2)':color, cursor:disabled?'not-allowed':'pointer', fontSize:10, fontWeight:700, letterSpacing:'0.05em', transition: 'all 0.2s', boxShadow: disabled ? 'none' : `0 4px 12px ${color}10` }}
+                onMouseEnter={e => !disabled && (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = `0 6px 16px ${color}20`, e.currentTarget.style.background = `linear-gradient(180deg, ${color}25, ${color}05)`)}
+                onMouseLeave={e => !disabled && (e.currentTarget.style.transform = 'none', e.currentTarget.style.boxShadow = `0 4px 12px ${color}10`, e.currentTarget.style.background = `linear-gradient(180deg, ${color}15, transparent)`)}
+                >
+                <span className="material-symbols-outlined" style={{ fontSize:20 }}>{icon}</span>
+                {label.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button onClick={onCancel} style={{ flex: 1, fontSize: 13, padding: '12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; }}>
+              Cancelar
+            </button>
+            <button onClick={handleSave} disabled={!selectedId || isSaving}
+              style={{ flex: 2, fontSize: 13, padding: '12px', borderRadius: 10, cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', background: isSaving ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg, #00e676, #00c853)', color: isSaving ? 'rgba(255,255,255,0.4)' : '#000', boxShadow: isSaving ? 'none' : '0 4px 16px rgba(0,230,118,0.3)', transition: 'all 0.2s' }}
+              onMouseEnter={e => { if(!isSaving) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,230,118,0.4)'; } }}
+              onMouseLeave={e => { if(!isSaving) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,230,118,0.3)'; } }}>
+              {isSaving ? 'Guardando...' : 'Guardar Compromiso'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // ── Modo COMPLETO: llamada normal ────────────────────────────
+  const CATEGORY_META = {
+    'CONTACTO EXITOSO':  { icon:'check_circle', color:'#00e676', bg:'rgba(0,230,118,0.08)',   border:'rgba(0,230,118,0.2)' },
+    'CONTACTO NEUTRO':   { icon:'help_center',  color:'#64b5f6', bg:'rgba(100,181,246,0.08)', border:'rgba(100,181,246,0.2)' },
+    'CONTACTO NEGATIVO': { icon:'cancel',       color:'#ff5252', bg:'rgba(255,82,82,0.08)',   border:'rgba(255,82,82,0.2)' },
+    'NO CONTACTADO':     { icon:'person_off',   color:'#b0bec5', bg:'rgba(255,255,255,0.04)', border:'rgba(255,255,255,0.1)' },
+    'OTROS':             { icon:'category',     color:'#b0bec5', bg:'rgba(255,255,255,0.04)', border:'rgba(255,255,255,0.1)' },
+  };
+  const TIPIF_ICON = {
+    PMP:'handshake', COMP_CUM:'verified', PAGO_REAL:'paid', AB_PARC:'payment',
+    PEND_COMP:'pending', REAG:'event_repeat', VOL_CALL:'phone_callback',
+    INCUMP:'warning', BUZON:'voicemail', NO_CONT:'phone_missed',
+  };
+
+  const formContentCompleto = (
     <>
       {loading ? (
         <div className="spinner-container"><span className="spinner" /></div>
       ) : (
         <>
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, opacity: 0.6 }}>Resultado de la gestión</label>
-              <div
-              className="tipificacion-grid-container"
-              style={{
-                maxHeight: mode === 'inline' ? '200px' : '260px',
-                overflowY: 'auto',
-                paddingRight: '6px',
-                scrollbarWidth: 'thin',
-                scrollbarColor: 'var(--color-primary) transparent',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '12px'
-              }}
-            >
-              {(() => {
-                const grouped = tipificaciones.reduce((acc, t) => {
-                  const cat = (t.categoria || 'OTROS').toUpperCase();
-                  if (!acc[cat]) acc[cat] = [];
-                  if (!acc[cat].find(x => x.descripcion.toUpperCase() === t.descripcion.toUpperCase())) {
-                    acc[cat].push(t);
-                  }
-                  return acc;
-                }, {});
-
-                return Object.keys(grouped).map(cat => (
-                  <div key={cat}>
-                    <p style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, marginBottom: 6, letterSpacing: '0.05em' }}>{cat}</p>
-                    <div className="tipificacion-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: mode === 'inline' ? '6px' : '10px' }}>
-                      {grouped[cat].map(t => (
-                        <button
-                          key={t.id}
-                          className={`btn ${selectedId === t.id.toString() ? 'btn-primary' : 'btn-outline'}`}
-                          style={{
-                            fontSize: mode === 'inline' ? '10px' : '11px',
-                            padding: mode === 'inline' ? '8px 6px' : '12px 8px',
-                            textAlign: 'center',
-                            lineHeight: '1.2',
-                            height: 'auto',
-                            minHeight: mode === 'inline' ? '36px' : '44px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontWeight: 700,
-                            letterSpacing: '0.02em',
-                            transition: 'all 0.2s',
-                            borderColor: cat === 'CONTACTO NEGATIVO' && selectedId !== t.id.toString() ? 'rgba(255, 68, 68, 0.4)' : undefined,
-                            color: cat === 'CONTACTO NEGATIVO' && selectedId !== t.id.toString() ? '#ff4444' : undefined,
-                          }}
-                          onClick={() => setSelectedId(t.id.toString())}
-                        >
-                          {t.descripcion.toUpperCase()}
-                        </button>
-                      ))}
+          {/* Grilla de tipificaciones */}
+          <div style={{ marginBottom:14 }}>
+            <div style={{ fontSize:10, fontWeight:700, opacity:0.35, letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:10 }}>Resultado de la gestión</div>
+            {(() => {
+              const grouped = tipificaciones.reduce((acc, t) => {
+                const cat = (t.categoria || 'OTROS').toUpperCase();
+                if (!acc[cat]) acc[cat] = [];
+                if (!acc[cat].find(x => x.descripcion.toUpperCase() === t.descripcion.toUpperCase())) acc[cat].push(t);
+                return acc;
+              }, {});
+              return Object.keys(grouped).map(cat => {
+                const meta = CATEGORY_META[cat] || CATEGORY_META['OTROS'];
+                return (
+                  <div key={cat} style={{ marginBottom:10 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:7, padding:'3px 9px', background:meta.bg, border:`1px solid ${meta.border}`, borderRadius:20, width:'fit-content' }}>
+                      <span className="material-symbols-outlined" style={{ fontSize:12, color:meta.color }}>{meta.icon}</span>
+                      <span style={{ fontSize:9, fontWeight:800, color:meta.color, letterSpacing:'0.1em' }}>{cat}</span>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))', gap:6 }}>
+                      {grouped[cat].map(t => {
+                        const isSel = selectedId === t.id.toString();
+                        const tipIcon = TIPIF_ICON[t.codigo] || 'label';
+                        return (
+                          <button key={t.id} onClick={() => setSelectedId(t.id.toString())}
+                            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:5, padding:'9px 6px', borderRadius:10, cursor:'pointer', fontSize:10, fontWeight:700, lineHeight:1.2, letterSpacing:'0.03em', textAlign:'center', transition:'all 0.15s', border:isSel?`2px solid ${meta.color}`:`1.5px solid ${meta.border}`, background:isSel?`${meta.bg.replace('0.08','0.22')}`:'rgba(255,255,255,0.03)', color:isSel?meta.color:'rgba(255,255,255,0.65)', boxShadow:isSel?`0 0 12px ${meta.color}28`:'none', transform:isSel?'translateY(-1px)':'none' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize:18, color:isSel?meta.color:'rgba(255,255,255,0.3)', transition:'color 0.15s' }}>{tipIcon}</span>
+                            {t.descripcion.toUpperCase()}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                ));
-              })()}
-            </div>
+                );
+              });
+            })()}
           </div>
-
-          {(() => {
-            const selectedTip = tipificaciones.find(t => t.id.toString() === selectedId);
-            const isAgendable = selectedTip?.requiere_agd === 1;
-            return isAgendable ? (
-              <div className="form-group" style={{ marginBottom: 12, padding: 10, background: 'rgba(0, 255, 127, 0.05)', borderRadius: 8, border: '1px solid rgba(0,255,127,0.2)' }}>
-                <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, color: 'var(--color-primary)', fontSize: 11 }}>Agendar Llamada</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <label className="text-label-xs" style={{ opacity: 0.6, marginBottom: 2, display: 'block', fontSize: 9 }}>Fecha</label>
-                    <input 
-                      type="date" 
-                      className="input" 
-                      value={fechaAgendamiento} 
-                      onChange={e => setFechaAgendamiento(e.target.value)}
-                      min={todayLocalISO()}
-                      style={{ fontSize: 12, padding: '6px 8px' }}
-                    />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <label className="text-label-xs" style={{ opacity: 0.6, marginBottom: 2, display: 'block', fontSize: 9 }}>Hora</label>
-                    <input 
-                      type="time" 
-                      className="input" 
-                      value={horaAgendamiento} 
-                      onChange={e => setHoraAgendamiento(e.target.value)}
-                      style={{ fontSize: 12, padding: '6px 8px' }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : null;
-          })()}
-
-          {(() => {
-            const selectedTip2 = tipificaciones.find(t => t.id.toString() === selectedId);
-            const COMP = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
-            const showMonto = selectedTip2 && COMP.includes(selectedTip2.codigo);
-            const labelMap = {
-              PMP: 'Monto comprometido a pagar',
-              PAGO_REAL: 'Monto realmente pagado',
-              AB_PARC: 'Monto del abono parcial',
-              PEND_COMP: 'Monto pendiente de comprobar',
-            };
-            const valorMora = (() => {
-              const raw = contacto?.metadata?.['VALOR EN MORA'];
-              if (raw == null) return null;
-              const p = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
-              return isNaN(p) ? null : p;
-            })();
-            return showMonto ? (
-              <div className="form-group" style={{ marginBottom: 12, padding: 10, background: 'rgba(255, 192, 0, 0.05)', borderRadius: 8, border: '1px solid rgba(255,192,0,0.2)' }}>
-                <label className="text-label-sm" style={{ display: 'block', marginBottom: 6, color: '#ffc107', fontSize: 11 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4 }}>payments</span>
-                  {labelMap[selectedTip2.codigo] || 'Monto Acordado'} <span style={{ color: '#ff5252' }}>*</span>
-                </label>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'stretch' }}>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="input"
-                    value={montoAcordado}
-                    onChange={e => setMontoAcordado(e.target.value)}
-                    placeholder="0.00"
-                    required
-                    style={{ flex: 1, fontSize: 13, padding: '7px 10px', fontWeight: 700 }}
-                  />
-                  {valorMora != null && (
-                    <button
-                      type="button"
-                      onClick={() => setMontoAcordado(String(valorMora))}
-                      title={`Usar valor en mora: $${valorMora.toFixed(2)}`}
-                      style={{
-                        padding: '0 10px', fontSize: 10, whiteSpace: 'nowrap',
-                        background: 'rgba(255,192,0,0.15)', border: '1px solid rgba(255,192,0,0.35)',
-                        color: '#ffc107', borderRadius: 6, cursor: 'pointer',
-                      }}
-                    >
-                      Mora ${valorMora.toFixed(2)}
-                    </button>
-                  )}
-                </div>
-                <p style={{ fontSize: 9, opacity: 0.55, margin: '4px 0 0', lineHeight: 1.3 }}>
-                  Campo obligatorio. Ingresa el monto exacto. Botón "Mora" auto-completa con el valor en mora del cliente.
-                </p>
-              </div>
-            ) : null;
-          })()}
-
-          <div className="form-group" style={{ marginBottom: 12 }}>
-            <label className="text-label-sm" style={{ display: 'block', marginBottom: 6, fontSize: 11 }}>Notas / Observaciones</label>
-            <textarea
-              className="input"
-              style={{ width: '100%', minHeight: mode === 'inline' ? 40 : 50, resize: 'none', padding: 10, fontSize: 12 }}
-              placeholder="Escribe detalles relevantes de la gestión..."
-              value={notas}
-              onChange={e => setNotas(e.target.value)}
-            />
-          </div>
-
-          {/* ── ACCIONES RÁPIDAS (WSP, SMS, CORREO) ── */}
-          <div className="extra-actions-container" style={{
-            background: 'rgba(255,255,255,0.03)',
-            padding: mode === 'inline' ? '8px' : '12px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.06)',
-            marginBottom: 12
-          }}>
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <label className="text-label-sm" style={{ opacity: 0.6, fontSize: 10 }}>Acciones Rápidas</label>
-                {tramos.length > 0 && (() => {
-                  const dm = getDiasMora(contacto);
-                  const matched = tramos.find(t => {
-                    const desde = t.desde ?? 0;
-                    const hasta = t.hasta ?? -1;
-                    return dm >= desde && (hasta < 0 || dm <= hasta);
-                  });
-                  return matched ? (
-                    <span style={{
-                      fontSize: 9, padding: '1px 6px', borderRadius: 4,
-                      background: 'rgba(255,152,0,0.15)', border: '1px solid rgba(255,152,0,0.3)',
-                      color: '#ff9800', fontWeight: 700,
-                    }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 10, verticalAlign: 'middle', marginRight: 2 }}>schedule_send</span>
-                      {matched.label || `Tramo ${matched.desde}–${matched.hasta >= 0 ? matched.hasta : '∞'} días`}
-                    </span>
-                  ) : (
-                    <span style={{
-                      fontSize: 9, padding: '1px 6px', borderRadius: 4,
-                      background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.3)', fontWeight: 700,
-                    }}>Plantilla global</span>
-                  );
-                })()}
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
-                  {/* Botón guardar sub-gestión — abre panel de referencia */}
-                  <button
-                    title="Guardar gestión de referencia"
-                    disabled={!telefonoAlt.trim()}
-                    onClick={() => {
-                      if (!telefonoAlt.trim()) return;
-                      setShowRefPanel(true);
-                      setRefNombre('');
-                      setRefParentesco('');
-                    }}
-                    style={{
-                      flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                      border: 'none', cursor: 'pointer', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center',
-                      background: telefonoAlt.trim() ? '#4caf50' : 'rgba(255,255,255,0.08)',
-                      opacity: telefonoAlt.trim() ? 1 : 0.35,
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#000' }}>save</span>
-                  </button>
-                  <input
-                    type="tel"
-                    className="input"
-                    value={telefonoAlt}
-                    onChange={(e) => setTelefonoAlt(e.target.value)}
-                    placeholder={contacto?.telefono || 'Otro número'}
-                    style={{ padding: '3px 6px', fontSize: '10px', height: 'auto', margin: 0, width: '100%' }}
-                  />
-                  {/* Botón llamar — registra el intento de marcación SIEMPRE
-                      (independiente de éxito ADB y del botón 💾 guardar) */}
-                  <button
-                    title="Llamar a este número (cuenta como marcación)"
-                    disabled={!telefonoAlt.trim()}
-                    onClick={async () => {
-                      let num = telefonoAlt.trim();
-                      if (!num.startsWith('0')) num = '0' + num;
-                      // Registrar marcación SIEMPRE — antes del dial, así cuenta
-                      // aunque ADB falle o el celular esté desconectado.
-                      if (onExternalDial) onExternalDial(num);
-                      try {
-                        const res = await window.api.invoke('adb:dial', num);
-                        if (res?.success) {
-                          showToast(`Llamando a ${num}`, 'success');
-                        } else {
-                          showToast(res?.error || 'Marcación registrada (ADB falló)', 'warning');
-                        }
-                      } catch (err) {
-                        showToast('Marcación registrada (sin conexión a celular)', 'warning');
-                      }
-                    }}
-                    style={{
-                      flexShrink: 0, width: 24, height: 24, borderRadius: '50%',
-                      border: 'none', cursor: 'pointer', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center',
-                      background: telefonoAlt.trim() ? 'var(--color-primary)' : 'rgba(255,255,255,0.08)',
-                      opacity: telefonoAlt.trim() ? 1 : 0.35,
-                      transition: 'all 0.2s',
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#000' }}>call</span>
-                  </button>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flex: 1 }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: '12px', opacity: 0.6, flexShrink: 0 }}>email</span>
-                  <input
-                    type="email"
-                    className="input"
-                    value={emailDestino}
-                    onChange={(e) => setEmailDestino(e.target.value)}
-                    placeholder="Correo del cliente"
-                    style={{ padding: '3px 6px', fontSize: '10px', height: 'auto', margin: 0, width: '100%' }}
-                  />
-                </div>
-              </div>
-
-              {/* Panel inline de datos de referencia */}
-              {showRefPanel && (
-                <div style={{
-                  marginTop: 8,
-                  padding: '10px 12px',
-                  background: 'rgba(76,175,80,0.08)',
-                  border: '1px solid rgba(76,175,80,0.25)',
-                  borderRadius: 8,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    Datos de la referencia (opcional)
-                  </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      type="text"
-                      className="input"
-                      value={refNombre}
-                      onChange={(e) => setRefNombre(e.target.value)}
-                      placeholder="Nombre"
-                      style={{ padding: '4px 8px', fontSize: '11px', height: 'auto', flex: 1 }}
-                    />
-                    <select
-                      className="input"
-                      value={refParentesco}
-                      onChange={(e) => setRefParentesco(e.target.value)}
-                      style={{ padding: '4px 6px', fontSize: '11px', height: 'auto', flex: 1 }}
-                    >
-                      <option value="">Parentesco</option>
-                      <option value="Cónyuge">Cónyuge</option>
-                      <option value="Padre">Padre</option>
-                      <option value="Madre">Madre</option>
-                      <option value="Hijo/a">Hijo/a</option>
-                      <option value="Hermano/a">Hermano/a</option>
-                      <option value="Cuñado/a materno">Cuñado/a materno</option>
-                      <option value="Cuñado/a paterno">Cuñado/a paterno</option>
-                      <option value="Tío/a materno">Tío/a materno</option>
-                      <option value="Tío/a paterno">Tío/a paterno</option>
-                      <option value="Primo/a materno">Primo/a materno</option>
-                      <option value="Primo/a paterno">Primo/a paterno</option>
-                      <option value="Amigo/a">Amigo/a</option>
-                      <option value="Trabajo">Trabajo</option>
-                      <option value="Vecino/a">Vecino/a</option>
-                      <option value="Otro">Otro</option>
-                    </select>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                    <button
-                      className="btn btn-sm btn-ghost"
-                      onClick={() => {
-                        let num = telefonoAlt.trim();
-                        if (!num.startsWith('0')) num = '0' + num;
-                        if (onAltDialed) onAltDialed(num, notas, null, null);
-                        showToast('Subgestión guardada', 'success');
-                        setShowRefPanel(false);
-                        setTelefonoAlt('');
-                      }}
-                      style={{ fontSize: 10, padding: '3px 8px' }}
-                    >
-                      Omitir referencia
-                    </button>
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={() => {
-                        let num = telefonoAlt.trim();
-                        if (!num.startsWith('0')) num = '0' + num;
-                        if (onAltDialed) onAltDialed(num, notas, refNombre.trim() || null, refParentesco || null);
-                        showToast('Subgestión guardada con referencia', 'success');
-                        setShowRefPanel(false);
-                        setTelefonoAlt('');
-                        setRefNombre('');
-                        setRefParentesco('');
-                      }}
-                      style={{ fontSize: 10, padding: '3px 8px' }}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check</span>
-                      Confirmar
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-outline"
-                style={{ flex: '1 1 calc(33.33% - 4px)', minWidth: '80px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', padding: '6px 4px' }}
-                onClick={handleSendWSP}
-                disabled={!contacto?.telefono}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>chat</span>
-                WSP
-              </button>
-              <button
-                className="btn btn-outline"
-                style={{ flex: '1 1 calc(33.33% - 4px)', minWidth: '80px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', padding: '6px 4px' }}
-                onClick={handleSendSMS}
-                disabled={!contacto?.telefono}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>sms</span>
-                SMS
-              </button>
-              <button
-                className="btn btn-outline"
-                style={{ flex: '1 1 calc(33.33% - 4px)', minWidth: '80px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px', padding: '6px 4px' }}
-                onClick={handleSendEmail}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>email</span>
-                CORREO
-              </button>
-            </div>
-            <p className="text-body-sm" style={{
-              fontSize: '9px',
-              opacity: 0.4,
-              textAlign: 'center',
-              margin: 0,
-              lineHeight: '1.2'
-            }}>
-              * Mensaje generado con plantilla del supervisor.
-            </p>
-          </div>
-
-          <div className="tipificacion-actions" style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost" style={{ flex: 1, fontSize: 12, padding: '10px 8px' }} onClick={onCancel}>
-              Cancelar
-            </button>
-            <button
-              className="btn btn-primary"
-              style={{ flex: 2, fontSize: 12, padding: '10px 8px' }}
-              onClick={handleSave}
-              disabled={!selectedId || isSaving}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{isSaving ? 'hourglass_top' : 'save'}</span>
-              {isSaving ? 'Guardando...' : 'Guardar Gestión'}
-            </button>
-          </div>
+          {seccionAgendar}
+          {seccionMonto}
+          {seccionNotas}
+          {seccionAcciones}
+          {seccionBotones(!!selectedId)}
         </>
       )}
     </>
   );
 
-  // ── Renderizado condicional: inline vs modal ──
+  // ── Selección de contenido ────────────────────────────────────
+  const formContent = tipifInicial ? formContentCompacto : formContentCompleto;
+
+  const isPmp = tipifInicial === 'PMP';
+  const titleText = isPmp ? "Programar Promesa de Pago" : "Tipificar Gestión";
+  const subtitleText = isPmp ? "Define los detalles del compromiso y contacta al cliente" : "Selecciona el resultado de esta llamada para cerrar la gestión:";
+
   if (!open) return null;
 
   if (mode === 'inline') {
@@ -822,7 +716,7 @@ export default function TipificacionDialog({ open, mode = 'inline', onSave, onCa
         <div className="widget-header" style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--color-primary)' }}>assignment</span>
-            <h3 className="widget-title" style={{ fontSize: 15 }}>Tipificar Gestión</h3>
+            <h3 className="widget-title" style={{ fontSize: 15 }}>{titleText}</h3>
           </div>
           <button className="btn-crm" onClick={onCancel} style={{ padding: '4px 8px', fontSize: 10 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14, marginRight: 0 }}>close</span>
@@ -837,10 +731,10 @@ export default function TipificacionDialog({ open, mode = 'inline', onSave, onCa
 
   // Modo modal (legacy/fallback)
   return (
-    <Modal open={open} title="Tipificar Gestión" onClose={onCancel}>
+    <Modal open={open} title={titleText} onClose={onCancel}>
       <div className="tipificacion-form">
-        <p className="text-body-md" style={{ marginBottom: 16 }}>
-          Selecciona el resultado de esta llamada para cerrar la gestión:
+        <p className="text-body-md" style={{ marginBottom: 20, color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 500 }}>
+          {subtitleText}
         </p>
         {formContent}
       </div>

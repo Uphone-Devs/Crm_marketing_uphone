@@ -154,3 +154,142 @@
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(255, 68, 68, 0.3);
 }
+
+/* ── Asesor Stats Bar ──────────────────────────────────────── */
+.top-app-bar--asesor {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 var(--space-md);
+  height: var(--header-height);
+  background: var(--color-surface-container-low);
+  border-bottom: 1px solid rgba(61, 74, 62, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  -webkit-app-region: drag;
+  overflow: hidden;
+}
+
+.top-app-bar--asesor > * {
+  -webkit-app-region: no-drag;
+}
+
+.asesor-timers {
+  display: flex;
+  gap: 16px;
+  padding-right: 16px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.asesor-timer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.asesor-timer__label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.45;
+  text-transform: uppercase;
+}
+
+.asesor-timer__value {
+  font-family: var(--font-mono, monospace);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(180, 200, 180, 0.85);
+}
+
+.asesor-timer__value--prod {
+  color: var(--color-primary);
+}
+
+.asesor-stats-channels {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+.asesor-stat-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 8px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 6px;
+  min-width: 90px;
+}
+
+.asesor-stat-box__total {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.asesor-stat-box__count {
+  font-size: 16px;
+  font-weight: 800;
+  color: rgba(180,200,180,0.6);
+  line-height: 1;
+}
+
+.asesor-stat-box__detail {
+  display: flex;
+  gap: 4px;
+  font-size: 9px;
+  opacity: 0.55;
+  align-items: center;
+}
+
+.asesor-stat-box__detail b {
+  font-weight: 700;
+  color: rgba(200,220,200,0.8);
+}
+
+.asesor-stat-box__sep {
+  opacity: 0.3;
+}
+
+.asesor-stats-totals {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+.asesor-stat-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.asesor-stat-pill__label {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.4;
+}
+
+.asesor-stat-pill__value {
+  font-size: 18px;
+  font-weight: 800;
+  color: rgba(180,200,180,0.7);
+  line-height: 1;
+}
+
+.asesor-stat-pill__value--comp {
+  color: var(--color-primary);
+}

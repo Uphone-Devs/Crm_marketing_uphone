@@ -135,10 +135,18 @@ html, body, #root {
 }
 
 /* ── Scrollbar ──────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: var(--color-background); }
-::-webkit-scrollbar-thumb { background: var(--color-outline-variant); border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: var(--color-outline); }
+::-webkit-scrollbar { width: 6px; height: 8px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 10px; transition: background .2s; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.38); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ── Text Selection ─────────────────────────────────────────── */
+::selection          { background: rgba(0, 220, 130, 0.35); color: #ffffff; }
+::-moz-selection     { background: rgba(0, 220, 130, 0.35); color: #ffffff; }
+input::selection     { background: rgba(0, 220, 130, 0.35); color: #ffffff; }
+textarea::selection  { background: rgba(0, 220, 130, 0.35); color: #ffffff; }
+
 
 /* ── Typography Classes ─────────────────────────────────────── */
 .text-headline-lg {
@@ -562,3 +570,13 @@ html, body, #root {
 .col-span-4 { grid-column: span 4; }
 .col-span-8 { grid-column: span 8; }
 .col-span-12 { grid-column: span 12; }
+
+
+body.sidebar-collapsed {
+  --sidebar-width: 80px;
+}
+
+/* Sidebar colapsado (icon-only 64px) */
+.nav-collapsed {
+  --sidebar-width: 64px;
+}

@@ -26,22 +26,22 @@ import {
 const VOLUMEN_COLORS = ['#00E5FF', '#2979FF', '#651FFF', '#FF6E40', '#1DE9B6', '#FFD740', '#F50057', '#7C4DFF', '#69F0AE', '#FFAB40', '#40C4FF', '#B388FF'];
 
 const fmtHora = (ts) => {
-  if (!ts || typeof ts !== 'string') return '—';
+  if (!ts || typeof ts !== 'string') return 'â€”';
   try {
     const d = new Date(ts.replace(' ', 'T'));
-    if (isNaN(d.getTime())) return '—';
+    if (isNaN(d.getTime())) return 'â€”';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  } catch { return '—'; }
+  } catch { return 'â€”'; }
 };
 const fmtDuracion = (seg) => {
-  if (!seg || seg <= 0) return '—';
+  if (!seg || seg <= 0) return 'â€”';
   const m = Math.floor(seg / 60);
   const s = seg % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
 /**
- * VolumenModal — Detalle de Volumen de Marcación por Hora.
+ * VolumenModal â€” Detalle de Volumen de MarcaciÃ³n por Hora.
  * Reutiliza el endpoint db:getDetalleContactabilidad (mismo dataset que
  * ContactabilidadModal) pero presenta el desglose por asesor + hora.
  */
@@ -138,7 +138,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
     return volumenInfo.asesores
       .map((a, i) => {
         let total = 0;
-        let peakH = '—', peakV = 0;
+        let peakH = 'â€”', peakV = 0;
         volumenInfo.data.forEach(b => {
           const v = b[a.key] || 0;
           total += v;
@@ -154,7 +154,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
     return volumenInfo.data.reduce((max, b) => b.total > max.total ? b : max, volumenInfo.data[0]);
   }, [volumenInfo]);
 
-  // Distribución por hora (chips)
+  // DistribuciÃ³n por hora (chips)
   const distribHora = useMemo(() => {
     const map = new Map();
     for (const r of filtrados) {
@@ -189,7 +189,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
   const exportarCsv = () => {
     if (filtrados.length === 0) return;
     const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-    const headers = ['Hora Inicio', 'Hora Fin', 'Duración (s)', 'Hora bucket', 'Asesor', 'Cliente', 'Cédula', 'Teléfono', 'Empresa', 'Contrato', 'Tipificación', 'Categoría', 'Notas'];
+    const headers = ['Hora Inicio', 'Hora Fin', 'DuraciÃ³n (s)', 'Hora bucket', 'Asesor', 'Cliente', 'CÃ©dula', 'TelÃ©fono', 'Empresa', 'Contrato', 'TipificaciÃ³n', 'CategorÃ­a', 'Notas'];
     const rows = filtrados.map(r => [
       r.hora_inicio || '', r.hora_fin || '', r.duracion_seg || '',
       r.hora_bucket != null ? `${String(r.hora_bucket).padStart(2, '0')}:00` : '',
@@ -197,7 +197,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
       r.empresa || '', r.contrato || '',
       r.tipificacion_desc || '', r.tipificacion_categoria || '', r.notas || '',
     ].map(esc).join(','));
-    const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
+    const csv = 'ï»¿' + headers.join(',') + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -226,15 +226,15 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <div>
-            <span style={{ fontSize: 10, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>SUPERVISOR · DETALLE</span>
-            <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Volumen de Marcación por Hora</h3>
+            <span style={{ fontSize: 10, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>SUPERVISOR Â· DETALLE</span>
+            <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Volumen de MarcaciÃ³n por Hora</h3>
             <p style={{ margin: '2px 0 0', fontSize: 11, opacity: 0.5 }}>
-              Marcaciones agrupadas por hora con stack por asesor — correlaciona volumen vs efectividad
+              Marcaciones agrupadas por hora con stack por asesor â€” correlaciona volumen vs efectividad
               {filtroFecha && filtroFechaFin && filtroFecha !== filtroFechaFin
-                ? ` — ${filtroFecha} → ${filtroFechaFin}`
-                : filtroFecha ? ` — ${filtroFecha}` : ' — todas las fechas'}
+                ? ` â€” ${filtroFecha} â†’ ${filtroFechaFin}`
+                : filtroFecha ? ` â€” ${filtroFecha}` : ' â€” todas las fechas'}
               {filtroCampana && campanas.find(c => String(c.id) === filtroCampana)
-                ? ` · campaña: ${campanas.find(c => String(c.id) === filtroCampana).nombre}`
+                ? ` Â· campaÃ±a: ${campanas.find(c => String(c.id) === filtroCampana).nombre}`
                 : ''}
             </p>
           </div>
@@ -246,7 +246,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
           </button>
         </div>
 
-        {/* Filtros temporales (Día + Campaña) */}
+        {/* Filtros temporales (DÃ­a + CampaÃ±a) */}
         <div style={{
           padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
           display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
@@ -296,7 +296,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
             }}
           >HOY</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Campaña</span>
+            <span style={{ fontSize: 10, opacity: 0.5 }}>CampaÃ±a</span>
             <select
               value={filtroCampana}
               onChange={e => setFiltroCampana(e.target.value)}
@@ -326,7 +326,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
           )}
         </div>
 
-        {/* Toolbar: búsqueda + asesor + hora + KPIs + export */}
+        {/* Toolbar: bÃºsqueda + asesor + hora + KPIs + export */}
         <div style={{
           padding: '10px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
           display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
@@ -340,7 +340,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
               type="text"
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar asesor, cliente, cédula, contrato, notas..."
+              placeholder="Buscar asesor, cliente, cÃ©dula, contrato, notas..."
               style={{
                 width: '100%', padding: '5px 10px 5px 28px', fontSize: 12,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
@@ -355,32 +355,20 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
           <select value={filtroHora} onChange={e => setFiltroHora(e.target.value)} style={inputStyle}>
             <option value="">Toda hora</option>
             {Array.from({ length: 24 }, (_, h) => (
-              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 — {String(h).padStart(2, '0')}:59</option>
+              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 â€” {String(h).padStart(2, '0')}:59</option>
             ))}
           </select>
           <Kpi label="Marcaciones" value={filtrados.length} color="var(--color-primary)" />
           <Kpi label="Asesores" value={volumenInfo.asesores.length} color="#00E5FF" />
-          <Kpi label="Pico" value={horaPico ? `${horaPico.hora} (${horaPico.total})` : '—'} color="#FFD740" />
-          <button onClick={exportarXls} disabled={filtrados.length === 0}
-            className="btn btn-outline btn-sm"
-            title="Excel"
-            style={{ padding: '5px 12px', fontSize: 11, height: 'auto' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>table_view</span>
-            XLS
-          </button>
-          <button onClick={exportarCsv} disabled={filtrados.length === 0}
-            className="btn btn-outline btn-sm"
-            title="CSV"
-            style={{ padding: '5px 12px', fontSize: 11, height: 'auto' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
-            CSV
-          </button>
+          <Kpi label="Pico" value={horaPico ? `${horaPico.hora} (${horaPico.total})` : 'â€”'} color="#FFD740" />
+
+
         </div>
 
-        {/* Área scrolleable */}
+        {/* Ãrea scrolleable */}
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
 
-          {/* Gráfico ampliado: volumen por hora apilado por asesor */}
+          {/* GrÃ¡fico ampliado: volumen por hora apilado por asesor */}
           {!cargando && filtrados.length > 0 && (
             <div style={{
               padding: '12px 18px 4px', borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -389,23 +377,23 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                 <div>
                   <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.55, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                    Distribución por Hora · Stack por Asesor
+                    DistribuciÃ³n por Hora Â· Stack por Asesor
                   </span>
                   <p style={{ margin: '2px 0 0', fontSize: 10, opacity: 0.4 }}>
-                    Click en el gráfico para filtrar por esa hora
+                    Click en el grÃ¡fico para filtrar por esa hora
                   </p>
                 </div>
                 {horaPico && horaPico.total > 0 && (
                   <div style={{ textAlign: 'right' }}>
                     <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>Pico</span>
                     <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-primary)' }}>
-                      {horaPico.hora} · {horaPico.total} marcaciones
+                      {horaPico.hora} Â· {horaPico.total} marcaciones
                     </div>
                   </div>
                 )}
               </div>
               <div style={{ height: 320 }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
                   <AreaChart
                     data={volumenInfo.data}
                     margin={{ top: 8, right: 12, left: 0, bottom: 8 }}
@@ -436,7 +424,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
                       }}
                       labelFormatter={(label, payload) => {
                         const total = payload?.reduce((s, p) => s + (p.value || 0), 0) || 0;
-                        return `${label} · Total: ${total}`;
+                        return `${label} Â· Total: ${total}`;
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
@@ -460,7 +448,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
             </div>
           )}
 
-          {/* Chips horario (click rápido) */}
+          {/* Chips horario (click rÃ¡pido) */}
           {distribHora.length > 0 && (
             <div style={{
               padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -479,14 +467,14 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
                       color: activo ? 'var(--color-primary)' : 'inherit',
                       borderRadius: 99, cursor: 'pointer',
                     }}>
-                    {String(h).padStart(2, '0')}:00 · {n}
+                    {String(h).padStart(2, '0')}:00 Â· {n}
                   </button>
                 );
               })}
             </div>
           )}
 
-          {/* Desglose por Asesor — totales + hora pico individual */}
+          {/* Desglose por Asesor â€” totales + hora pico individual */}
           {resumenAsesores.length > 0 && (
             <div style={{
               padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -503,7 +491,7 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
                     <th style={{ ...th, textAlign: 'right' }}>% del Total</th>
                     <th style={{ ...th, textAlign: 'center' }}>Hora Pico</th>
                     <th style={{ ...th, textAlign: 'center' }}>Pico (n)</th>
-                    <th style={{ ...th, textAlign: 'left' }}>Acción</th>
+                    <th style={{ ...th, textAlign: 'left' }}>AcciÃ³n</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -560,12 +548,12 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
                   <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left', position: 'sticky', top: 0 }}>
                     <th style={th}>Hora Inicio</th>
                     <th style={th}>Hora Fin</th>
-                    <th style={th}>Duración</th>
+                    <th style={th}>DuraciÃ³n</th>
                     <th style={th}>Asesor</th>
                     <th style={th}>Cliente</th>
-                    <th style={th}>Teléfono</th>
+                    <th style={th}>TelÃ©fono</th>
                     <th style={th}>Contrato</th>
-                    <th style={th}>Tipificación</th>
+                    <th style={th}>TipificaciÃ³n</th>
                     <th style={th}>Notas</th>
                   </tr>
                 </thead>
@@ -575,13 +563,13 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
                       <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{fmtHora(r.hora_inicio)}</span></td>
                       <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{fmtHora(r.hora_fin)}</span></td>
                       <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtDuracion(r.duracion_seg)}</td>
-                      <td style={td}>{r.asesor_nombre || '—'}</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || '—'}</td>
-                      <td style={td}><span className="text-mono">{r.telefono || '—'}</span></td>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{r.contrato || '—'}</span></td>
-                      <td style={td}>{r.tipificacion_desc || <span style={{ opacity: 0.3 }}>—</span>}</td>
+                      <td style={td}>{r.asesor_nombre || 'â€”'}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || 'â€”'}</td>
+                      <td style={td}><span className="text-mono">{r.telefono || 'â€”'}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{r.contrato || 'â€”'}</span></td>
+                      <td style={td}>{r.tipificacion_desc || <span style={{ opacity: 0.3 }}>â€”</span>}</td>
                       <td style={{ ...td, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.75 }} title={r.notas || ''}>
-                        {r.notas || <span style={{ opacity: 0.3 }}>—</span>}
+                        {r.notas || <span style={{ opacity: 0.3 }}>â€”</span>}
                       </td>
                     </tr>
                   ))}

@@ -30,3 +30,27 @@ jobs:
 
       - name: Build check (compila sin errores)
         run: npx electron-vite build
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: audit
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Rebuild better-sqlite3 para Node.js (no Electron)
+        run: npm run rebuild:node
+
+      - name: Ejecutar tests
+        run: npm test

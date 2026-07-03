@@ -3,74 +3,235 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum Rol {
+  supervisor
+  jefe_area
+  asesor
+  admin
+}
+
+enum EstadoUsuario {
+  activo
+  inactivo
+}
+
+enum EstadoCampana {
+  activa
+  pausada
+  finalizada
+}
+
+enum EstadoMarcacion {
+  PENDIENTE
+  CONTACTADO
+  NO_CONTACTADO
+  ENVIADO
+  GESTIONADO
+}
+
+enum Canal {
+  llamada
+  whatsapp
+  rcs
+  gmail
+}
+
+enum TipoAgendamiento {
+  PMP
+  VOL_CALL
+}
+
+enum EstadoAgendamiento {
+  pendiente
+  ejecutado
+  cancelado
+}
+
+enum TipoEvento {
+  ESTADO
+  LLAMADA
+  CONEXION
+  DESCONEXION
+  ACCION_RAPIDA
+}
+
+enum TipoConexion {
+  USB
+  WIFI
+  LOCAL
+}
+
+// ── Modelos ──────────────────────────────────────────────────────────────────
+
 model Usuario {
-  id           Int      @id @default(autoincrement())
+  id           Int           @id @default(autoincrement())
   nombre       String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  rol          String   @default("asesor") // En sqlite simplificamos de enum a string
-  estado       String   @default("activo")
-  creadoEn     DateTime @default(now()) @map("creado_en")
-  cdrs         Cdr[]
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  rol          Rol           @default(asesor)
+  estado       EstadoUsuario @default(activo)
+  creadoEn     DateTime      @default(now()) @map("creado_en")
+
+  cdrs                 Cdr[]
+  sesiones             Sesion[]
+  eventos              Evento[]
+  contactosAsignados   Contacto[]         @relation("AsignadoA")
+  campanasSupervisadas Campana[]          @relation("Supervisor")
+  agendamientos        Agendamiento[]
+  mensajesBroadcast    MensajeBroadcast[]
 
   @@map("usuarios")
 }
 
 model Campana {
-  id          Int        @id @default(autoincrement())
-  nombre      String
-  descripcion String?
-  fechaInicio DateTime?  @map("fecha_inicio")
-  fechaFin    DateTime?  @map("fecha_fin")
-  estado      String     @default("activa")
-  contactos   Contacto[]
+  id           Int           @id @default(autoincrement())
+  nombre       String
+  descripcion  String?
+  fechaInicio  DateTime?     @map("fecha_inicio")
+  fechaFin     DateTime?     @map("fecha_fin")
+  supervisorId Int?          @map("supervisor_id")
+  supervisor   Usuario?      @relation("Supervisor", fields: [supervisorId], references: [id])
+  estado       EstadoCampana @default(activa)
+  contactos    Contacto[]
 
   @@map("campanas")
 }
 
 model Contacto {
-  id              Int      @id @default(autoincrement())
-  campanaId       Int      @map("campana_id")
-  campana         Campana  @relation(fields: [campanaId], references: [id])
-  nombreDeudor    String?  @map("nombre_deudor")
-  telefono        String
-  montoDeuda      Float?   @map("monto_deuda") // sqlite no soporta Decimal
-  producto        String?
-  estadoMarcacion String   @default("PENDIENTE") @map("estado_marcacion")
-  asignadoA       Int?     @map("asignado_a")
-  cdrs            Cdr[]
+  id                 Int             @id @default(autoincrement())
+  campanaId          Int             @map("campana_id")
+  campana            Campana         @relation(fields: [campanaId], references: [id])
+  cedula             String?
+  nombreDeudor       String?         @map("nombre_deudor")
+  telefono           String
+  montoDeuda         Decimal?        @map("monto_deuda") @db.Decimal(12, 2)
+  producto           String?
+  estadoMarcacion    EstadoMarcacion @default(PENDIENTE) @map("estado_marcacion")
+  intentosRealizados Int             @default(0) @map("intentos_realizados")
+  asignadoA          Int?            @map("asignado_a")
+  asesor             Usuario?        @relation("AsignadoA", fields: [asignadoA], references: [id])
+  metadata           Json?
+  whatsappStatus     String          @default("INACTIVO") @map("whatsapp_status")
+  rcsStatus          String          @default("ACTIVO") @map("rcs_status")
+
+  cdrs          Cdr[]
+  agendamientos Agendamiento[]
 
   @@map("contactos")
 }
 
 model Tipificacion {
-  id           Int     @id @default(autoincrement())
-  codigo       String  @unique
-  descripcion  String
-  requiereAgd  Boolean @default(false) @map("requiere_agd")
-  cdrs         Cdr[]
+  id              Int     @id @default(autoincrement())
+  codigo          String  @unique
+  descripcion     String
+  requiereAgd     Boolean @default(false) @map("requiere_agd")
+  categoria       String  @default("NO_CONTACTADO")
+  finalizaGestion Boolean @default(true) @map("finaliza_gestion")
+
+  cdrs Cdr[]
 
   @@map("tipificaciones")
 }
 
 model Cdr {
-  id              Int           @id @default(autoincrement())
-  contactoId      Int           @map("contacto_id")
-  contacto        Contacto      @relation(fields: [contactoId], references: [id])
-  usuarioId       Int           @map("usuario_id")
-  usuario         Usuario       @relation(fields: [usuarioId], references: [id])
-  tipificacionId  Int?          @map("tipificacion_id")
-  tipificacion    Tipificacion? @relation(fields: [tipificacionId], references: [id])
-  timestampInicio DateTime      @map("timestamp_inicio")
-  timestampFin    DateTime?     @map("timestamp_fin")
-  duracionSeg     Int           @default(0) @map("duracion_seg")
-  resultado       String?
-  urlGrabacion    String?       @map("url_grabacion")
-  notas           String?
-  creadoEn        DateTime      @default(now()) @map("creado_en")
+  id                Int           @id @default(autoincrement())
+  contactoId        Int           @map("contacto_id")
+  contacto          Contacto      @relation(fields: [contactoId], references: [id])
+  usuarioId         Int           @map("usuario_id")
+  usuario           Usuario       @relation(fields: [usuarioId], references: [id])
+  tipificacionId    Int?          @map("tipificacion_id")
+  tipificacion      Tipificacion? @relation(fields: [tipificacionId], references: [id])
+  timestampInicio   DateTime      @map("timestamp_inicio")
+  timestampRinging  DateTime?     @map("timestamp_ringing")
+  timestampAnswered DateTime?     @map("timestamp_answered")
+  timestampFin      DateTime?     @map("timestamp_fin")
+  duracionSeg       Int           @default(0) @map("duracion_seg")
+  latenciaMs        Int           @default(0) @map("latencia_ms")
+  operadora         String?
+  resultado         String?
+  urlGrabacion      String?       @map("url_grabacion")
+  notas             String?
+  canal             Canal         @default(llamada)
+  creadoEn          DateTime      @default(now()) @map("creado_en")
 
   @@map("cdrs")
+}
+
+model Sesion {
+  id           Int           @id @default(autoincrement())
+  usuarioId    Int           @map("usuario_id")
+  usuario      Usuario       @relation(fields: [usuarioId], references: [id])
+  inicio       DateTime      @default(now())
+  fin          DateTime?
+  tipoConexion TipoConexion? @map("tipo_conexion")
+
+  eventos Evento[]
+
+  @@map("sesiones")
+}
+
+model Evento {
+  id          Int        @id @default(autoincrement())
+  usuarioId   Int        @map("usuario_id")
+  usuario     Usuario    @relation(fields: [usuarioId], references: [id])
+  sesionId    Int?       @map("sesion_id")
+  sesion      Sesion?    @relation(fields: [sesionId], references: [id])
+  tipo        TipoEvento
+  estadoId    Int?       @map("estado_id")
+  duracionSeg Int?       @map("duracion_seg")
+  timestamp   DateTime   @default(now())
+  metadata    Json?
+
+  @@map("eventos")
+}
+
+model Config {
+  clave String @id
+  valor String
+
+  @@map("config")
+}
+
+model Agendamiento {
+  id         Int                @id @default(autoincrement())
+  contactoId Int                @map("contacto_id")
+  contacto   Contacto           @relation(fields: [contactoId], references: [id])
+  asesorId   Int                @map("asesor_id")
+  asesor     Usuario            @relation(fields: [asesorId], references: [id])
+  tipo       TipoAgendamiento
+  fechaHora  DateTime           @map("fecha_hora")
+  notas      String?
+  estado     EstadoAgendamiento @default(pendiente)
+  creadoEn   DateTime           @default(now()) @map("creado_en")
+
+  @@index([fechaHora])
+  @@index([asesorId])
+  @@index([estado])
+  @@map("agendamientos")
+}
+
+model MensajeBroadcast {
+  id              Int      @id @default(autoincrement())
+  supervisorId    Int      @map("supervisor_id")
+  supervisor      Usuario  @relation(fields: [supervisorId], references: [id])
+  mensaje         String
+  segmentoDestino String   @default("TODOS") @map("segmento_destino")
+  creadoEn        DateTime @default(now()) @map("creado_en")
+
+  @@map("mensajes_broadcast")
+}
+
+model IndicadorDato {
+  asesorId Int    @map("asesor_id")
+  fecha    String
+  segmento String
+  valores  Json   @default("{}")
+
+  @@id([asesorId, fecha, segmento])
+  @@map("indicadores_datos")
 }
