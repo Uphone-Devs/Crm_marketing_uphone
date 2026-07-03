@@ -48,12 +48,20 @@ function ensureFirewallRule() {
 app.commandLine.appendSwitch('disable-features', 'Autofill');
 
 app.whenReady().then(() => {
-  // ── 1. Base de datos ──────────────────────────────────
+  // ── 1. Base de datos ──────────────────────────────────────
   try {
     initDatabase();
     console.log('[APP] [OK] Base de datos inicializada');
   } catch (err) {
-    console.error('[APP] [FAIL] Error DB:', err.message);
+    console.error('[APP] [FATAL] No se pudo inicializar la base de datos:', err.message);
+    // Mostrar un dialogo nativo antes de salir
+    const { dialog } = require('electron');
+    dialog.showErrorBox(
+      'Error crítico — Base de datos',
+      `No se pudo inicializar la base de datos local.\n\nDetalle: ${err.message}\n\nLa aplicación se cerrará.`
+    );
+    app.quit();
+    return;          // detener el resto de la secuencia de arranque
   }
 
   // ── 1b. Scheduler de agendamientos ────────────────────

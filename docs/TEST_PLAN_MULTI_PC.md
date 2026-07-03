@@ -1,4 +1,4 @@
-﻿# 🧪 Plan de Pruebas Multi-PC — UPHONE CRM Marketing Uphone v2.0
+# 🧪 Plan de Pruebas Multi-PC — UPHONE CRM Marketing Uphone v2.0
 
 ## Prerrequisitos
 
@@ -30,9 +30,10 @@
 
 ### 0.3 — Credenciales de Test
 
-| Rol | Email | Password | Dónde Login |
-|-----|-------|----------|-------------|
-| Supervisor | `supervisor1@uphone.local` | `admin2026` | PC 1 |
+| Rol | Email | Password | Dónde |
+|-----|-------|----------|-------|
+| Admin | `admin@sistema.local` | `admin123` | N/A |
+| Jefe | `jefe1@uphone.local` | `admin2026` | PC 1 |
 | Asesor | `asesor@uphone.local` | `asesor2026` | PC 2 |
 
 ---
@@ -43,7 +44,7 @@
 | # | Acción | Resultado Esperado | ✅/❌ |
 |---|--------|--------------------|-------|
 | 1 | Abrir app en PC 1 | Pantalla de login carga | |
-| 2 | Ingresar `supervisor1@uphone.local` / `admin2026` | Login exitoso, redirige al panel Supervisor | |
+| 2 | Ingresar `jefe1@uphone.local` / `admin2026` | Login exitoso, redirige al panel Jefe | |
 | 3 | Verificar indicador de estado en TopAppBar | Muestra "CONECTADO" (verde) — WebSocket activo en `127.0.0.1:3001` | |
 
 ### Test 1.2 — Login del Asesor (PC 2)

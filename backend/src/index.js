@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const path = require('path');
@@ -5,8 +6,6 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const db = require('./config/db');
-
-require('dotenv').config();
 const setupWsServer = require('./wsServer');
 
 const app = express();

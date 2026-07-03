@@ -1,5 +1,3 @@
-// DEAD CODE — este archivo no se monta. main.jsx carga JefePanel directamente.
-// Conservado como referencia histórica. No editar ni importar.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 class MetricasErrorBoundary extends React.Component {
@@ -29,7 +27,6 @@ import HistoryPage from './HistoryPage';
 import Campaigns from './Campaigns';
 import ValidacionPagos from './ValidacionPagos';
 import Compromisos from './Compromisos';
-import Referencias from './Referencias';
 import CarterasEquipo from './CarterasEquipo';
 import DetalleMetricaModal from './DetalleMetricaModal';
 import ContactabilidadModal from './ContactabilidadModal';
@@ -37,10 +34,12 @@ import VolumenModal from './VolumenModal';
 import AdvancedMetricsCharts from './AdvancedMetricsCharts';
 import MessagesConfig from './MessagesConfig';
 import SupervisorMensajes from './SupervisorMensajes';
+import DashboardDirectivo from './DashboardDirectivo';
+import SupervisorIndicadores from './SupervisorIndicadores';
 import { nowLocalISO, todayLocalISO } from '../shared/timeUtils';
 import { handleAuthStatus } from '../shared/apiClient';
 import '../shared/theme.css';
-import './SupervisorPanel.css';
+import './JefePanel.css';
 
 const WS_PORT = 3001;
 const POLLING_MS = 30000; // Fallback: DB polling cada 30s (WS es primario)
@@ -72,9 +71,9 @@ async function vmFetch(apiBase, token, path, options = {}) {
 // SupervisorPanel — Dashboard principal del supervisor.
 // Arquitectura: SPA con routing interno (login → dashboard/monitoring).
 // ──────────────────────────────────────────────────────────────
-export default function SupervisorPanel({ usuario, onLogout }) {
+export default function JefePanel({ usuario, onLogout }) {
   // ── State ──
-  const [activePage, setActivePage] = useState('monitoreo'); // 'monitoreo' | 'metricas' | 'reportes' | 'config'
+  const [activePage, setActivePage] = useState('dashboard_directivo'); // 'dashboard_directivo' | 'monitoreo' | 'metricas' | 'reportes' | 'config'
   const [asesores, setAsesores] = useState([]);
   const [estadosWS, setEstadosWS] = useState({});
   const [tiemposEstado, setTiemposEstado] = useState({});
@@ -131,8 +130,8 @@ export default function SupervisorPanel({ usuario, onLogout }) {
   const [newAsesorPassword, setNewAsesorPassword] = useState('');
   const [newAsesorRol, setNewAsesorRol] = useState('asesor');
   
-  // Cualquier usuario con rol supervisor puede gestionar roles
-  const esAdminPrincipal = usuario?.rol === 'supervisor';
+  // Jefe de Área / Jefa de Cobranza puede gestionar usuarios
+  const esAdminPrincipal = usuario?.rol === 'supervisor' || usuario?.rol === 'jefe_area' || usuario?.rol === 'jefe';
   const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '127.0.0.1'); // IP en el input
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
@@ -1481,6 +1480,9 @@ export default function SupervisorPanel({ usuario, onLogout }) {
 
         <div className="app-content">
           {/* ═══ TABS PESADAS — Mount once, hide/show (evita recrear SVG charts cada switch) ═══ */}
+          {activePage === 'dashboard_directivo' && (
+            <DashboardDirectivo apiBase={buildApiBase() || 'http://127.0.0.1:3001/api'} token={usuario.token || localStorage.getItem('auth_token')} />
+          )}
           <div style={{ display: activePage === 'monitoreo' ? 'block' : 'none' }}>
             {renderTabMonitoreo()}
           </div>
@@ -1510,9 +1512,6 @@ export default function SupervisorPanel({ usuario, onLogout }) {
               asesores={asesores}
             />
           )}
-          {activePage === 'referencias' && (
-            <Referencias asesores={asesores} />
-          )}
           {activePage === 'carteras' && (
             <CarterasEquipo callApi={async (ch, ...args) => {
               if (!isRemote) return window.api.invoke(ch, ...args);
@@ -1532,6 +1531,9 @@ export default function SupervisorPanel({ usuario, onLogout }) {
           {activePage === 'reportes' && renderTabReportes()}
           {activePage === 'mensajes_broadcast' && <SupervisorMensajes usuario={usuario} />}
           {activePage === 'mensajes' && <MessagesConfig />}
+          {activePage === 'indicadores' && (
+            <SupervisorIndicadores callApi={(ch, ...args) => window.api.invoke(ch, ...args)} />
+          )}
           {/* Bug 3 v3.0: Administración de Personal movida al panel del Admin del sistema. */}
           {activePage === 'red' && renderNetworkConfig()}
           

@@ -8,6 +8,9 @@ import './AsesorPanel.css';
 import CampaignSelector from './CampaignSelector';
 import TipificacionDialog from './TipificacionDialog';
 import AsesorCompromisos from './AsesorCompromisos';
+import AsesorMensajes from './AsesorMensajes';
+import IndicadoresPanel from './IndicadoresPanel';
+import DashboardProductividad from './DashboardProductividad';
 import { nowLocalISO, todayLocalISO } from '../shared/timeUtils';
 import { assertChannelAllowedLocal, handleAuthStatus } from '../shared/apiClient';
 
@@ -41,11 +44,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [estadoActual, setEstadoActual] = useState(null);
   const [tiempoEstado, setTiempoEstado] = useState(0);
   const [tiemposAcumulados, setTiemposAcumulados] = useState({});
+  // Base de tiempo cargada desde DB (incluye sesiones anteriores del día)
+  const [tiempoProductivoDB, setTiempoProductivoDB] = useState(0);
+  const [tiempoImproductivoDB, setTiempoImproductivoDB] = useState(0);
   const [marcaciones, setMarcaciones] = useState(0);
+  const [marcacionesDetalle, setMarcacionesDetalle] = useState([0, 0, 0]);
   // Contadores de acciones rápidas del día (WSP/SMS/EMAIL)
   const [wspEnviados, setWspEnviados] = useState(0);
+  const [wspDetalle, setWspDetalle] = useState({ 0: 0, 1: 0, 2: 0 });
   const [smsEnviados, setSmsEnviados] = useState(0);
+  const [smsDetalle, setSmsDetalle] = useState({ 0: 0, 1: 0, 2: 0 });
   const [correosEnviados, setCorreosEnviados] = useState(0);
+  const [emailDetalle, setEmailDetalle] = useState({ 0: 0, 1: 0, 2: 0 });
+  // Sidebar estado colapsado (icon-only)
+  const [navCollapsed, setNavCollapsed] = useState(true);
 
   // ── Campaña y Contacto ──
   const [campana, setCampana] = useState(() => {
@@ -125,6 +137,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [cartera, setCartera] = useState([]);
+  const [carteraFiltroDias, setCarteraFiltroDias] = useState('general');
   const [carteraFiltro, setCarteraFiltro] = useState('');
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
   const [carteraDesde, setCarteraDesde] = useState('');
@@ -205,7 +218,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           options.body = JSON.stringify(args[0]);
           break;
         case 'db:getMetricasDia':
-          url = `${apiBase}/metricas/${args[0] || usuario.id}`;
+          url = `${apiBase}/metricas/${args[0] || usuario.id}?fecha=${args[1] || ''}&campanaId=${args[2]?.campanaId || ''}`;
           break;
         case 'db:getCdrs':
           url = `${apiBase}/cdrs?fecha=${args[1] || ''}`;
@@ -433,7 +446,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
             });
             currentCdrId = result.id;
             setCdrId(result.id);
-            setShowTipificacion(true);
+            // Ya NO abrimos tipificación automáticamente al iniciar
           } catch (cdrErr) {
             console.error('[DIAL] Error CDR (no bloquea llamada):', cdrErr);
           }
@@ -846,14 +859,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   const fetchMetricas = useCallback(async () => {
     try {
-      const data = await callApi('db:getMetricasDia', usuario.id);
+      const opts = campana?.id ? { campanaId: campana.id } : {};
+      const data = await callApi('db:getMetricasDia', usuario.id, null, opts);
       if (data && typeof data.total_marcaciones === 'number') {
         setMarcaciones(data.total_marcaciones);
       }
       if (data) {
+        if (typeof data.tiempo_al_aire === 'number') setTiempoProductivoDB(data.tiempo_al_aire);
+        if (typeof data.tiempo_muerto  === 'number') setTiempoImproductivoDB(data.tiempo_muerto);
+        if (Array.isArray(data.marcaciones_detalle))  setMarcacionesDetalle(data.marcaciones_detalle);
         if (typeof data.wsp_enviados          === 'number') setWspEnviados(data.wsp_enviados);
+        if (data.wsp_detalle)   setWspDetalle(data.wsp_detalle);
         if (typeof data.sms_enviados          === 'number') setSmsEnviados(data.sms_enviados);
+        if (data.sms_detalle)   setSmsDetalle(data.sms_detalle);
         if (typeof data.correos_enviados      === 'number') setCorreosEnviados(data.correos_enviados);
+        if (data.email_detalle) setEmailDetalle(data.email_detalle);
         if (typeof data.compromisos_cumplidos   === 'number') setCompCumplidos(data.compromisos_cumplidos);
         if (typeof data.compromisos_reagendados === 'number') setCompReagendados(data.compromisos_reagendados);
         if (typeof data.compromisos_incumplidos === 'number') setCompIncumplidos(data.compromisos_incumplidos);
@@ -864,7 +884,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     } catch (err) {
       console.warn('Error fetching metrics:', err);
     }
-  }, [usuario.id, callApi]);
+  }, [usuario.id, callApi, campana?.id]);
 
   // Sincroniza métricas desde DB y luego empuja heartbeat WS con datos frescos.
   // Usado por AsesorCompromisos onCompromisoAction para actualizar supervisor inmediatamente.
@@ -877,7 +897,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   useEffect(() => {
     fetchMetricas();
+    const refreshInterval = setInterval(fetchMetricas, 30000); // refresh cada 30 seg
+    return () => clearInterval(refreshInterval);
   }, [fetchMetricas]);
+
+  // Tiempo real: actualizar métricas al instante cuando se marca un lote enviado
+  useEffect(() => {
+    const removeListener = window.api?.on?.('ws:message', (data) => {
+      if (data?.tipo === 'LOTE_ENVIADO' && String(data.asesor_id) === String(usuario?.id)) {
+        fetchMetricas();
+      }
+    });
+    return () => removeListener?.();
+  }, [fetchMetricas, usuario?.id]);
 
   async function fetchHistorial() {
     try {
@@ -909,7 +941,56 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   const [carteraLoading, setCarteraLoading] = useState(false);
 
-  const cargarCartera = useCallback(async () => {
+  // Estados para Lotes / Campañas
+  const [loteFiltroDias, setLoteFiltroDias] = useState('general');
+  const [loteOrdenMonto, setLoteOrdenMonto] = useState(true);
+  const [popupCliente, setPopupCliente] = useState(null);
+
+  const copiarLoteTelefonos = (loteId, clientes) => {
+    const text = clientes.map(c => c.telefono).join(',');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Teléfonos del Lote ' + loteId + ' copiados', 'success');
+    }).catch(err => showToast('Error al copiar: ' + err.message, 'error'));
+  };
+
+  const copiarLoteDatos = (loteId, clientes) => {
+    const text = clientes.map(c => (c.nombre_deudor || '') + '\t' + (c.cedula || '') + '\t' + (c.monto_deuda || '')).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Datos del Lote ' + loteId + ' copiados', 'success');
+    }).catch(err => showToast('Error al copiar: ' + err.message, 'error'));
+  };
+
+  // ── Mensajería ──────────────────────────────────────────────────────────────
+  const handleToggleMensajeria = async (contactoId, tipo, activo) => {
+    if (!usuario?.id) return;
+    try {
+      await callApi('db:toggleContactoMensajeria', contactoId, tipo, activo ? 'ACTIVO' : 'INACTIVO', usuario.id);
+      cargarCartera();
+      showToast(activo ? 'Contacto incluido en lote' : 'Contacto quitado del lote', 'success');
+    } catch (err) {
+      showToast('Error al cambiar estado: ' + err.message, 'error');
+    }
+  };
+
+  const handleMarcarEnviado = async (tipo) => {
+    if (!usuario?.id) return;
+    const isWsp = tipo === 'whatsapp';
+    const isCorreo = tipo === 'correo';
+    const activos = cartera.filter(c => (isWsp ? c.whatsapp_status : isCorreo ? c.correo_status : c.rcs_status) === 'ACTIVO');
+    if (activos.length === 0) {
+      showToast('No hay contactos activos en el lote', 'warning');
+      return;
+    }
+    try {
+      await callApi('db:marcarLoteEnviado', usuario.id, tipo, activos.map(c => c.id));
+      showToast(`✓ ${activos.length} contactos marcados como Enviado`, 'success');
+      cargarCartera();
+    } catch (err) {
+      showToast('Error al marcar enviado: ' + err.message, 'error');
+    }
+  };
+
+    const cargarCartera = useCallback(async () => {
     if (!usuario?.id) return;
     setCarteraLoading(true);
     try {
@@ -923,10 +1004,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario?.id, callApi]);
 
-  // Cargar cartera asignada al entrar a la página
-  useEffect(() => {
-    if (activePage === 'cartera') cargarCartera();
-  }, [activePage, cargarCartera]);
+      // Cargar cartera asignada al entrar a la página (y para lotes de campañas)
+    useEffect(() => {
+      if (activePage === 'cartera' || activePage === 'campanas_wsp' || activePage === 'campanas_rcs') {
+        cargarCartera();
+      }
+    }, [activePage, cargarCartera]);
 
   async function handleConnectUSB() {
     try {
@@ -1038,9 +1121,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
     enviarMetricasWS();
 
-    if (estado.id === 1 && campana && !contactoActual) {
-      fetchNextContact();
-    }
+    // Ya no hacemos fetchNextContact() automático al entrar a "En Gestión"
+    // para que la vista principal (dashboard) no sea reemplazada si el usuario solo quiere contar tiempo.
   }
 
   async function fetchNextContact() {
@@ -1082,6 +1164,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
     sessionStorage.setItem('active_campaign', JSON.stringify(c));
     setShowCampaignSelector(false);
     
+    // Resetear las métricas visuales instantáneamente para que arranquen de 0 en la UI
+    setMarcaciones(0);
+    setTiempoProductivoDB(0);
+    setTiempoImproductivoDB(0);
+    setWspEnviados(0);
+    setSmsEnviados(0);
+    setCorreosEnviados(0);
+    setCompCumplidos(0);
+    setCompReagendados(0);
+    setCompIncumplidos(0);
+    setTotalGestiones(0);
+    setTotalCompromisos(0);
+
     // Obtener progreso inicial inmediatamente
     try {
       const p = await callApi('db:getProgresoCampana', c.id, usuario?.id);
@@ -1251,10 +1346,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }
 
-  const tiempoTotalProductivo = (tiemposAcumulados[1] || 0) + (estadoActual?.id === 1 ? tiempoEstado : 0);
-  const tiempoTotalImproductivo = [2, 3, 4, 5].reduce((acc, id) => {
-    return acc + (tiemposAcumulados[id] || 0) + (estadoActual?.id === id ? tiempoEstado : 0);
-  }, 0);
+  // Base de DB (sesiones previas del día) + acumulado local (estados cambiados en esta sesión)
+  // + tiempo en estado actual (ticking en vivo)
+  const tiempoTotalProductivo = tiempoProductivoDB
+    + (tiemposAcumulados[1] || 0)
+    + (estadoActual?.id === 1 ? tiempoEstado : 0);
+  const tiempoTotalImproductivo = tiempoImproductivoDB
+    + [2, 3, 4, 5].reduce((acc, id) => acc + (tiemposAcumulados[id] || 0), 0)
+    + ([2, 3, 4, 5].includes(estadoActual?.id) ? tiempoEstado : 0);
   
   const handleDownloadExcel = async () => {
     try {
@@ -1313,13 +1412,18 @@ export default function AsesorPanel({ usuario, onLogout }) {
   };
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout${navCollapsed ? ' nav-collapsed' : ''}`}>
       <ToastContainer />
 
       <NavigationDrawer
         role="asesor"
         activePage={activePage}
         onNavigate={setActivePage}
+        usuario={usuario}
+        onLogout={onLogout}
+        compactContent={<AsesorMensajes compact={true} usuario={usuario} />}
+        collapsed={navCollapsed}
+        onToggleCollapse={() => setNavCollapsed(prev => !prev)}
       />
 
       <div className="app-main">
@@ -1328,6 +1432,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
           userRole="Asesor de Cobranza"
           isConnected={isDeviceConnected}
           onLogout={onLogout}
+          asesorStats={{
+            tiempoProductivo: tiempoTotalProductivo,
+            tiempoImproductivo: tiempoTotalImproductivo,
+            marcaciones,
+            marcacionesDetalle,
+            wspEnviados,
+            wspDetalle,
+            smsEnviados,
+            smsDetalle,
+            correosEnviados,
+            emailDetalle,
+            totalGestiones,
+            totalCompromisos,
+            compromisosCumplidos: compCumplidos,
+            compromisosReagendados: compReagendados,
+            compromisosIncumplidos: compIncumplidos,
+          }}
         />
 
         <div className="app-content">
@@ -1807,6 +1928,37 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 );
               })()}
 
+              {/* ── Chips Días ── */}
+              {(() => {
+                const countDias = (d) => cartera.filter(c => {
+                  let meta = {};
+                  try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
+                  return String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
+                }).length;
+                const gestionados = cartera.filter(c => c.estado_marcacion === 'GESTIONADO').length;
+                const chips = [
+                  { key: 'general', label: `General ${cartera.length}` },
+                  { key: '0',       label: `0 Dias ${countDias(0)}` },
+                  { key: '1',       label: `1 Dia ${countDias(1)}` },
+                  { key: '2',       label: `2 Dias ${countDias(2)}` },
+                  { key: 'gestionados', label: `Gestionados ${gestionados}`, isGestionado: true }
+                ];
+                return (
+                  <div className="cartera-filters" style={{ marginBottom: 12, gap: 8 }}>
+                    {chips.map(f => (
+                      <button 
+                        key={f.key} 
+                        className={`cartera-filter-btn ${carteraFiltroDias === f.key ? 'active' : ''}`}
+                        style={f.isGestionado && carteraFiltroDias === f.key ? { background: 'rgba(0,230,118,0.2)', color: 'var(--color-primary)', borderColor: 'var(--color-primary)' } : f.isGestionado ? { color: 'var(--color-primary)' } : {}}
+                        onClick={() => setCarteraFiltroDias(f.key)}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {/* ── Filtros ── */}
               <div style={{
                 display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
@@ -1954,6 +2106,18 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const extraerFechaIso = (raw) => (raw && typeof raw === 'string' && raw.length >= 10) ? raw.slice(0, 10) : '';
                 const filtrados = cartera.filter(c => {
                   if (carteraEstado !== 'TODOS' && c.estado_marcacion !== carteraEstado) return false;
+                  
+                  if (carteraFiltroDias !== 'general') {
+                    if (carteraFiltroDias === 'gestionados') {
+                      if (c.estado_marcacion !== 'GESTIONADO') return false;
+                    } else {
+                      let meta = {};
+                      try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
+                      const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
+                      if (dias !== carteraFiltroDias) return false;
+                    }
+                  }
+
                   if (carteraDesde || carteraHasta) {
                     const f = extraerFechaIso(c.fecha_asignacion);
                     if (carteraDesde && (!f || f < carteraDesde)) return false;
@@ -2011,9 +2175,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Mora</th>
                           <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Días Mora</th>
                           <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Gestiones</th>
+                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>RCS</th>
+                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
+                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
                           <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Última tipif.</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Asignado</th>
-                          <th style={{ padding: '8px 10px' }}></th>
+                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2081,26 +2247,42 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               <td style={{ padding: '8px 10px', fontSize: 10, opacity: 0.7 }}>
                                 {c.ultima_tipificacion || <span style={{ opacity: 0.3, fontStyle: 'italic' }}>sin gestiones</span>}
                               </td>
-                              <td style={{ padding: '8px 10px', fontSize: 10, opacity: 0.7 }}>
-                                {(() => {
-                                  if (!c.fecha_asignacion) return <span style={{ opacity: 0.3 }}>—</span>;
-                                  try {
-                                    const d = new Date(c.fecha_asignacion.replace(' ', 'T'));
-                                    if (isNaN(d.getTime())) return c.fecha_asignacion;
-                                    const pad = (n) => n.toString().padStart(2, '0');
-                                    return <span className="text-mono">{`${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`}</span>;
-                                  } catch { return c.fecha_asignacion; }
-                                })()}
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#00e676' }}>check</span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#00e676' }}>check</span>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#00e676' }}>check</span>
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                                <button
-                                  className="btn btn-primary btn-sm"
-                                  style={{ padding: '4px 10px', fontSize: 10, height: 'auto' }}
-                                  onClick={() => { cargarContactoAgendado(c.id); setActivePage('dashboard'); }}
-                                >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 13, marginRight: 3 }}>phone_callback</span>
-                                  Gestionar
-                                </button>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                                  <select 
+                                    className="input-field" 
+                                    style={{ padding: '3px 6px', fontSize: 10, borderRadius: 4, height: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', outline: 'none', maxWidth: 100 }}
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>Tipificar...</option>
+                                    <option value="cuelga">Cuelga</option>
+                                    <option value="no_contesta">No contesta</option>
+                                    <option value="referencia">Referencia</option>
+                                    <option value="equivocado">Equivocado</option>
+                                    <option value="suspendido">Suspendido</option>
+                                    <option value="negativa_pago">Negativa de pago</option>
+                                    <option value="promesa_pago">Promesa de pago</option>
+                                    <option value="tercero">Tercero</option>
+                                    <option value="volver_llamar">Volver a llamar</option>
+                                    <option value="buzon_voz">Buzón de voz</option>
+                                  </select>
+                                  <button
+                                    className="btn btn-outline btn-sm"
+                                    style={{ padding: '3px 8px', fontSize: 10, height: 'auto', color: '#64b5f6', borderColor: 'rgba(100,181,246,0.3)' }}
+                                    onClick={() => { cargarContactoAgendado(c.id); setActivePage('dashboard'); }}
+                                  >
+                                    Promesa de pago
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2110,8 +2292,169 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   </div>
                 );
               })()}
-            </div>
-          ) : activePage === 'compromisos' ? (
+            </div>) : activePage === 'campanas_wsp' || activePage === 'campanas_rcs' || activePage === 'campanas_correo' ? (
+              <div style={{ padding: '24px', maxWidth: 1100, margin: '0 auto' }}>
+                {(() => {
+                  const isWsp = activePage === 'campanas_wsp';
+                  const isRcs = activePage === 'campanas_rcs';
+                  const isCorreo = activePage === 'campanas_correo';
+                  const BLOQUE = isWsp ? 50 : 200;
+
+                  // Conteo por días para los chips de filtro
+                  const countDias = (d) => cartera.filter(c => {
+                    let meta = {};
+                    try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
+                    return String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
+                  }).length;
+
+                  // Base filtrada
+                  let base = [...cartera];
+                  if (loteFiltroDias !== 'general') {
+                    base = base.filter(c => {
+                      let meta = {};
+                      try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
+                      const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
+                      return dias === String(loteFiltroDias);
+                    });
+                  }
+                  if (loteOrdenMonto) {
+                    base = base.sort((a, b) => {
+                      let mA = {}, mB = {};
+                      try { mA = JSON.parse(a.metadata || '{}'); } catch (_) {}
+                      try { mB = JSON.parse(b.metadata || '{}'); } catch (_) {}
+                      return parseFloat(mB['VALOR EN MORA'] || b.monto_deuda || 0) - parseFloat(mA['VALOR EN MORA'] || a.monto_deuda || 0);
+                    });
+                  }
+
+                  // Armar lotes
+                  const lotes = [];
+                  for (let i = 0; i < base.length; i += BLOQUE) {
+                    const clients = base.slice(i, i + BLOQUE);
+                    const pendientes = clients.filter(c => (isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status) === 'ACTIVO').length;
+                    const total = clients.length;
+                    const pct = total > 0 ? Math.round(((total - pendientes) / total) * 100) : 100;
+                    lotes.push({ num: Math.floor(i / BLOQUE) + 1, clients, pendientes, total, pct });
+                  }
+
+                  const filterChips = [
+                    { key: 'general', label: `General (${cartera.length})` },
+                    { key: '0',       label: `0 Dias (${countDias(0)})` },
+                    { key: '1',       label: `1 Dia (${countDias(1)})` },
+                    { key: '2',       label: `2 Días (${countDias(2)})` },
+                  ];
+
+                  return (
+                    <>
+                      {/* Header */}
+                      <span className="text-label" style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.08em' }}>
+                        CAMPAÑAS MASIVAS ({isWsp ? 'WHATSAPP' : isRcs ? 'RCS' : 'CORREOS'})
+                      </span>
+                      <h2 style={{ margin: '4px 0 6px', fontSize: 26, fontWeight: 800 }}>
+                        Campañas de {isWsp ? 'WhatsApp' : isRcs ? 'RCS' : 'Correos'}
+                      </h2>
+                      <p style={{ opacity: 0.45, fontSize: 13, marginBottom: 24 }}>
+                        Total disponibles en la base completa: {cartera.length}
+                      </p>
+
+                      {/* Filtros */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>DÍAS IMPAGO:</span>
+                        <div className="cartera-filters">
+                          {filterChips.map(f => (
+                            <button key={f.key} className={'cartera-filter-btn ' + (loteFiltroDias === f.key ? 'active' : '')} onClick={() => setLoteFiltroDias(f.key)}>
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, marginLeft: 8 }}>
+                          <input type="checkbox" checked={loteOrdenMonto} onChange={e => setLoteOrdenMonto(e.target.checked)} style={{ width: 14, height: 14, accentColor: 'var(--color-primary)' }} />
+                          Ordenar por Monto (mayor primero)
+                        </label>
+                      </div>
+
+                      {/* Lotes */}
+                      {carteraLoading ? (
+                        <div style={{ padding: 48, textAlign: 'center', opacity: 0.5 }}>Cargando datos...</div>
+                      ) : lotes.length === 0 ? (
+                        <div style={{ padding: 48, textAlign: 'center', opacity: 0.4, border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 40, display: 'block', marginBottom: 12 }}>campaign</span>
+                          No hay clientes en esta campaña.
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {lotes.map(lote => {
+                            const completado = lote.pendientes === 0;
+                            return (
+                              <div key={lote.num} className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px' }}>
+                                  {/* Número */}
+                                  <div style={{ width: 38, height: 38, borderRadius: 8, background: completado ? 'rgba(0,229,255,0.15)' : 'var(--color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: completado ? 'var(--color-primary)' : '#000', fontSize: 15, flexShrink: 0 }}>
+                                    {lote.num}
+                                  </div>
+
+                                  {/* Info */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                                      <span style={{ fontWeight: 700, fontSize: 14 }}>Lote {lote.num}</span>
+                                      <span style={{
+                                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                                        background: completado ? 'rgba(0,229,255,0.1)' : 'rgba(255,180,0,0.12)',
+                                        color: completado ? 'var(--color-primary)' : '#ffb400',
+                                        border: `1px solid ${completado ? 'rgba(0,229,255,0.25)' : 'rgba(255,180,0,0.25)'}`,
+                                      }}>
+                                        {completado ? 'COMPLETADO' : 'PENDIENTE'}
+                                      </span>
+                                    </div>
+                                    <div style={{ fontSize: 12, opacity: 0.55, marginBottom: 5 }}>
+                                      {lote.total} clientes ({lote.pendientes} pendientes)
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                      <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
+                                        <div style={{ height: '100%', background: 'var(--color-primary)', width: lote.pct + '%' }} />
+                                      </div>
+                                      <span style={{ fontSize: 11, opacity: 0.45, flexShrink: 0, minWidth: 32 }}>{lote.pct}%</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Botones */}
+                                  <button
+                                    className="btn btn-outline"
+                                    style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 0.85, display: 'flex', alignItems: 'center', gap: 6 }}
+                                    onClick={() => copiarLoteTelefonos(lote.num, lote.clients)}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
+                                    COPIAR
+                                  </button>
+                                  <button
+                                    className={completado ? 'btn btn-ghost' : 'btn btn-primary'}
+                                    style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
+                                    disabled={completado}
+                                    onClick={async () => {
+                                      const ids = lote.clients.filter(c => (isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status) === 'ACTIVO').map(c => c.id);
+                                      if (!ids.length) return;
+                                      try {
+                                        await callApi('db:marcarLoteEnviado', usuario.id, isWsp ? 'whatsapp' : isRcs ? 'rcs' : 'correo', ids);
+                                        showToast(`✓ ${ids.length} contactos marcados como Enviado`, 'success');
+                                        cargarCartera();
+                                      } catch (err) {
+                                        showToast('Error: ' + err.message, 'error');
+                                      }
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>done_all</span>
+                                    MARCAR ENVIADO
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            ) : activePage === 'compromisos' ? (
             <AsesorCompromisos
               usuario={usuario}
               callApi={callApi}
@@ -2122,27 +2465,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
           ) : activePage === 'dashboard' ? (
             <div className="asesor-layout-grid">
               <div className="asesor-main-column">
-                <div className="widget-card">
-                  <div className="widget-header">
-                    <div>
-                      <h3 className="widget-title">Protocolo de Terminal</h3>
-                      <p className="text-body-sm" style={{ opacity: 0.6 }}>
-                        Seleccione una interfaz para proyectar el celular.
-                      </p>
-                    </div>
-                    <div className="protocol-actions">
-                      <button className="btn btn-primary btn-sm" onClick={handleConnectUSB}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>usb</span>
-                        Conectar USB
-                      </button>
-                      <button className="btn btn-outline btn-sm" onClick={openWifiModal}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>wifi</span>
-                        Sincronizar WiFi
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
+                {!contactoActual ? (
+                  <DashboardProductividad 
+                    usuario={usuario} 
+                    callApi={callApi} 
+                  />
+                ) : (
                 <div className="widget-card customer-card">
                   <div className="widget-header">
                     <span className="text-label" style={{ opacity: 0.5 }}>EXPEDIENTE DEL CLIENTE</span>
@@ -2177,7 +2505,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     </button>
                   </div>
                   
-                  {contactoActual ? (() => {
+                  {contactoActual && (() => {
                     const m = contactoActual.metadata || {};
                     const nombre = (m['NOMBRE CLIENTE'] || m['APELLIDO CLIENTE'])
                       ? `${m['NOMBRE CLIENTE'] || ''} ${m['APELLIDO CLIENTE'] || ''}`.trim()
@@ -2431,17 +2759,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       )}
                     </div>
                     );
-                  })() : (
-                    <div style={{ padding: '32px 0', textAlign: 'center', opacity: 0.4 }}>
-                       <span className="material-symbols-outlined" style={{ fontSize: 48, marginBottom: 12 }}>person_search</span>
-                       <p className="text-body-sm">Sin cliente seleccionado para gestión</p>
-                    </div>
-                  )}
+                  })()}
                 </div>
+                )}
 
-                {/* ── Panel de Tipificación Inline (se despliega durante/después de llamada) ── */}
+                {/* ── Panel de Tipificación Inline (se despliega después de llamada) ── */}
                 <TipificacionDialog
-                  open={enLlamada || showTipificacion}
+                  open={showTipificacion}
                   mode="inline"
                   onSave={handleSaveTipificacion}
                   onCancel={() => setShowTipificacion(false)}
@@ -2665,95 +2989,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     </div>
                   </div>
 
-                  <div className="widget-card">
-                    <div className="widget-header">
-                      <h3 className="widget-title">Métricas Diarias</h3>
-                    </div>
-                    <div className="stats-table">
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>Llamadas realizadas</span>
-                        <span className="stats-value">{marcaciones}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4, color: '#25D366' }}>chat</span>
-                          WhatsApps enviados
-                        </span>
-                        <span className="stats-value" style={{ color: '#25D366' }}>{wspEnviados}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4, color: '#64b5f6' }}>sms</span>
-                          SMS enviados
-                        </span>
-                        <span className="stats-value" style={{ color: '#64b5f6' }}>{smsEnviados}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4, color: '#ff8a65' }}>mail</span>
-                          Correos enviados
-                        </span>
-                        <span className="stats-value" style={{ color: '#ff8a65' }}>{correosEnviados}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>Tiempo productivo</span>
-                        <span className="stats-value">{formatTimer(tiempoTotalProductivo)}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>Tiempo improductivo</span>
-                        <span className="stats-value" style={{ color: 'var(--color-danger)' }}>{formatTimer(tiempoTotalImproductivo)}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>Gestiones completadas</span>
-                        <span className="stats-value">{totalGestiones}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>Compromisos logrados</span>
-                        <span className="stats-value" style={{ color: '#ffc107' }}>{totalCompromisos}</span>
-                      </div>
-                      <div className="stats-row" style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4, color: '#4caf50' }}>check_circle</span>
-                          Compromisos cumplidos
-                        </span>
-                        <span className="stats-value" style={{ color: '#4caf50' }}>{compCumplidos}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4, color: '#64b5f6' }}>event_repeat</span>
-                          Compromisos reagendados
-                        </span>
-                        <span className="stats-value" style={{ color: '#64b5f6' }}>{compReagendados}</span>
-                      </div>
-                      <div className="stats-row">
-                        <span className="text-body-sm" style={{ opacity: 0.7 }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4, color: 'var(--color-danger)' }}>cancel</span>
-                          Compromisos incumplidos
-                        </span>
-                        <span className="stats-value" style={{ color: 'var(--color-danger)' }}>{compIncumplidos}</span>
-                      </div>
-                    </div>
 
-                    <div className="estado-tiempos-detail">
-                      <span className="text-label-xs" style={{ opacity: 0.4, display: 'block', marginBottom: 8 }}>DESGLOSE POR ESTADO</span>
-                      {ESTADOS.map(estado => {
-                        const acum = (tiemposAcumulados[estado.id] || 0) + (estadoActual?.id === estado.id ? tiempoEstado : 0);
-                        if (acum === 0) return null;
-                        return (
-                          <div key={estado.id} className="estado-tiempo-row">
-                            <span className="text-body-sm" style={{ opacity: 0.6, fontSize: 11 }}>{estado.nombre}</span>
-                            <span className="text-mono" style={{ fontSize: 11, color: estado.id === 1 ? 'var(--color-primary)' : 'var(--color-on-surface-variant)' }}>
-                              {formatTimer(acum)}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
                 </>)}
 
               </div>
             </div>
+          ) : activePage === 'mensajes_sv' ? (
+              <AsesorMensajes usuario={usuario} callApi={callApi} showToast={showToast} />
+          ) : activePage === 'indicadores' ? (
+              <IndicadoresPanel usuario={usuario} callApi={callApi} />
+          ) : activePage === 'campanas_correo' ? (
+              <div className="widget-card" style={{ maxWidth: 900, margin: '0 auto', padding: 40, textAlign: 'center' }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>mail</span>
+                <h3 style={{ marginTop: 12, opacity: 0.5 }}>Campañas de Correo</h3>
+                <p style={{ opacity: 0.35, marginTop: 8, fontSize: 13 }}>Próximamente disponible.</p>
+              </div>
           ) : (
             <div className="card" style={{ maxWidth: 600, margin: '0 auto' }}>
               <h3 className="text-headline-sm" style={{ marginBottom: 16 }}>Configuración del Sistema</h3>

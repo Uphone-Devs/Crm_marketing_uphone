@@ -9,6 +9,22 @@
 require('dotenv').config();
 
 const { ipcMain, shell, BrowserWindow } = require('electron');
+const { isDbReady } = require('./database/db');
+
+/**
+ * Envuelve un handler IPC que necesita la BD lista.
+ * Si la BD no está inicializada devuelve { error } en vez de lanzar excepción.
+ */
+function dbGuard(fn) {
+  return async (...args) => {
+    if (!isDbReady()) {
+      console.error('[IPC] [DB_GUARD] Handler llamado antes de initDatabase()');
+      return { error: 'Base de datos no disponible. Reinicia la aplicación.' };
+    }
+    return fn(...args);
+  };
+}
+
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -37,18 +53,22 @@ const {
   getAsesores, getAllUsuarios, insertAsesor, updateAsesor, deleteAsesor, anonymizeAsesor,
   getAllUsuariosAdmin, updateUsuarioAdmin, toggleUsuarioEstado, changePasswordAdmin,
   getCampanas, getCampanasPorAsesor, getCampanaById, getContactoById, getSiguienteContacto, getCampaignSummary, getCampanasDashboard, deleteCampana, deleteContactosPorAsesorEnCampana, insertCampana, insertContactos,
-  insertCdr, updateCdr, marcarContactoGestionado, marcarYaPagoDeclarado, eliminarCompromiso, confirmarPagoCompromiso, reagendarCompromiso, marcarCompromisoIncumplido, incrementarIntentoContacto, resetearIntentosContacto, getCdrsByUsuario, getSubGestionesByAsesor, getSubGestionesByContacto, buscarContactoPorCedula, getAllReferencias, getCdrsByContacto, insertSubGestion, getAllCdrs, getBitacoraAsesor, getRefsBitacora, getCarteraAsesor, getCarteraEquipo, setOrdenMarcacionBatch,
+  insertCdr, updateCdr, marcarContactoGestionado, marcarYaPagoDeclarado, eliminarCompromiso, confirmarPagoCompromiso, reagendarCompromiso, marcarCompromisoIncumplido, incrementarIntentoContacto, resetearIntentosContacto, getCdrsByUsuario, getSubGestionesByAsesor, getSubGestionesByContacto, buscarContactoPorCedula, getAllReferencias, getCdrsByContacto, insertSubGestion, getAllCdrs, getBitacoraAsesor, getRefsBitacora, getCarteraAsesor, getCarteraEquipo, setOrdenMarcacionBatch, getCarteraFiltradaAsesor, toggleContactoMensajeria, getLoteMensajeria, marcarLoteEnviado,
   getTipificaciones, getTipificacionById, actualizarEstadoContacto,
   getContactabilidadDia,
   insertAgendamiento, getAgendamientosPorAsesor, getAgendamientosPendientes,
   marcarAgendamientoEjecutado, cancelarAgendamiento,
   insertEvento, getEventosDia,
   getMetricasDia, getMetricasEquipo, getRotacionCarteraPeriodo, getCarteraAnalisis, getCarteraRefinanciada, getMetadataKeys, getCompromisosEquipo, getProgresoAsesor, getDetalleContactabilidad, getPagosVerificadosPorAsesor,
-  getGestionesAsesores, upsertMetaAsesor,
+  getGestionesAsesores, upsertMetaAsesor, getRankingGeneralAsesores,
+  getIndicadoresRecaudo, saveIndicadoresRecaudo,
+  getIndicadoresCobranza, getProyeccionMensual,
   correlacionarPagos, confirmarPagos, getMetricasValidacion, getHistorialValidaciones, revertirValidacion,
   getSesionesValidacion, eliminarSesion,
   getConfig, setConfig, getAllConfig,
   getProgresoCampana,
+  getGestoresRanking, getRankingLlamadas,
+  insertMensajeBroadcast, getMensajesBroadcast, deleteMensajeBroadcast,
 } = require('./database/queries');
 
 const JWT_SECRET = process.env.JWT_SECRET
@@ -68,7 +88,7 @@ try {
 
 function registerIpcHandlers() {
   // ── AUTH (directo a DB, sin HTTP) ─────────────────────
-  ipcMain.handle('auth:login', async (event, { email, password }) => {
+  ipcMain.handle('auth:login', dbGuard(async (event, { email, password }) => {
     try {
       if (!email || typeof email !== 'string' || !email.includes('@')) {
         return { error: 'Email inválido' };
@@ -77,7 +97,7 @@ function registerIpcHandlers() {
         return { error: 'Password inválido' };
       }
 
-      const user = findUserByEmail(email.trim().toLowerCase());
+      let user = findUserByEmail(email.trim().toLowerCase());
       if (!user) {
         return { error: 'Credenciales inválidas' };
       }
@@ -101,7 +121,7 @@ function registerIpcHandlers() {
       console.error('[IPC] [AUTH_LOGIN_ERROR]', err?.message, err?.stack);
       return { error: 'Error de autenticación' };
     }
-  });
+  }));
 
   // ── ADB & DISPOSITIVO ────────────────────────────────
   ipcMain.handle('adb:devices', async () => getDevices());
@@ -111,11 +131,9 @@ function registerIpcHandlers() {
   ipcMain.handle('adb:stats', async () => getDeviceStats());
   ipcMain.handle('adb:getDeviceStats', async () => getDeviceStats());
   ipcMain.handle('adb:getMPH', async (event, usuarioId) => {
-    const { metricsManager } = require('./metrics');
     return metricsManager.calculateMPH(usuarioId);
   });
   ipcMain.handle('adb:getROI', async () => {
-    const { metricsManager } = require('./metrics');
     return metricsManager.calculateROI();
   });
   ipcMain.handle('adb:dial', async (event, num) => dial(num));
@@ -176,9 +194,9 @@ function registerIpcHandlers() {
     }
   });
 
-  // ── DB: USUARIOS ───────────────────────────────────────
-  ipcMain.handle('db:getAsesores', async () => getAsesores());
-  ipcMain.handle('db:getAllUsuarios', async () => getAllUsuarios());
+  // ── DB: USUARIOS ─────────────────────────────────────
+  ipcMain.handle('db:getAsesores', dbGuard(async () => getAsesores()));
+  ipcMain.handle('db:getAllUsuarios', dbGuard(async () => getAllUsuarios()));
   ipcMain.handle('db:insertAsesor', async (event, data) => {
     try {
       // Hashear contraseña antes de guardar
@@ -216,18 +234,33 @@ function registerIpcHandlers() {
     return { success: true };
   });
 
-  // ── DB: CAMPAÑAS ───────────────────────────────────────
-  ipcMain.handle('db:getCampanas', async (event, asesorId) => {
+  // ── DB: INDICADORES ──────────────────────────────────
+  ipcMain.handle('db:getIndicadoresConfig', dbGuard(async () => {
+    return getConfig('indicadores_config') || '[]';
+  }));
+  ipcMain.handle('db:saveIndicadoresConfig', dbGuard(async (event, configStr) => {
+    setConfig('indicadores_config', configStr);
+    return { success: true };
+  }));
+  ipcMain.handle('db:getIndicadoresRecaudo', dbGuard(async (event, asesorId, mes, anio) => {
+    return getIndicadoresRecaudo(asesorId, mes, anio);
+  }));
+  ipcMain.handle('db:saveIndicadoresRecaudo', dbGuard(async (event, asesorId, datos) => {
+    return saveIndicadoresRecaudo(asesorId, datos);
+  }));
+
+  // ── DB: CAMPAÑAS ─────────────────────────────────────
+  ipcMain.handle('db:getCampanas', dbGuard(async (event, asesorId) => {
     const idNum = asesorId ? Number(asesorId) : null;
     if (idNum) {
       return getCampanasPorAsesor(idNum);
     }
     return getCampanas();
-  });
-  ipcMain.handle('db:getCampana', async (event, id) => getCampanaById(id));
-  ipcMain.handle('db:getSiguienteContacto', async (event, campanaId, asesorId) =>
+  }));
+  ipcMain.handle('db:getCampana', dbGuard(async (event, id) => getCampanaById(id)));
+  ipcMain.handle('db:getSiguienteContacto', dbGuard(async (event, campanaId, asesorId) =>
     getSiguienteContacto(campanaId, asesorId)
-  );
+  ));
   ipcMain.handle('db:insertCampana', async (event, data) => {
     const result = insertCampana(data);
     return { success: true, id: Number(result.lastInsertRowid) };
@@ -305,8 +338,28 @@ function registerIpcHandlers() {
     getRefsBitacora(asesorId, limite || 1000)
   );
   ipcMain.handle('db:getCarteraAsesor', async (event, asesorId) =>
-    getCarteraAsesor(asesorId)
+    getCarteraAsesor(Number(asesorId))
   );
+  ipcMain.handle('db:getCarteraFiltradaAsesor', async (event, asesorId, filterIntentos) =>
+    getCarteraAsesor(Number(asesorId), filterIntentos)
+  );
+  ipcMain.handle('db:toggleContactoMensajeria', async (event, contactoId, channel, newState, usuarioId) =>
+    toggleContactoMensajeria(contactoId, channel, newState, usuarioId)
+  );
+  ipcMain.handle('db:getLoteMensajeria', async (event, asesorId, channel, limit) =>
+    getLoteMensajeria(asesorId, channel, limit)
+  );
+  ipcMain.handle('db:marcarLoteEnviado', async (event, asesorId, channel, contactoIds) => {
+    const result = marcarLoteEnviado(asesorId, channel, contactoIds);
+    // Notificar a todas las ventanas Electron (asesor local ve métricas actualizadas al instante)
+    const wsPayload = { tipo: 'LOTE_ENVIADO', asesor_id: asesorId, canal: channel, changes: result?.changes ?? 0 };
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) win.webContents.send('ws:message', wsPayload);
+    });
+    // Notificar también a asesores/supervisores remotos conectados por WS
+    broadcastToAll(wsPayload);
+    return result;
+  });
   ipcMain.handle('db:getCarteraEquipo', async () => getCarteraEquipo());
   ipcMain.handle('cartera:reordenar', async (event, asesorId, contactoIdsEnOrden) => {
     try {
@@ -339,7 +392,7 @@ function registerIpcHandlers() {
   ipcMain.handle('db:getAllCdrs', async (event, filtros) => getAllCdrs(filtros));
 
   // ── DB: TIPIFICACIONES ─────────────────────────────────
-  ipcMain.handle('db:getTipificaciones', async () => getTipificaciones());
+  ipcMain.handle('db:getTipificaciones', dbGuard(async () => getTipificaciones()));
 
   // M-004+M-005: Tipificar CDR con lógica de finalización de gestión
   ipcMain.handle('cdrs:tipificar', async (event, { cdrId, tipificacionId, notas, contactoId }) => {
@@ -431,6 +484,7 @@ function registerIpcHandlers() {
   );
 
   // ── DB: MÉTRICAS ───────────────────────────────────────
+  ipcMain.handle('db:getRankingGeneralAsesores', async (event, fecha) => getRankingGeneralAsesores(fecha));
   ipcMain.handle('db:getMetricasDia', async (event, usuarioId, fecha, opts) =>
     getMetricasDia(usuarioId, fecha || null, opts || {})
   );
@@ -498,6 +552,24 @@ function registerIpcHandlers() {
   ipcMain.handle('db:getGestionesAsesores',   async (_, opts) => getGestionesAsesores(opts || {}));
   ipcMain.handle('db:upsertMetaAsesor',       async (_, opts) => upsertMetaAsesor(opts));
   ipcMain.handle('db:getMetadataKeys',        async (_, opts) => getMetadataKeys(opts || {}));
+  
+  // ── INDICADORES GLOBALES (ASESORES) ──────────────────────
+  ipcMain.handle('db:getProyeccionMensual',   async () => getProyeccionMensual());
+  ipcMain.handle('db:getIndicadoresCobranza', async (_, opts) => getIndicadoresCobranza(opts || {}));
+
+  // ── RANKING DE GESTORES ──────────────────────────────────
+  ipcMain.handle('db:getRankingGestores', dbGuard(async () => {
+    try { return getGestoresRanking(); }
+    catch (err) { console.error('[IPC] getRankingGestores:', err.message); return []; }
+  }));
+
+  ipcMain.handle('db:getRankingLlamadas', dbGuard(async (_, fecha) => {
+    try { return getRankingLlamadas(fecha || null); }
+    catch (err) { 
+      console.error('[IPC] getRankingLlamadas:', err.stack); 
+      return { totalEquipo: 0, asesores: [], debugError: err.message }; 
+    }
+  }));
 
   // ── DB: CONFIG ─────────────────────────────────────────
   ipcMain.handle('db:getConfig', async (event, clave) => ({ valor: getConfig(clave) }));
@@ -536,6 +608,46 @@ function registerIpcHandlers() {
     }
   });
 
+  // ── MENSAJES BROADCAST ────────────────────────────────
+  ipcMain.handle('db:getMensajesBroadcast', async () => {
+    return getMensajesBroadcast();
+  });
+
+  ipcMain.handle('db:deleteMensajeBroadcast', async (event, id) => {
+    const result = deleteMensajeBroadcast(id);
+    // Notificar a asesores remotos via WebSocket
+    const wsPayloadDel = { tipo: 'MENSAJE_DESACTIVADO', id: Number(id) };
+    broadcastToAll(wsPayloadDel);
+    // Notificar a todas las ventanas Electron locales (supervisores desktop)
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) win.webContents.send('ws:message', wsPayloadDel);
+    });
+    return result;
+  });
+
+  ipcMain.handle('db:insertMensajeBroadcast', async (event, supervisorId, mensaje, segmentoDestino) => {
+    const data = insertMensajeBroadcast(supervisorId, mensaje, segmentoDestino);
+    
+    // Obtener nombre del supervisor (ya que insertMensajeBroadcast no hace JOIN con el autor)
+    const autor = getMensajesBroadcast().find(m => m.id === data.id)?.supervisor_nombre || 'Supervisor';
+
+    // Broadcast por WebSocket a todos los clientes remotos (asesores)
+    const wsPayloadNew = {
+      tipo: 'NUEVO_MENSAJE_SUPERVISOR',
+      mensaje: data.mensaje,
+      segmento_destino: data.segmento_destino,
+      supervisor_nombre: autor,
+      timestamp: data.creado_en
+    };
+    broadcastToAll(wsPayloadNew);
+    // Notificar a todas las ventanas Electron locales (supervisores desktop)
+    BrowserWindow.getAllWindows().forEach(win => {
+      if (!win.isDestroyed()) win.webContents.send('ws:message', wsPayloadNew);
+    });
+
+    return data;
+  });
+
   // ── WINDOW MANAGEMENT ──────────────────────────────────
   ipcMain.handle('app:switch-role', async (event, rol) => {
     if (!windowManager) return { error: 'WindowManager no disponible' };
@@ -545,7 +657,7 @@ function registerIpcHandlers() {
     // Abrir nueva ventana según rol
     if (rol === 'admin') {
       windowManager.createAdminWindow();
-    } else if (rol === 'supervisor' || rol === 'ADMINISTRADOR' || rol === 'SUPERVISOR') {
+    } else if (rol === 'supervisor' || rol === 'jefe_area' || rol === 'jefe' || rol === 'ADMINISTRADOR' || rol === 'SUPERVISOR') {
       windowManager.createSupervisorWindow();
     } else {
       windowManager.createAsesorWindow();

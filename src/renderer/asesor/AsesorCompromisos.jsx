@@ -444,7 +444,12 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                       </td>
                       <td style={td}>
                         {r.fecha_promesa
-                          ? <span style={{ color: '#64b5f6' }}>⏰ {fmtFechaHora(r.fecha_promesa)}</span>
+                          ? (
+                            <div style={{ color: '#64b5f6', fontSize: 10, lineHeight: 1.2 }}>
+                              <span style={{ fontWeight: 700 }}>Promesa para las {fmtHora(r.fecha_promesa)}</span><br/>
+                              <span style={{ opacity: 0.8 }}>en segmento {r.dias_mora != null ? r.dias_mora : '0'}</span>
+                            </div>
+                          )
                           : <span style={{ opacity: 0.3 }}>—</span>}
                       </td>
                       <td style={{ ...td, textAlign: 'right' }}>

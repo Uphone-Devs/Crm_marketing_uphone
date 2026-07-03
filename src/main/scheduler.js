@@ -42,6 +42,29 @@ function tick() {
       const diffMs = agendMs - ahoraMs;
       const ejecutaKey = `exec_${agend.id}`;
       const avisoKey   = `aviso_${agend.id}`;
+      const avisoPmpKey = `aviso_pmp_${agend.id}`;
+
+      // Alerta de 3 minutos para compromisos de pago
+      if ((agend.tipo === 'PMP' || agend.tipo_agendamiento === 'PMP') && diffMs > 0 && diffMs <= 3 * 60 * 1000 && !avisosEnviados.has(avisoPmpKey)) {
+        avisosEnviados.add(avisoPmpKey);
+        emitir('agendamiento:aviso_pmp', agend);
+        
+        // Broadcast al supervisor
+        try {
+          const queries = require('./database/queries');
+          const asesor = queries.findUserById(agend.asesor_id);
+          const nombreAsesor = asesor ? asesor.nombre : `Asesor #${agend.asesor_id}`;
+          const { BrowserWindow } = require('electron');
+          const payload = { ...agend, nombreAsesor };
+          // Local
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) win.webContents.send('promesa:aviso_supervisor', payload);
+          }
+          // Si hubiera un ws para supervisor también se podría enviar
+        } catch(e) {
+          console.error('Error al notificar al supervisor:', e);
+        }
+      }
 
       if (diffMs > 0 && diffMs <= AVISO_MS && !avisosEnviados.has(avisoKey)) {
         avisosEnviados.add(avisoKey);
@@ -63,25 +86,32 @@ function emitir(canal, agend) {
   const { tipo: tipoAgend, ...rest } = agend;
   const payload = { ...rest, tipo_agendamiento: tipoAgend };
 
-  // Vía 1: Electron IPC (local)
+  // Vía 1: Electron IPC (local) — solo al asesor window
+  let ipcDelivered = false;
   try {
     const asesorWin = getAsesorWindow();
     if (asesorWin && !asesorWin.isDestroyed()) {
       asesorWin.webContents.send(canal, payload);
+      ipcDelivered = true;
     } else {
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send(canal, payload);
+      // Fallback: enviar a la primera ventana no destruida
+      const wins = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+      if (wins.length > 0) {
+        wins[0].webContents.send(canal, payload);
+        ipcDelivered = true;
       }
     }
   } catch (err) {
     console.error(`[Scheduler] IPC error:`, err.message);
   }
 
-  // Vía 2: WebSocket (LAN)
-  try {
-    broadcastToAsesor(agend.asesor_id, { ...payload, tipo: canal });
-  } catch (err) {
-    console.error(`[Scheduler] WS error:`, err.message);
+  // Vía 2: WebSocket (LAN) — solo si IPC no entregó (modo remoto)
+  if (!ipcDelivered) {
+    try {
+      broadcastToAsesor(agend.asesor_id, { ...payload, tipo: canal });
+    } catch (err) {
+      console.error(`[Scheduler] WS error:`, err.message);
+    }
   }
 }
 

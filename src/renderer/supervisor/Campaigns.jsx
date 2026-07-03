@@ -22,7 +22,7 @@ async function vmFetch(apiBase, token, path, options = {}) {
   return data;
 }
 
-export default function Campaigns({ asesores: asesoresProp, usuario }) {
+export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS = {} }) {
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
   const authToken = localStorage.getItem('auth_token');
@@ -312,6 +312,86 @@ export default function Campaigns({ asesores: asesoresProp, usuario }) {
   };
 
   // ════════════════════════════════════════════════
+  // Auto-Distribute equitativo (monto + unidades)
+  // ════════════════════════════════════════════════
+  const handleAutoDistribuir = () => {
+    if (!grupos || asesores.length === 0) return;
+
+    // Filtrar solo los asesores que estén conectados/activos actualmente (estadosWS)
+    const asesoresActivos = asesores.filter(a => estadosWS && estadosWS[a.id]);
+    if (asesoresActivos.length === 0) {
+      return showToast('No hay asesores activos/conectados para distribuir la cartera automáticamente.', 'warning');
+    }
+
+    // 1. Aplanar todos los contactos de todos los grupos en un solo array
+    const todosContactos = [];
+    for (const [, data] of grupos.entries()) {
+      for (const c of data.contactos) {
+        todosContactos.push({ ...c, _monto: c.monto || 0 });
+      }
+    }
+    if (todosContactos.length === 0) return showToast('No hay contactos para distribuir.', 'warning');
+
+    // 2. Mezcla aleatoria (Fisher-Yates) para evitar sesgo por orden de archivo
+    for (let i = todosContactos.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [todosContactos[i], todosContactos[j]] = [todosContactos[j], todosContactos[i]];
+    }
+
+    // 3. Contadores por asesor activo { id -> { monto, count } }
+    const acumulado = {};
+    for (const a of asesoresActivos) {
+      acumulado[String(a.id)] = { monto: 0, count: 0 };
+    }
+
+    // 4. Asignar cada contacto al asesor activo con menor monto acumulado (greedy)
+    const asignacion = {}; 
+    const buckets = {}; 
+    for (const a of asesoresActivos) buckets[String(a.id)] = [];
+
+    for (const c of todosContactos) {
+      // Seleccionar asesor activo con menor monto acumulado
+      let mejorId = String(asesoresActivos[0].id);
+      let mejorMonto = acumulado[mejorId].monto;
+      let mejorCount = acumulado[mejorId].count;
+      for (const a of asesoresActivos) {
+        const aid = String(a.id);
+        const { monto, count } = acumulado[aid];
+        if (monto < mejorMonto || (monto === mejorMonto && count < mejorCount)) {
+          mejorId = aid;
+          mejorMonto = monto;
+          mejorCount = count;
+        }
+      }
+      buckets[mejorId].push(c);
+      acumulado[mejorId].monto += c._monto;
+      acumulado[mejorId].count += 1;
+    }
+
+    // 5. Reconstruir grupos sintéticos — un grupo por asesor
+    const nuevosGrupos = new Map();
+    const nuevoMapeo = {};
+    for (const a of asesoresActivos) {
+      const aid = String(a.id);
+      const contactosAsesor = buckets[aid];
+      if (contactosAsesor.length === 0) continue;
+      const monto = contactosAsesor.reduce((s, c) => s + (c._monto || 0), 0);
+      nuevosGrupos.set(a.nombre, { contactos: contactosAsesor, monto });
+      nuevoMapeo[a.nombre] = aid;
+    }
+
+    setGrupos(nuevosGrupos);
+    setMapeo(nuevoMapeo);
+    setTieneColumnaGestor(false);
+
+    const resumen = asesoresActivos
+      .filter(a => acumulado[String(a.id)].count > 0)
+      .map(a => `${a.nombre.split(' ')[0]}: ${acumulado[String(a.id)].count}`)
+      .join(' · ');
+    showToast(`Distribuido a ${asesoresActivos.length} asesor(es) activo(s) — ${resumen}`, 'success');
+  };
+
+  // ════════════════════════════════════════════════
   // Distribute
   // ════════════════════════════════════════════════
   const handleDistribuir = async () => {
@@ -429,7 +509,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario }) {
       ) : (
         <div style={{ maxWidth: 900, margin: '0 auto 12px', padding: '8px 14px', borderRadius: 8, background: 'rgba(255,152,0,0.1)', border: '1px solid rgba(255,152,0,0.4)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#ff9800' }}>warning</span>
-          <span style={{ fontSize: 12, color: '#ff9800' }}>Modo local activo — las campañas se guardan en la BD local (SQLite). Para usar la VM, configura la URL del servidor en la pestana <strong>Configuracion</strong>.</span>
+          <span style={{ fontSize: 12, color: '#ff9800' }}>Modo local activo — las campañas se guardan en la BD local (SQLite). Para usar la VM, configura la URL del servidor en la pestaña <strong>Configuración</strong>.</span>
         </div>
       )}
 
@@ -561,6 +641,61 @@ export default function Campaigns({ asesores: asesoresProp, usuario }) {
               />
             </div>
 
+            {/* ── Barra de acciones: auto-distribuir + info ── */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              marginBottom: 16, flexWrap: 'wrap',
+            }}>
+              <button
+                className="btn"
+                onClick={handleAutoDistribuir}
+                disabled={procesando || !grupos || asesores.length === 0}
+                title="Reparte los contactos de forma equitativa solo a los asesores CONECTADOS hoy"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: 'linear-gradient(135deg, rgba(0,230,118,0.15) 0%, rgba(0,180,100,0.05) 100%)',
+                  border: '1px solid rgba(0,230,118,0.4)',
+                  color: '#00e676',
+                  fontSize: 13, fontWeight: 600,
+                  padding: '10px 20px',
+                  borderRadius: 'var(--radius-md)',
+                  cursor: (procesando || !grupos || asesores.length === 0) ? 'not-allowed' : 'pointer',
+                  opacity: (procesando || !grupos || asesores.length === 0) ? 0.5 : 1,
+                  boxShadow: '0 4px 15px rgba(0,230,118,0.1)',
+                  transition: 'all 0.2s ease',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+                onMouseOver={(e) => {
+                  if (!(procesando || !grupos || asesores.length === 0)) {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,230,118,0.25) 0%, rgba(0,180,100,0.15) 100%)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,230,118,0.2)';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (!(procesando || !grupos || asesores.length === 0)) {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,230,118,0.15) 0%, rgba(0,180,100,0.05) 100%)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,230,118,0.1)';
+                  }
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>bolt</span>
+                Reparto Automático (Asesores Activos)
+              </button>
+              {grupos && asesores.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 13, opacity: 0.8, fontWeight: 500 }}>
+                    {[...grupos.values()].reduce((s, d) => s + d.contactos.length, 0).toLocaleString()} contactos totales
+                  </span>
+                  <span style={{ fontSize: 11, color: '#00e676', opacity: 0.8 }}>
+                    Se distribuirá entre los {asesores.filter(a => estadosWS && estadosWS[a.id]).length} asesor(es) conectados actualmente.
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* Tabla gestores */}
             <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', marginBottom: 20 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -661,7 +796,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario }) {
               <button
                 className="btn btn-primary"
                 onClick={handleDistribuir}
-                disabled={procesando || !nombreCampana.trim()}
+                disabled={procesando}
                 style={{ gap: 8 }}
               >
                 {procesando ? (

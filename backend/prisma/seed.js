@@ -1,12 +1,6 @@
-const path = require('path');
-const { PrismaClient } = require('@prisma/client');
-const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+require('dotenv').config();
+const prisma = require('../src/config/db');
 const bcrypt = require('bcryptjs');
-
-// prisma.config.ts usa 'file:./dev.db' relativo al CWD (backend/), por lo que dev.db está en backend/
-const DB_PATH = path.join(__dirname, '..', 'dev.db');
-const adapter = new PrismaBetterSqlite3({ url: `file:${DB_PATH}` });
-const prisma = new PrismaClient({ adapter });
 
 const SALT_ROUNDS = 10;
 
@@ -17,7 +11,7 @@ async function main() {
   const passwordHash = await bcrypt.hash('REDACTED', SALT_ROUNDS);
 
   const usuarios = [
-    { nombre: 'Supervisor_1', email: 'supervisor1@uphone.local', rol: 'supervisor' },
+    { nombre: 'Jefe_1', email: 'jefe1@uphone.local', rol: 'jefe_area' },
     { nombre: 'Asesor_1',     email: 'asesor1@uphone.local',     rol: 'asesor' },
     { nombre: 'Asesor_2',     email: 'asesor2@uphone.local',     rol: 'asesor' },
     { nombre: 'Asesor_3',     email: 'asesor3@uphone.local',     rol: 'asesor' },
