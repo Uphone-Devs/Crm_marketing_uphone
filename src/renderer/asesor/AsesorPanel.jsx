@@ -3008,37 +3008,101 @@ export default function AsesorPanel({ usuario, onLogout }) {
               <div className="asesor-side-column">
                 {/* ── Columna lateral: Estado + Métricas ── */}
                 {true && (<>
-                  <div className="widget-card">
-                    <div className="widget-header">
-                      <h3 className="widget-title">
-                        <span className="material-symbols-outlined" style={{ verticalAlign: 'middle', marginRight: 8 }}>person_pin_circle</span>
+                  {/* ── Estado Asesor Premium ── */}
+                  <div style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                  }}>
+                    {/* Header */}
+                    <div style={{
+                      padding: '12px 16px 10px',
+                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--color-primary)', opacity: 0.8 }}>
+                        person_pin_circle
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.5 }}>
                         Estado Asesor
-                      </h3>
+                      </span>
                     </div>
-                    <div className="status-btn-list">
-                      {ESTADOS.map(estado => (
-                        <button
-                          key={estado.id}
-                          className={`status-btn ${estadoActual?.id === estado.id ? 'status-btn--active' : ''}`}
-                          onClick={() => handleEstadoChange(estado)}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>{estado.icon}</span>
-                            <span className="text-body-sm" style={{ fontWeight: 600 }}>{estado.nombre}</span>
+
+                    {/* Estado Activo destacado */}
+                    {estadoActual && (() => {
+                      const colorMap = { 1: '#00e676', 2: '#ff9800', 3: '#64b5f6', 4: '#ce93d8', 5: '#ffb74d' };
+                      const color = colorMap[estadoActual.id] || '#00e676';
+                      return (
+                        <div style={{
+                          margin: '10px 12px',
+                          background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)`,
+                          border: `1px solid ${color}30`,
+                          borderRadius: 12,
+                          padding: '10px 14px',
+                          display: 'flex', alignItems: 'center', gap: 10,
+                        }}>
+                          <div style={{
+                            width: 36, height: 36, borderRadius: 10,
+                            background: `${color}22`,
+                            border: `1.5px solid ${color}50`,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                          }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 18, color }}>{estadoActual.icon}</span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span className="text-mono" style={{ fontSize: 12, opacity: 0.5 }}>
-                              {formatTimer(
-                                (tiemposAcumulados[estado.id] || 0) +
-                                (estadoActual?.id === estado.id ? tiempoEstado : 0)
-                              )}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color, lineHeight: 1.2 }}>{estadoActual.nombre}</div>
+                            <div style={{ fontSize: 11, opacity: 0.5, marginTop: 1 }}>estado actual</div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'monospace', color, letterSpacing: 1 }}>
+                              {formatTimer(tiempoEstado)}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 2 }}>
+                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}`, animation: 'pulse 1.5s infinite' }} />
+                              <span style={{ fontSize: 9, color, opacity: 0.7, letterSpacing: 0.5 }}>ACTIVO</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Lista de otros estados */}
+                    <div style={{ padding: '4px 8px 10px' }}>
+                      {ESTADOS.map(estado => {
+                        const isActive = estadoActual?.id === estado.id;
+                        if (isActive) return null; // El activo ya se muestra arriba
+                        const colorMap = { 1: '#00e676', 2: '#ff9800', 3: '#64b5f6', 4: '#ce93d8', 5: '#ffb74d' };
+                        const color = colorMap[estado.id] || '#ffffff';
+                        const acum = tiemposAcumulados[estado.id] || 0;
+                        return (
+                          <button
+                            key={estado.id}
+                            onClick={() => handleEstadoChange(estado)}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              width: '100%', padding: '8px 8px',
+                              background: 'transparent', border: 'none', cursor: 'pointer',
+                              borderRadius: 9, transition: 'background 0.15s',
+                              color: 'rgba(255,255,255,0.6)',
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.background = `${color}10`}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <div style={{
+                              width: 28, height: 28, borderRadius: 8,
+                              background: `${color}12`,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                            }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 15, color: `${color}aa` }}>{estado.icon}</span>
+                            </div>
+                            <span style={{ flex: 1, fontSize: 12, textAlign: 'left', fontWeight: 500 }}>{estado.nombre}</span>
+                            <span style={{ fontSize: 11, fontFamily: 'monospace', opacity: acum > 0 ? 0.6 : 0.25 }}>
+                              {formatTimer(acum)}
                             </span>
-                            {estadoActual?.id === estado.id && (
-                              <div className="status-btn__indicator dot dot-primary" />
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
