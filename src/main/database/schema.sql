@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   nombre        TEXT    NOT NULL,
   email         TEXT    UNIQUE NOT NULL,
   password_hash TEXT    NOT NULL,
-  rol           TEXT    NOT NULL DEFAULT 'asesor' CHECK(rol IN ('supervisor','asesor','admin')),
+  rol           TEXT    NOT NULL DEFAULT 'asesor' CHECK(rol IN ('supervisor','jefe_area','jefe','asesor','admin')),
   estado        TEXT    NOT NULL DEFAULT 'activo' CHECK(estado IN ('activo','inactivo')),
   creado_en     TEXT    DEFAULT (datetime('now'))
 );
@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS contactos (
   estado_marcacion TEXT    NOT NULL DEFAULT 'PENDIENTE',
   intentos_realizados INTEGER NOT NULL DEFAULT 0,
   asignado_a       INTEGER REFERENCES usuarios(id),
-  metadata         TEXT
+  metadata         TEXT,
+  whatsapp_status  TEXT    DEFAULT 'INACTIVO',
+  rcs_status       TEXT    DEFAULT 'ACTIVO'
 );
 
 -- ── Tipificaciones de llamadas ──────────────────────────────
@@ -67,6 +69,7 @@ CREATE TABLE IF NOT EXISTS cdrs (
   resultado         TEXT,
   url_grabacion     TEXT,
   notas             TEXT,
+  canal             TEXT    DEFAULT 'llamada' CHECK(canal IN ('llamada', 'whatsapp', 'rcs', 'gmail')),
   creado_en         TEXT    DEFAULT (datetime('now'))
 );
 
@@ -134,3 +137,24 @@ INSERT OR IGNORE INTO config VALUES ('msg_template_email_subject', 'Notificació
 INSERT OR IGNORE INTO config VALUES ('msg_template_email_body', 'Estimado/a {nombres_apellidos},\n\nPor medio de la presente le notificamos que su cuenta identificada con cédula {cedula} presenta un saldo en mora de ${valor_mora}.\n\nLe ofrecemos un valor promocional de ${valor_promocional} para regularizar su situación.\n\nQuedamos a su disposición.\n\nAtentamente,\nDepartamento de Cobranza\nUPHONE TEC SAS');
 
 -- ── Seed Data manejado por db.js ─────────────────────────
+
+-- ── Indicadores de Recaudo (Dinámicos por asesor) ────────────
+DROP TABLE IF EXISTS indicadores_recaudo;
+
+-- ── Mensajes Broadcast (Supervisor a Asesores) ───────────────
+CREATE TABLE IF NOT EXISTS mensajes_broadcast (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  supervisor_id    INTEGER NOT NULL REFERENCES usuarios(id),
+  mensaje          TEXT    NOT NULL,
+  segmento_destino TEXT    NOT NULL DEFAULT 'TODOS',
+  creado_en        TEXT    DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE TABLE IF NOT EXISTS indicadores_datos (
+  asesor_id INTEGER NOT NULL,
+  fecha     TEXT NOT NULL,
+  segmento  TEXT NOT NULL,
+  valores   TEXT DEFAULT '{}',
+  PRIMARY KEY (asesor_id, fecha, segmento),
+  FOREIGN KEY (asesor_id) REFERENCES usuarios (id) ON DELETE CASCADE
+);

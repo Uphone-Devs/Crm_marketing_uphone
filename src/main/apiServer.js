@@ -41,6 +41,14 @@ const {
   getAllCdrs, buscarContactoPorCedula, getAllReferencias,
   eliminarCompromiso,
   getProgresoAsesor,
+  getCarteraFiltradaAsesor, toggleContactoMensajeria, getLoteMensajeria, marcarLoteEnviado,
+  getIndicadoresRecaudo, saveIndicadoresRecaudo,
+  getConfig,
+  // Panel Jefe de Cobranza
+  getIndicadoresCobranza, getProductividadJefe, getTopAsesoresJefe,
+  getMorosidadPorDistribuidor, getRecaudacionSemanal, getProyeccionMensual,
+  // Mensajes Broadcast
+  insertMensajeBroadcast, deleteMensajeBroadcast, getMensajesBroadcast,
 } = require('./database/queries');
 const { getConnectedAsesores, getConnectedClients, initWebSocket, broadcastToAll } = require('./wsServer');
 const { loginRateLimitKey } = require('./security/rateLimitKeys');
@@ -105,9 +113,14 @@ function initApiServer(port = 3001) {
     }
   }
 
+  /** Devuelve true si el rol tiene permisos de jefe/supervisor */
+  function isJefeOrSupervisor(rol) {
+    return rol === 'supervisor' || rol === 'jefe_area' || rol === 'jefe';
+  }
+
   function requireSupervisor(req, res, next) {
-    if (req.user?.rol !== 'supervisor') {
-      return res.status(403).json({ error: 'Acceso denegado: requiere rol supervisor' });
+    if (!isJefeOrSupervisor(req.user?.rol)) {
+      return res.status(403).json({ error: 'Acceso denegado: requiere rol supervisor o jefe de área' });
     }
     next();
   }
@@ -120,8 +133,8 @@ function initApiServer(port = 3001) {
   }
 
   function requireSupervisorOrAdmin(req, res, next) {
-    if (req.user?.rol !== 'admin' && req.user?.rol !== 'supervisor') {
-      return res.status(403).json({ error: 'Acceso denegado: requiere rol supervisor o admin' });
+    if (req.user?.rol !== 'admin' && !isJefeOrSupervisor(req.user?.rol)) {
+      return res.status(403).json({ error: 'Acceso denegado: requiere rol supervisor, jefe de área o admin' });
     }
     next();
   }
@@ -166,6 +179,11 @@ function initApiServer(port = 3001) {
         return res.status(401).json({ error: 'Credenciales inválidas' });
       }
 
+      if (user.estado !== 'activo') {
+        console.warn(`[API] [LOGIN_FAIL] Cuenta inactiva: ${email}`);
+        return res.status(401).json({ error: 'Cuenta desactivada. Contacte al administrador.' });
+      }
+
       const passwordValid = bcrypt.compareSync(password, user.password_hash);
       if (!passwordValid) {
         console.warn(`[API] [LOGIN_FAIL] Contraseña incorrecta para: ${email}`);
@@ -194,8 +212,8 @@ function initApiServer(port = 3001) {
   // ═══════════════════════════════════════════════════════
   app.get('/api/asesores', requireAuth, (req, res) => {
     try {
-      // Bug 4: supervisor ve solo su equipo; admin ve todos.
-      const asesores = req.user?.rol === 'supervisor'
+      // Bug 4: jefe_area/supervisor ve solo su equipo; admin ve todos.
+      const asesores = isJefeOrSupervisor(req.user?.rol)
         ? getAsesores({ supervisorId: req.user.id })
         : getAsesores();
       const conectados = getConnectedAsesores().map(c => c.asesor_id);
@@ -210,14 +228,14 @@ function initApiServer(port = 3001) {
   // RUTAS: Campañas
   // ═══════════════════════════════════════════════════════
   app.get('/api/campanas/dashboard', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'supervisor' && req.user?.rol !== 'admin')
+    if (!isJefeOrSupervisor(req.user?.rol) && req.user?.rol !== 'admin')
       return res.status(403).json({ error: 'Acceso denegado' });
     try { res.json(getCampanasDashboard()); }
     catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   app.post('/api/campanas', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'supervisor' && req.user?.rol !== 'admin')
+    if (!isJefeOrSupervisor(req.user?.rol) && req.user?.rol !== 'admin')
       return res.status(403).json({ error: 'Acceso denegado' });
     try {
       const { nombre, descripcion } = req.body;
@@ -228,7 +246,7 @@ function initApiServer(port = 3001) {
   });
 
   app.post('/api/campanas/:id/contactos', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'supervisor' && req.user?.rol !== 'admin')
+    if (!isJefeOrSupervisor(req.user?.rol) && req.user?.rol !== 'admin')
       return res.status(403).json({ error: 'Acceso denegado' });
     try {
       const { asesorId, contactos } = req.body;
@@ -245,7 +263,7 @@ function initApiServer(port = 3001) {
   });
 
   app.delete('/api/campanas/:campanaId/asesores/:asesorId', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'supervisor' && req.user?.rol !== 'admin')
+    if (!isJefeOrSupervisor(req.user?.rol) && req.user?.rol !== 'admin')
       return res.status(403).json({ error: 'Acceso denegado' });
     try {
       const result = deleteContactosPorAsesorEnCampana(parseInt(req.params.campanaId), parseInt(req.params.asesorId));
@@ -496,6 +514,78 @@ function initApiServer(port = 3001) {
     }
   });
 
+  app.get('/api/cartera-filtrada', requireAuth, (req, res) => {
+    try {
+      const { intentos } = req.query;
+      res.json(getCarteraAsesor(req.user.id, intentos || 'general'));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/api/contacto/:id/mensajeria', requireAuth, (req, res) => {
+    try {
+      const { channel, state } = req.body;
+      const result = toggleContactoMensajeria(parseInt(req.params.id), channel, state, req.user.id);
+      res.json({ success: true, changes: result.changes });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/lote-mensajeria/:channel', requireAuth, (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit) || 200;
+      res.json(getLoteMensajeria(req.user.id, req.params.channel, limit));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/lote-mensajeria/:channel/enviado', requireAuth, (req, res) => {
+    try {
+      const { contactoIds } = req.body;
+      const result = marcarLoteEnviado(req.user.id, req.params.channel, contactoIds);
+      // Notificar en tiempo real a asesores/supervisores conectados por WS
+      broadcastToAll({ tipo: 'LOTE_ENVIADO', asesor_id: req.user.id, canal: req.params.channel, changes: result?.changes ?? 0 });
+      res.json({ success: true, changes: result.changes });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Mensajes Broadcast (Supervisor → Asesores remotos) ──
+  app.get('/api/mensajes-broadcast', requireAuth, (req, res) => {
+    try {
+      res.json(getMensajesBroadcast());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/mensajes-broadcast', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const { mensaje, segmento_destino } = req.body;
+      if (!mensaje?.trim()) return res.status(400).json({ error: 'mensaje requerido' });
+      const data = insertMensajeBroadcast(req.user.id, mensaje.trim(), segmento_destino || 'TODOS');
+      broadcastToAll({ tipo: 'MENSAJE_BROADCAST', segmento: segmento_destino || 'TODOS' });
+      res.json(data);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/api/mensajes-broadcast/:id', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const data = deleteMensajeBroadcast(Number(req.params.id));
+      broadcastToAll({ tipo: 'MENSAJE_DESACTIVADO', id: Number(req.params.id) });
+      res.json(data);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+
   app.get('/api/cartera-equipo', requireAuth, requireSupervisor, (req, res) => {
     try {
       res.json(getCarteraEquipo());
@@ -582,18 +672,67 @@ function initApiServer(port = 3001) {
   });
 
   // ═══════════════════════════════════════════════════════
-  // RUTAS: Métricas
+  // RUTAS: Métricas e Indicadores
   // ═══════════════════════════════════════════════════════
+  app.get('/api/indicadores/config', requireAuth, (req, res) => {
+    try {
+      res.json(JSON.parse(getConfig('indicadores_config') || '[]'));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/indicadores/config', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      setConfig('indicadores_config', JSON.stringify(req.body));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/indicadores/recaudo', requireAuth, (req, res) => {
+    try {
+      const { asesor_id, mes, anio } = req.query;
+      // IDOR fix: asesor solo lee los suyos; jefe/supervisor/admin puede pasar asesor_id ajeno
+      const targetAsesorId = (asesor_id && (isJefeOrSupervisor(req.user?.rol) || req.user?.rol === 'admin'))
+        ? parseInt(asesor_id)
+        : req.user.id;
+      res.json(getIndicadoresRecaudo(targetAsesorId, mes, anio));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/indicadores/recaudo', requireAuth, (req, res) => {
+    try {
+      const { asesor_id, datos } = req.body;
+      // IDOR fix: solo jefe/supervisor/admin puede escribir indicadores de otro asesor
+      const targetAsesorId = (asesor_id && (isJefeOrSupervisor(req.user?.rol) || req.user?.rol === 'admin'))
+        ? parseInt(asesor_id)
+        : req.user.id;
+      res.json(saveIndicadoresRecaudo(targetAsesorId, datos || req.body));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
   app.get('/api/metricas/:usuario_id', requireAuth, (req, res) => {
     try {
-      res.json(getMetricasDia(parseInt(req.params.usuario_id)));
+      const targetId = parseInt(req.params.usuario_id);
+      // IDOR fix: asesor solo puede ver sus propias métricas
+      if (req.user?.rol === 'asesor' && req.user.id !== targetId) {
+        return res.status(403).json({ error: 'Acceso denegado' });
+      }
+      const fecha = req.query.fecha || null;
+      const opts = { campanaId: req.query.campanaId || null };
+      res.json(getMetricasDia(targetId, fecha, opts));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
   app.get('/api/metricas-equipo', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'supervisor' && req.user?.rol !== 'admin')
+    if (!isJefeOrSupervisor(req.user?.rol) && req.user?.rol !== 'admin')
       return res.status(403).json({ error: 'Acceso denegado' });
     try {
       const fecha     = req.query.fecha      || null;
@@ -603,7 +742,7 @@ function initApiServer(port = 3001) {
       if (campanaId) opts.campanaId = campanaId;
       if (fechaFin)  opts.fechaFin  = fechaFin;
       // Bug 4: supervisor agrega solo su equipo; admin agrega todos.
-      if (req.user?.rol === 'supervisor') opts.supervisorId = req.user.id;
+      if (isJefeOrSupervisor(req.user?.rol)) opts.supervisorId = req.user.id;
       res.json(getMetricasEquipo(fecha, opts));
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -616,8 +755,8 @@ function initApiServer(port = 3001) {
       const asesorId = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
       const fechaFin = req.query.fecha_fin || null;
       const opts = fechaFin ? { fechaFin } : {};
-      // Bug 4: supervisor ve solo compromisos de su equipo.
-      if (req.user?.rol === 'supervisor') opts.supervisorId = req.user.id;
+      // Bug 4: jefe_area/supervisor ve solo compromisos de su equipo.
+      if (isJefeOrSupervisor(req.user?.rol)) opts.supervisorId = req.user.id;
       res.json(getCompromisosEquipo(fecha, asesorId, opts));
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -672,7 +811,7 @@ function initApiServer(port = 3001) {
       // Si lo crea el admin → toma supervisor_id del body (puede asignar a cualquier grupo).
       let supervisorId = null;
       if (rol === 'asesor') {
-        supervisorId = req.user?.rol === 'supervisor'
+        supervisorId = isJefeOrSupervisor(req.user?.rol)
           ? req.user.id
           : (req.body.supervisor_id != null ? parseInt(req.body.supervisor_id) : null);
       }
@@ -712,7 +851,7 @@ function initApiServer(port = 3001) {
   });
 
   app.get('/api/admin/sysinfo', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'admin' && req.user?.rol !== 'supervisor')
+    if (req.user?.rol !== 'admin' && !isJefeOrSupervisor(req.user?.rol))
       return res.status(403).json({ error: 'Acceso denegado' });
     const os = require('os');
     const cpus1 = os.cpus();
@@ -737,7 +876,7 @@ function initApiServer(port = 3001) {
   });
 
   app.get('/api/admin/connected', requireAuth, (req, res) => {
-    if (req.user?.rol !== 'admin' && req.user?.rol !== 'supervisor')
+    if (req.user?.rol !== 'admin' && !isJefeOrSupervisor(req.user?.rol))
       return res.status(403).json({ error: 'Acceso denegado' });
     const all = getConnectedClients();
     const asesores = all.filter(u => u.tipo === 'ASESOR');
@@ -784,8 +923,8 @@ function initApiServer(port = 3001) {
   // RUTAS: Validación de Pagos (supervisor o admin)
   // ═══════════════════════════════════════════════════════
   function requireSupervisorOrAdmin(req, res, next) {
-    if (req.user?.rol !== 'supervisor' && req.user?.rol !== 'admin')
-      return res.status(403).json({ error: 'Acceso denegado: requiere rol supervisor o admin' });
+    if (req.user?.rol !== 'admin' && !isJefeOrSupervisor(req.user?.rol))
+      return res.status(403).json({ error: 'Acceso denegado: requiere rol supervisor, jefe de área o admin' });
     next();
   }
 
@@ -941,6 +1080,112 @@ function initApiServer(port = 3001) {
   // Montar WebSocket en el mismo server (comparten puerto)
   const verifyToken = (t) => jwt.verify(t, JWT_SECRET);
   initWebSocket(httpServer, verifyToken);
+
+  // ═══════════════════════════════════════════════════════════════
+  // RUTAS: Panel Jefe de Cobranza — KPIs y Métricas
+  // Todas protegidas por requireAuth + requireSupervisor (incluye jefe_area)
+  // Spec: spec_panel_jefe.md §2
+  // ═══════════════════════════════════════════════════════════════
+
+  // GET /api/jefe/indicadores?campanaId=&segmento=&distribuidor=
+  app.get('/api/jefe/indicadores', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const filtros = {
+        campanaId:    req.query.campanaId    ? parseInt(req.query.campanaId)   : undefined,
+        segmento:     req.query.segmento     ?? undefined,
+        distribuidor: req.query.distribuidor ?? undefined,
+      };
+      res.json(getIndicadoresCobranza(filtros));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/jefe/productividad?campanaId=&fechaInicio=&fechaFin=
+  app.get('/api/jefe/productividad', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const filtros = {
+        campanaId:    req.query.campanaId    ? parseInt(req.query.campanaId)   : undefined,
+        fechaInicio:  req.query.fechaInicio  ?? undefined,
+        fechaFin:     req.query.fechaFin     ?? undefined,
+      };
+      res.json(getProductividadJefe(filtros));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/jefe/top-asesores?canal=global&limit=5
+  app.get('/api/jefe/top-asesores', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const canal = req.query.canal || 'global';
+      const limit = req.query.limit ? parseInt(req.query.limit) : 5;
+      res.json(getTopAsesoresJefe(canal, limit));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/jefe/morosidad
+  app.get('/api/jefe/morosidad', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      res.json(getMorosidadPorDistribuidor());
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/jefe/tendencia-semanal?dias=7
+  app.get('/api/jefe/tendencia-semanal', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const dias = req.query.dias ? parseInt(req.query.dias) : 7;
+      res.json(getRecaudacionSemanal(dias));
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/jefe/meta-mensual
+  app.get('/api/jefe/meta-mensual', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      res.json(getProyeccionMensual());
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // ── DEV ONLY: Seed datos de prueba de pagos ──────────────────────
+  app.post('/api/dev/seed-pagos', (req, res) => {
+    try {
+      const db = require('./database/db').getDb();
+      const cdrCols = db.prepare("PRAGMA table_info(cdrs)").all().map(c => c.name);
+      const tsCol = cdrCols.includes('creado_en') ? 'creado_en'
+                  : cdrCols.includes('timestamp_inicio') ? 'timestamp_inicio' : null;
+      if (!tsCol) return res.status(500).json({ error: 'No columna fecha en cdrs' });
+      const asesores  = db.prepare("SELECT id FROM usuarios WHERE rol = 'asesor' LIMIT 5").all();
+      const contactos = db.prepare("SELECT id, monto_deuda FROM contactos ORDER BY RANDOM() LIMIT 40").all();
+      const tipPMP    = db.prepare("SELECT id FROM tipificaciones WHERE codigo = 'PMP' LIMIT 1").get();
+      if (!asesores.length || !contactos.length || !tipPMP) return res.status(400).json({ error: 'Faltan datos base' });
+      const ins = db.prepare(`INSERT OR IGNORE INTO cdrs (usuario_id, contacto_id, tipificacion_id, resultado, duracion, ${tsCol}) VALUES (?, ?, ?, 'COMP_CUM', 120, ?)`);
+      const pay = db.prepare("UPDATE contactos SET estado_marcacion = 'PAGADO' WHERE id = ?");
+      function ago(n) { const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,19).replace('T',' '); }
+      let n = 0;
+      db.transaction(() => {
+        let ci = 0;
+        for (let d = 0; d <= 6 && ci < contactos.length; d++) {
+          const qty = 4 + (d % 4);
+          for (let i = 0; i < qty && ci < contactos.length; i++, ci++) {
+            pay.run(contactos[ci].id);
+            ins.run(asesores[ci % asesores.length].id, contactos[ci].id, tipPMP.id, ago(d));
+            n++;
+          }
+        }
+      })();
+      res.json({ ok: true, insertados: n, tsCol });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+  // ── FIN DEV SEED ─────────────────────────────────────────────────
+
+  // POST /api/jefe/meta-mensual  { meta: 50000 }
+  app.post('/api/jefe/meta-mensual', requireAuth, requireSupervisor, (req, res) => {
+    try {
+      const { meta } = req.body;
+      if (meta === undefined || isNaN(parseFloat(meta))) {
+        return res.status(400).json({ error: 'Valor de meta inválido' });
+      }
+      const { setConfig } = require('./database/queries');
+      setConfig('meta_mensual_usd', String(parseFloat(meta)));
+      res.json({ ok: true, meta: parseFloat(meta) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
 
   httpServer.listen(port, '0.0.0.0', () => {
     console.log(`[API] REST + WebSocket unificados en puerto ${port} (LAN admitida: 0.0.0.0)`);

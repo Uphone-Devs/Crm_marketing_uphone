@@ -100,15 +100,7 @@ export default function ContactabilidadDrillDown({ open, onClose, asesorId, ases
               {filtrados.length.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 500, opacity: 0.7 }}>{info.label?.toLowerCase()}</span>
             </div>
           </div>
-          <button
-            onClick={exportarCsv}
-            className="btn btn-outline btn-sm"
-            style={{ padding: '4px 12px', fontSize: 12, height: 'auto' }}
-            disabled={filtrados.length === 0}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
-            CSV
-          </button>
+
         </div>
 
         {/* Tabla */}

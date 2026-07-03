@@ -195,20 +195,8 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
           <Kpi label="Con monto" value={conMonto} color="#64b5f6" />
           <Kpi label="Sin monto" value={sinMonto} color="#ff9800" warn={sinMonto > 0} />
           <Kpi label="Suma" value={fmt$(totalMonto)} color="var(--color-primary)" />
-          <button onClick={exportarXls} disabled={visible.length === 0}
-            className="btn btn-outline btn-sm"
-            title="Descargar como Excel"
-            style={{ padding: '5px 12px', fontSize: 11, height: 'auto' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>table_view</span>
-            XLS
-          </button>
-          <button onClick={exportarCsv} disabled={visible.length === 0}
-            className="btn btn-outline btn-sm"
-            title="Descargar como CSV"
-            style={{ padding: '5px 12px', fontSize: 11, height: 'auto' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
-            CSV
-          </button>
+
+
         </div>
 
         {/* Tabla */}

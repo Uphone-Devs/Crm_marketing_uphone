@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import LoginPage from '../login/LoginPage';
-import SupervisorPanel from './SupervisorPanel';
+import JefePanel from './JefePanel';
 
 /**
- * Entry point del panel Supervisor.
- * SPA routing: Login → SupervisorPanel según autenticación.
+ * Entry point del panel Jefe de Área / Jefa de Cobranza.
+ * SPA routing: Login → JefePanel según autenticación.
  */
 function App() {
   const [usuario, setUsuario] = useState(() => {
@@ -32,7 +32,7 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  return <SupervisorPanel usuario={usuario} onLogout={handleLogout} />;
+  return <JefePanel usuario={usuario} onLogout={handleLogout} />;
 }
 
 const root = createRoot(document.getElementById('root'));

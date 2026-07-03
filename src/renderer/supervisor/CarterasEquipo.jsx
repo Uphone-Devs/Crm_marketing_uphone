@@ -215,14 +215,8 @@ export default function CarterasEquipo({ callApi }) {
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>refresh</span>
             Recargar
           </button>
-          <button onClick={exportarXls} className="btn btn-outline btn-sm" disabled={filtrados.length === 0} title="Descargar como Excel" style={{ padding: '4px 10px', fontSize: 11, height: 'auto' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>table_view</span>
-            XLS
-          </button>
-          <button onClick={exportarCsv} className="btn btn-outline btn-sm" disabled={filtrados.length === 0} title="Descargar como CSV" style={{ padding: '4px 10px', fontSize: 11, height: 'auto' }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>download</span>
-            CSV
-          </button>
+
+
         </div>
       </div>
 
