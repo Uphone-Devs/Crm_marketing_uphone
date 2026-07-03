@@ -23,7 +23,8 @@ contextBridge.exposeInMainWorld('api', {
       'db:getCampaignSummary', 'db:getCampanasDashboard', 'db:deleteCampana', 'db:deleteContactosPorAsesor', 'db:getProgresoCampana',
       'db:incrementarIntentoContacto', 'db:resetearIntentosContacto',
       // DB: CDRs
-      'db:insertCdr', 'db:updateCdr', 'db:marcarContactoGestionado', 'db:getCdrs', 'db:getCdrsByContacto', 'db:getSubGestionesByAsesor', 'db:getBitacoraAsesor', 'db:getRefsBitacora', 'db:getCarteraAsesor', 'db:getCarteraEquipo', 'cartera:reordenar', 'db:insertSubGestion', 'db:getSubGestionesByContacto', 'db:buscarContactoPorCedula', 'db:getAllReferencias', 'db:getAllCdrs',
+      'db:insertCdr', 'db:updateCdr', 'db:marcarContactoGestionado', 'db:getCdrs', 'db:getCdrsByContacto', 'db:getSubGestionesByAsesor', 'db:getBitacoraAsesor', 'db:getRefsBitacora', 'db:getCarteraAsesor', 'db:getCarteraFiltradaAsesor', 'db:getCarteraEquipo', 'cartera:reordenar', 'db:insertSubGestion', 'db:getSubGestionesByContacto', 'db:buscarContactoPorCedula', 'db:getAllReferencias', 'db:getAllCdrs',
+      'db:toggleContactoMensajeria', 'db:getLoteMensajeria', 'db:marcarLoteEnviado',
       // DB: Tipificaciones
       'db:getTipificaciones',
       // DB: CDRs Tipificar (M-004)
@@ -40,13 +41,20 @@ contextBridge.exposeInMainWorld('api', {
       'db:getMetricasDia', 'db:getMetricasEquipo', 'db:getCompromisosEquipo', 'db:getProgresoAsesor', 'db:getDetalleContactabilidad',
       // DB: Evolución de Cartera
       'db:getCarteraAnalisis', 'db:getCarteraRefinanciada', 'db:getMetadataKeys',
-      'db:getGestionesAsesores', 'db:upsertMetaAsesor',
+      'db:getGestionesAsesores', 'db:upsertMetaAsesor', 'db:getRotacionCarteraPeriodo',
       // Validación de Pagos
       'validacion:correlacionar', 'validacion:confirmarPagos', 'validacion:getMetricas',
       'validacion:getHistorial', 'validacion:revertir',
       'validacion:getSesiones', 'validacion:eliminarSesion',
-      // DB: Config
+      // DB: Config & Indicadores
       'db:getConfig', 'db:setConfig', 'db:getAllConfig',
+      'db:getIndicadoresConfig', 'db:saveIndicadoresConfig',
+      'db:getIndicadoresRecaudo', 'db:saveIndicadoresRecaudo',
+      'db:getProyeccionMensual', 'db:getIndicadoresCobranza',
+      // DB: Ranking de Gestores
+      'db:getRankingGestores', 'db:getRankingLlamadas', 'db:getRankingGeneralAsesores',
+      // DB: Mensajes Broadcast
+      'db:insertMensajeBroadcast', 'db:getMensajesBroadcast', 'db:deleteMensajeBroadcast',
       // System
       'reports:generate', 'shell:openPath', 'shell:openExternal', 'app:switch-role', 'app:logout',
       // Admin
@@ -62,7 +70,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   on: (channel, callback) => {
-    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar'];
+    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar', 'agendamiento:aviso_pmp', 'promesa:aviso_supervisor', 'ws:message'];
     if (allowedChannels.includes(channel)) {
       const subscription = (event, ...args) => callback(...args);
       ipcRenderer.on(channel, subscription);
@@ -73,7 +81,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   removeAllListeners: (channel) => {
-    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar'];
+    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar', 'agendamiento:aviso_pmp', 'promesa:aviso_supervisor', 'ws:message'];
     if (allowedChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }

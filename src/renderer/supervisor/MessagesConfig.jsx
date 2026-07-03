@@ -7,668 +7,468 @@ function buildApiBase() {
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 
-/**
- * Variables disponibles para interpolación en las plantillas de mensaje.
- * Cada variable tiene un token que el supervisor puede insertar
- * y que será reemplazado con datos reales del contacto al momento del envío.
- * Agrupadas para facilitar la selección.
- */
-const VARIABLE_GROUPS = [
-  {
-    label: 'Cliente',
-    color: '#64b5f6',
-    items: [
-      { token: '{nombres_apellidos}', label: 'Nombres y Apellidos', icon: 'person' },
-      { token: '{cedula}',            label: 'Cédula',              icon: 'badge' },
-      { token: '{telefono}',          label: 'Teléfono',            icon: 'call' },
-      { token: '{correo}',            label: 'Correo',              icon: 'mail' },
-      { token: '{empresa}',           label: 'Empresa',             icon: 'business' },
-      { token: '{contrato}',          label: 'Contrato',            icon: 'description' },
-      { token: '{grupo}',             label: 'Grupo',               icon: 'category' },
-    ],
-  },
-  {
-    label: 'Financiero',
-    color: '#ef4444',
-    items: [
-      { token: '{valor_mora}',        label: 'Valor en Mora',       icon: 'warning' },
-      { token: '{monto_por_cobrar}',  label: 'Monto por Cobrar',    icon: 'account_balance_wallet' },
-      { token: '{monto_total}',       label: 'Monto Total',         icon: 'receipt_long' },
-      { token: '{valor_intereses}',   label: 'Valor + Intereses',   icon: 'trending_up' },
-      { token: '{dias_mora}',         label: 'Días en Mora',        icon: 'hourglass_bottom' },
-      { token: '{valor_promocional}', label: 'Valor Promocional',   icon: 'sell' },
-      { token: '{numero_cuota}',     label: 'N° de Cuota',         icon: 'format_list_numbered' },
-    ],
-  },
-  {
-    label: 'Producto',
-    color: '#ba68c8',
-    items: [
-      { token: '{distribuidor}',      label: 'Distribuidor',        icon: 'store' },
-      { token: '{fecha_venta}',       label: 'Fecha de Venta',      icon: 'event' },
-      { token: '{modelo}',            label: 'Modelo',              icon: 'smartphone' },
-    ],
-  },
-  {
-    label: 'Asesor',
-    color: '#00e676',
-    items: [
-      { token: '{asesor_nombre}',     label: 'Nombre del Asesor',   icon: 'support_agent' },
-    ],
-  },
+const SEGMENTOS = [
+  { key: 'TODOS',       label: 'Todos los asesores',    icon: 'groups',         color: '#00e676', gradient: 'linear-gradient(135deg,#00e676,#00bfa5)' },
+  { key: 'MENSUALES',   label: 'Campaña Mensual',        icon: 'calendar_month', color: '#29b6f6', gradient: 'linear-gradient(135deg,#29b6f6,#1565c0)' },
+  { key: 'QUINCENALES', label: 'Campaña Quincenal',      icon: 'event_repeat',   color: '#ce93d8', gradient: 'linear-gradient(135deg,#ce93d8,#7b1fa2)' },
+  { key: 'TRAMO_0',     label: 'Tramo 0  ·  0 días',    icon: 'circle',         color: '#90a4ae', gradient: 'linear-gradient(135deg,#90a4ae,#546e7a)' },
+  { key: 'TRAMO_1',     label: 'Tramo 1  ·  1-30 días', icon: 'trending_up',    color: '#ffd54f', gradient: 'linear-gradient(135deg,#ffd54f,#f9a825)' },
+  { key: 'TRAMO_2',     label: 'Tramo 2  ·  31-60 días',icon: 'warning',        color: '#ffb74d', gradient: 'linear-gradient(135deg,#ffb74d,#e65100)' },
+  { key: 'PLAZO',       label: 'Plazo  ·  +60 días',    icon: 'priority_high',  color: '#ef5350', gradient: 'linear-gradient(135deg,#ef5350,#b71c1c)' },
 ];
 
-// Plano para preview / iteración legacy
-const VARIABLES = VARIABLE_GROUPS.flatMap(g => g.items);
+const SEGMENTO_META = Object.fromEntries(SEGMENTOS.map(s => [s.key, s]));
 
-const EJEMPLO_DATOS = {
-  '{nombres_apellidos}': 'Juan Carlos Pérez López',
-  '{cedula}': '1712345678',
-  '{telefono}': '0991234567',
-  '{correo}': 'juan.perez@ejemplo.com',
-  '{empresa}': 'UPHONE',
-  '{contrato}': 'CTR-2025-00432',
-  '{grupo}': 'Smartphones',
-  '{valor_mora}': '15.00',
-  '{monto_por_cobrar}': '450.00',
-  '{monto_total}': '1,250.00',
-  '{valor_intereses}': '18.00',
-  '{dias_mora}': '3',
-  '{valor_promocional}': '875.00',
-  '{numero_cuota}': '5',
-  '{distribuidor}': 'COMERCIAL ANDES',
-  '{fecha_venta}': '15-08-2025',
-  '{modelo}': 'Galaxy A54',
-  '{asesor_nombre}': 'María González',
-};
-
-const CANALES = [
-  { key: 'wsp',           label: 'WhatsApp',        icon: 'chat' },
-  { key: 'sms',           label: 'SMS (Google)',     icon: 'sms' },
-  { key: 'email',         label: 'Correo',           icon: 'mail' },
-];
-
-/**
- * MessagesConfig — Pestaña del supervisor para configurar plantillas
- * de mensajes que los asesores enviarán como acción rápida post-gestión.
- *
- * Responsabilidad única: Leer/escribir plantillas desde/hacia la tabla config.
- * No conoce la UI del asesor ni la lógica de envío.
- */
 export default function MessagesConfig() {
-  const [templates, setTemplates] = useState({});
-  const [codigoPais, setCodigoPais] = useState('593');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('wsp');
-  const [focusedField, setFocusedField] = useState('wsp');
-  const [previewActive, setPreviewActive] = useState(false);
-  const [tramos, setTramos] = useState([]);
-  const [tramoExpandido, setTramoExpandido] = useState(null);
-  const [tramoTabActivo, setTramoTabActivo] = useState('wsp');
+  const [loading,   setLoading]   = useState(true);
+  const [sending,   setSending]   = useState(false);
+  const [mensaje,   setMensaje]   = useState('');
+  const [segmento,  setSegmento]  = useState('TODOS');
+  const [mensajes,  setMensajes]  = useState([]);
+  const [expanded,  setExpanded]  = useState('activos');
 
-  const loadTemplates = useCallback(async () => {
+  const cargarMensajes = useCallback(async () => {
     try {
-      const apiBase = buildApiBase();
+      const apiBase   = buildApiBase();
       const authToken = localStorage.getItem('auth_token');
-      let config;
+      let lista = [];
       if (apiBase) {
-        const res = await fetch(`${apiBase}/config`, {
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
-        config = await res.json();
+        const res = await fetch(`${apiBase}/mensajes-broadcast`, { headers: { Authorization: `Bearer ${authToken}` } });
+        lista = await res.json();
       } else {
-        config = await window.api.invoke('db:getAllConfig');
+        lista = await window.api.invoke('db:getMensajesBroadcast');
       }
-      setTemplates({
-        wsp: config.msg_template_wsp || '',
-        sms: config.msg_template_sms || '',
-        email_subject: config.msg_template_email_subject || '',
-        email_body: config.msg_template_email_body || '',
-      });
-      setCodigoPais(config.codigo_pais || '593');
-      try {
-        const parsed = JSON.parse(config.msg_tramos || '[]');
-        setTramos(Array.isArray(parsed) ? parsed : []);
-      } catch { setTramos([]); }
-    } catch (err) {
-      showToast('Error al cargar plantillas', 'error');
+      setMensajes(Array.isArray(lista) ? lista : []);
+    } catch {
+      showToast('Error al cargar mensajes', 'error');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadTemplates(); }, [loadTemplates]);
+  useEffect(() => { cargarMensajes(); }, [cargarMensajes]);
 
-  async function handleSave() {
-    setSaving(true);
-    try {
-      const apiBase = buildApiBase();
-      const authToken = localStorage.getItem('auth_token');
-      const configs = [
-        ['msg_template_wsp',           templates.wsp],
-        ['msg_template_sms',           templates.sms],
-        ['msg_template_email_subject', templates.email_subject],
-        ['msg_template_email_body',    templates.email_body],
-        ['codigo_pais',                codigoPais],
-        ['msg_tramos',                 JSON.stringify(tramos)],
-      ];
-      if (apiBase) {
-        await Promise.all(configs.map(([clave, valor]) =>
-          fetch(`${apiBase}/config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-            body: JSON.stringify({ clave, valor }),
-          })
-        ));
-      } else {
-        for (const [clave, valor] of configs) {
-          await window.api.invoke('db:setConfig', clave, valor);
-        }
+  // ── Tiempo real: escuchar eventos WS desde el main process ──────────
+  useEffect(() => {
+    const removeListener = window.api?.on?.('ws:message', (data) => {
+      if (
+        data?.tipo === 'NUEVO_MENSAJE_SUPERVISOR' ||
+        data?.tipo === 'MENSAJE_DESACTIVADO'      ||
+        data?.tipo === 'MENSAJE_BROADCAST'
+      ) {
+        cargarMensajes();
       }
-      showToast('Plantillas guardadas correctamente', 'success');
-    } catch (err) {
-      showToast('Error al guardar', 'error');
+    });
+    return () => removeListener?.();
+  }, [cargarMensajes]);
+
+  async function handleEnviar() {
+    if (!mensaje.trim()) { showToast('Escribe el mensaje antes de enviar', 'warning'); return; }
+    setSending(true);
+    try {
+      const apiBase   = buildApiBase();
+      const authToken = localStorage.getItem('auth_token');
+      if (apiBase) {
+        await fetch(`${apiBase}/mensajes-broadcast`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmento }),
+        });
+      } else {
+        const user = JSON.parse(localStorage.getItem('uphone_user') || '{}');
+        await window.api.invoke('db:insertMensajeBroadcast', user.id, mensaje.trim(), segmento);
+      }
+      showToast('Mensaje enviado a los gestores ✓', 'success');
+      setMensaje('');
+      await cargarMensajes();
+      setExpanded('activos');
+    } catch {
+      showToast('Error al enviar el mensaje', 'error');
     } finally {
-      setSaving(false);
+      setSending(false);
     }
   }
 
-  function insertVariable(token) {
-    const target = (activeTab === 'email' && focusedField === 'email_subject') ? 'email_subject' : 
-                   (activeTab === 'email' && focusedField === 'email_body') ? 'email_body' : 
-                   activeTab;
-
-    setTemplates(prev => ({
-      ...prev,
-      [target]: (prev[target] || '') + token,
-    }));
+  async function handleDesactivar(id) {
+    try {
+      const apiBase   = buildApiBase();
+      const authToken = localStorage.getItem('auth_token');
+      if (apiBase) {
+        await fetch(`${apiBase}/mensajes-broadcast/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` } });
+      } else {
+        await window.api.invoke('db:deleteMensajeBroadcast', id);
+      }
+      showToast('Mensaje desactivado', 'info');
+      await cargarMensajes();
+    } catch {
+      showToast('Error al desactivar', 'error');
+    }
   }
 
-  function insertVarInTramo(tramoId, token) {
-    const fieldKey = tramoTabActivo === 'email' ? 'email_body' : tramoTabActivo;
-    setTramos(prev => prev.map(t =>
-      t.id === tramoId ? { ...t, [fieldKey]: (t[fieldKey] || '') + token } : t
-    ));
+  const activos     = mensajes.filter(m => m.activo !== 0);
+  const efectivos   = mensajes.filter(m => m.activo === 0 && (m.pagos_posteriores ?? 0) > 0);
+  const noEfectivos = mensajes.filter(m => m.activo === 0 && (m.pagos_posteriores ?? 0) === 0);
+
+  const segActivo = SEGMENTO_META[segmento] || {};
+
+  /* ── Badge de segmento ──────────────────────────────────────────────── */
+  function SegmentoBadge({ keyVal }) {
+    const meta = SEGMENTO_META[keyVal] || {};
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '4px 11px', borderRadius: 20,
+        background: `${meta.color || '#888'}18`,
+        border: `1.5px solid ${meta.color || '#888'}50`,
+        color: meta.color || '#aaa',
+        fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6,
+        textTransform: 'uppercase',
+      }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{meta.icon || 'label'}</span>
+        {meta.label || keyVal}
+      </span>
+    );
   }
 
-  function addTramo() {
-    const sorted = [...tramos].sort((a, b) => (a.desde ?? 0) - (b.desde ?? 0));
-    const last = sorted[sorted.length - 1];
-    const newDesde = last ? (last.hasta >= 0 ? last.hasta + 1 : 0) : 0;
-    const newT = { id: Date.now(), label: '', desde: newDesde, hasta: -1, wsp: '', sms: '', email_subject: '', email_body: '' };
-    setTramos(prev => [...prev, newT]);
-    setTramoExpandido(newT.id);
-    setTramoTabActivo('wsp');
+  /* ── Tarjeta de mensaje ─────────────────────────────────────────────── */
+  function MensajeCard({ m, showDelete }) {
+    const meta = SEGMENTO_META[m.segmento_destino] || {};
+    return (
+      <div style={{
+        position: 'relative',
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderLeft: `3px solid ${meta.color || '#555'}`,
+        borderRadius: 12,
+        padding: '14px 18px',
+        display: 'flex', flexDirection: 'column', gap: 12,
+        transition: 'box-shadow 0.2s',
+      }}>
+        {/* Meta-row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <SegmentoBadge keyVal={m.segmento_destino} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: 0.45, fontSize: 11 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>person</span>
+            {m.supervisor_nombre || 'Supervisor'}
+          </div>
+          <div style={{ marginLeft: 'auto', opacity: 0.3, fontSize: 10.5, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
+            {m.creado_en ? new Date(m.creado_en).toLocaleString('es-EC', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
+          </div>
+        </div>
+
+        {/* Contenido del mensaje */}
+        <p style={{
+          margin: 0,
+          fontSize: 13,
+          lineHeight: 1.7,
+          color: 'rgba(255,255,255,0.82)',
+          background: 'rgba(0,0,0,0.25)',
+          borderRadius: 10,
+          padding: '12px 16px',
+          whiteSpace: 'pre-wrap',
+          fontFamily: 'inherit',
+          letterSpacing: 0.15,
+        }}>
+          {m.mensaje}
+        </p>
+
+        {/* Footer */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+          {(m.pagos_posteriores ?? 0) > 0 && (
+            <span style={{
+              fontSize: 10.5, color: '#00e676',
+              background: 'rgba(0,230,118,0.1)',
+              border: '1px solid rgba(0,230,118,0.25)',
+              borderRadius: 20, padding: '3px 10px',
+              display: 'flex', alignItems: 'center', gap: 5, fontWeight: 700,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>
+              {m.pagos_posteriores} pago(s)
+            </span>
+          )}
+          {showDelete && (
+            <button
+              onClick={() => handleDesactivar(m.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: 'rgba(239,83,80,0.1)',
+                border: '1px solid rgba(239,83,80,0.3)',
+                color: '#ef5350',
+                borderRadius: 20, padding: '4px 12px',
+                fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                transition: 'all 0.18s',
+                outline: 'none',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.22)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.1)'; }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>cancel</span>
+              Desactivar
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
-  function updateTramo(id, field, value) {
-    setTramos(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
-  }
+  /* ── Acordeón ───────────────────────────────────────────────────────── */
+  function Acordeon({ id, label, icon, color, count, children }) {
+    const open = expanded === id;
+    return (
+      <div style={{
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 8,
+        background: open ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.015)',
+        border: `1px solid ${open ? `${color}35` : 'rgba(255,255,255,0.06)'}`,
+        transition: 'border-color 0.2s',
+      }}>
+        <button
+          onClick={() => setExpanded(open ? null : id)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+            padding: '14px 18px', background: 'transparent', border: 'none',
+            cursor: 'pointer', textAlign: 'left', outline: 'none',
+          }}
+        >
+          {/* Dot indicator */}
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: color, flexShrink: 0,
+            boxShadow: open ? `0 0 8px ${color}` : 'none',
+            transition: 'box-shadow 0.2s',
+          }} />
+          <span className="material-symbols-outlined" style={{ fontSize: 18, color, flexShrink: 0 }}>{icon}</span>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'rgba(255,255,255,0.88)', letterSpacing: 0.3 }}>
+            {label}
+          </span>
+          {/* Badge count */}
+          <span style={{
+            marginLeft: 4,
+            background: count > 0 ? color : 'rgba(255,255,255,0.1)',
+            color: count > 0 ? '#000' : 'rgba(255,255,255,0.4)',
+            borderRadius: 20, padding: '1px 9px',
+            fontSize: 11, fontWeight: 800,
+            minWidth: 22, textAlign: 'center',
+          }}>
+            {count}
+          </span>
+          <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto', opacity: 0.35, color: 'white' }}>
+            {open ? 'expand_less' : 'expand_more'}
+          </span>
+        </button>
 
-  function deleteTramo(id) {
-    setTramos(prev => prev.filter(t => t.id !== id));
-    if (tramoExpandido === id) setTramoExpandido(null);
+        {open && (
+          <div style={{ padding: '0 14px 14px' }}>
+            <div style={{ height: 1, background: `${color}25`, marginBottom: 14 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {count === 0 ? (
+                <div style={{
+                  textAlign: 'center', padding: '24px 0', opacity: 0.35,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 30 }}>inbox</span>
+                  <p style={{ margin: 0, fontSize: 12 }}>Sin mensajes en esta categoría</p>
+                </div>
+              ) : children}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
-
-  /** Reemplaza los tokens de la plantilla con datos de ejemplo */
-  function renderPreview(text) {
-    if (!text) return '(Plantilla vacía)';
-    let result = text;
-    Object.entries(EJEMPLO_DATOS).forEach(([token, value]) => {
-      result = result.replaceAll(token, value);
-    });
-    return result;
-  }
-
-  const tramosOrdenados = [...tramos].sort((a, b) => (a.desde ?? 0) - (b.desde ?? 0));
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 64 }}>
-        <span className="spinner" />
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+        <span className="spinner" style={{ width: 32, height: 32 }} />
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: 900, margin: '0 auto' }}>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h3 className="text-headline-sm" style={{ marginBottom: 8 }}>
-          <span className="material-symbols-outlined" style={{ verticalAlign: 'middle', marginRight: 8, color: 'var(--color-primary)' }}>chat</span>
-          Plantillas de Mensajes
-        </h3>
-        <p className="text-body-sm" style={{ opacity: 0.6, maxWidth: 600 }}>
-          Configure las plantillas que los asesores usarán como acción rápida al finalizar cada gestión de cobro. 
-          Use las variables disponibles para personalizar el mensaje con datos del cliente.
-        </p>
+    <div style={{ padding: '28px 28px 40px', maxWidth: 820, margin: '0 auto' }}>
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+          background: 'linear-gradient(135deg,#00e676,#00bfa5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 4px 16px rgba(0,230,118,0.3)',
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#000' }}>campaign</span>
+        </div>
+        <div>
+          <h3 style={{ margin: '0 0 5px', fontSize: 20, fontWeight: 800, letterSpacing: -0.3, color: '#fff' }}>
+            Mensajes para Gestores
+          </h3>
+          <p style={{ margin: 0, fontSize: 12.5, opacity: 0.45, lineHeight: 1.5, maxWidth: 480 }}>
+            Redacta el mensaje que los gestores deben enviar a su cartera, elige el tramo de trabajo y envíalo en tiempo real.
+          </p>
+        </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={cargarMensajes}
+          style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.5 }}
+          title="Recargar"
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
+        </button>
       </div>
 
-      {/* Código de país */}
-      <div className="card" style={{ marginBottom: 16, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 20, opacity: 0.6 }}>public</span>
-        <div style={{ flex: 1 }}>
-          <span className="text-label-sm" style={{ opacity: 0.6 }}>CÓDIGO DE PAÍS (WHATSAPP)</span>
-          <p className="text-body-sm" style={{ opacity: 0.4, fontSize: 11, margin: 0 }}>Se antepone automáticamente al número del contacto</p>
-        </div>
-        <input
-          className="input"
-          type="text"
-          value={codigoPais}
-          onChange={e => setCodigoPais(e.target.value.replace(/\D/g, ''))}
-          style={{ width: 80, textAlign: 'center', fontWeight: 700 }}
-          maxLength={4}
-        />
-      </div>
+      {/* ── Compositor ──────────────────────────────────────────────────── */}
+      <div style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        padding: 22,
+        marginBottom: 28,
+        boxShadow: '0 4px 32px rgba(0,0,0,0.2)',
+      }}>
 
-      {/* Tabs de canal */}
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-          {CANALES.map(c => (
-            <button
-              key={c.key}
-              className={`btn ${activeTab === c.key ? '' : 'btn-ghost'}`}
-              style={{
-                flex: 1,
-                borderRadius: 0,
-                borderBottom: activeTab === c.key ? '2px solid var(--color-primary)' : '2px solid transparent',
-                padding: '12px 8px',
-                fontSize: 12,
-                fontWeight: activeTab === c.key ? 700 : 400,
-                opacity: activeTab === c.key ? 1 : 0.5,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 6,
-              }}
-              onClick={() => setActiveTab(c.key)}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{c.icon}</span>
-              {c.label}
-            </button>
-          ))}
+        {/* Label */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#00e676' }}>edit_note</span>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>
+            Nuevo Mensaje
+          </span>
         </div>
 
-        <div style={{ padding: 20 }}>
-          {/* Variables agrupadas */}
-          <div style={{ marginBottom: 16 }}>
-            <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, opacity: 0.5 }}>
-              INSERTAR VARIABLE
-            </label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {VARIABLE_GROUPS.map(g => (
-                <div key={g.label} style={{
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  background: 'rgba(255,255,255,0.02)',
-                  border: '1px solid rgba(255,255,255,0.05)',
-                }}>
-                  <div style={{
-                    fontSize: 9, fontWeight: 800, letterSpacing: 0.6,
-                    textTransform: 'uppercase', marginBottom: 6, color: g.color, opacity: 0.85,
-                  }}>
-                    {g.label}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {g.items.map(v => (
-                      <button
-                        key={v.token}
-                        className="btn btn-outline btn-sm"
-                        style={{
-                          fontSize: 10.5, display: 'flex', alignItems: 'center', gap: 4,
-                          padding: '5px 9px', borderColor: `${g.color}33`,
-                        }}
-                        onClick={() => insertVariable(v.token)}
-                        title={`Insertar ${v.token}`}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 13, color: g.color }}>{v.icon}</span>
-                        {v.label}
-                        <code style={{
-                          fontSize: 9, opacity: 0.55, marginLeft: 3, padding: '1px 4px',
-                          background: 'rgba(0,0,0,0.25)', borderRadius: 3, fontFamily: 'monospace',
-                        }}>{v.token}</code>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Editor */}
-          <div style={{ marginBottom: 16 }}>
-            {activeTab === 'email' ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div>
-                  <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, opacity: 0.6 }}>
-                    ASUNTO DEL CORREO
-                  </label>
-                  <input
-                    type="text"
-                    className="input"
-                    style={{ width: '100%', padding: 12, fontFamily: 'monospace' }}
-                    value={templates.email_subject}
-                    onFocus={() => setFocusedField('email_subject')}
-                    onChange={e => setTemplates(prev => ({ ...prev, email_subject: e.target.value }))}
-                    placeholder="Escriba el asunto del correo..."
-                  />
-                </div>
-                <div>
-                  <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, opacity: 0.6 }}>
-                    CUERPO DEL CORREO
-                  </label>
-                  <textarea
-                    className="input"
-                    style={{
-                      width: '100%',
-                      minHeight: 200,
-                      resize: 'vertical',
-                      padding: 12,
-                      fontFamily: 'monospace',
-                      fontSize: 13,
-                      lineHeight: 1.6,
-                    }}
-                    value={templates.email_body}
-                    onFocus={() => setFocusedField('email_body')}
-                    onChange={e => setTemplates(prev => ({ ...prev, email_body: e.target.value }))}
-                    placeholder="Escriba el cuerpo del mensaje aquí..."
-                  />
-                </div>
-              </div>
-            ) : (
-              <>
-                <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, opacity: 0.6 }}>
-                  PLANTILLA DEL MENSAJE
-                </label>
-                <textarea
-                  className="input"
-                  style={{
-                    width: '100%',
-                    minHeight: 200,
-                    resize: 'vertical',
-                    padding: 12,
-                    fontFamily: 'monospace',
-                    fontSize: 13,
-                    lineHeight: 1.6,
-                  }}
-                  value={templates[activeTab] || ''}
-                  onFocus={() => setFocusedField(activeTab)}
-                  onChange={e => setTemplates(prev => ({ ...prev, [activeTab]: e.target.value }))}
-                  placeholder="Escriba la plantilla del mensaje aquí..."
-                />
-              </>
-            )}
-          </div>
-
-          {/* Preview */}
-          <div style={{ marginBottom: 16 }}>
-            <button
-              className="btn btn-ghost btn-sm"
-              style={{ marginBottom: 8, fontSize: 11 }}
-              onClick={() => setPreviewActive(!previewActive)}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
-                {previewActive ? 'visibility_off' : 'visibility'}
-              </span>
-              {previewActive ? 'Ocultar Vista Previa' : 'Mostrar Vista Previa'}
-            </button>
-
-            {previewActive && (
-              <div style={{
-                background: 'rgba(0,229,255,0.04)',
-                border: '1px solid rgba(0,229,255,0.15)',
-                borderRadius: 8,
-                padding: 16,
-              }}>
-                <span className="text-label-sm" style={{ display: 'block', marginBottom: 8, color: 'var(--color-primary)', fontSize: 10 }}>
-                  VISTA PREVIA CON DATOS DE EJEMPLO
-                </span>
-                {activeTab === 'email' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div>
-                      <span style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>ASUNTO:</span>
-                      <p className="text-body-sm" style={{ fontWeight: 600, margin: 0 }}>{renderPreview(templates.email_subject)}</p>
-                    </div>
-                    <div style={{ height: 1, background: 'rgba(255,255,255,0.1)' }} />
-                    <div>
-                      <span style={{ fontSize: 11, opacity: 0.5, display: 'block' }}>CUERPO:</span>
-                      <p className="text-body-sm" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>
-                        {renderPreview(templates.email_body)}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-body-sm" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>
-                    {renderPreview(templates[activeTab])}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Tramos por Días en Mora ──────────────────────────────────── */}
-      <div style={{ marginTop: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div>
-            <h4 className="text-headline-sm" style={{ margin: '0 0 4px', fontSize: 15 }}>
-              <span className="material-symbols-outlined" style={{ verticalAlign: 'middle', marginRight: 6, fontSize: 18, color: '#ff9800' }}>schedule_send</span>
-              Plantillas por Tramo de Mora
-            </h4>
-            <p className="text-body-sm" style={{ opacity: 0.5, margin: 0, fontSize: 11 }}>
-              Mensajes diferenciados según días en mora del cliente. Si coincide con un tramo se usa esa plantilla; si no, la global.
-            </p>
-          </div>
-          <button className="btn btn-outline btn-sm" style={{ flexShrink: 0, marginLeft: 16 }} onClick={addTramo}>
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-            Agregar Tramo
-          </button>
-        </div>
-
-        {tramosOrdenados.length === 0 ? (
-          <div style={{
-            padding: '28px 24px', textAlign: 'center', opacity: 0.4,
-            border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 8,
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 36, display: 'block', marginBottom: 8 }}>format_list_numbered</span>
-            <p style={{ margin: 0, fontSize: 12 }}>Sin tramos configurados. Se enviará la plantilla global a todos los clientes.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {tramosOrdenados.map((tramo) => {
-              const expanded = tramoExpandido === tramo.id;
+        {/* Segmento Destino */}
+        <div style={{ marginBottom: 18 }}>
+          <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Segmento Destino
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {SEGMENTOS.map(s => {
+              const active = segmento === s.key;
               return (
-                <div key={tramo.id} className="card" style={{ overflow: 'visible' }}>
-                  {/* Header del tramo */}
-                  <div
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                      cursor: 'pointer', borderRadius: expanded ? '8px 8px 0 0' : 8,
-                      background: expanded ? 'rgba(255,152,0,0.04)' : 'transparent',
-                    }}
-                    onClick={() => { setTramoExpandido(expanded ? null : tramo.id); setTramoTabActivo('wsp'); }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#ff9800', flexShrink: 0 }}>
-                      {expanded ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
-                    </span>
-                    <div style={{
-                      background: 'rgba(255,152,0,0.15)', border: '1px solid rgba(255,152,0,0.3)',
-                      borderRadius: 6, padding: '2px 10px', fontSize: 11, fontWeight: 800, color: '#ff9800',
-                      whiteSpace: 'nowrap', flexShrink: 0,
-                    }}>
-                      {tramo.desde ?? 0} – {(tramo.hasta >= 0) ? `${tramo.hasta} días` : '∞'}
-                    </div>
-                    <input
-                      className="input"
-                      value={tramo.label || ''}
-                      onChange={e => { e.stopPropagation(); updateTramo(tramo.id, 'label', e.target.value); }}
-                      onClick={e => e.stopPropagation()}
-                      placeholder="Ej: Mora inicial · Mora media · Mora crítica…"
-                      style={{ flex: 1, fontSize: 11, padding: '3px 8px', minWidth: 0 }}
-                    />
-                    {/* Indicadores de canales configurados */}
-                    <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
-                      {[
-                        { k: 'wsp',        label: 'WSP',   color: '#4caf50' },
-                        { k: 'sms',        label: 'SMS',   color: '#2196f3' },
-                        { k: 'email_body', label: 'Email', color: '#9c27b0' },
-                      ].map(ch => (
-                        <span key={ch.k} style={{
-                          fontSize: 9, padding: '1px 5px', borderRadius: 4, fontWeight: 700,
-                          background: tramo[ch.k] ? `${ch.color}22` : 'rgba(255,255,255,0.05)',
-                          border: `1px solid ${tramo[ch.k] ? `${ch.color}55` : 'transparent'}`,
-                          color: tramo[ch.k] ? ch.color : 'rgba(255,255,255,0.25)',
-                        }}>
-                          {ch.label}
-                        </span>
-                      ))}
-                    </div>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={e => { e.stopPropagation(); deleteTramo(tramo.id); }}
-                      style={{ padding: 4, flexShrink: 0, color: 'rgba(244,67,54,0.7)' }}
-                      title="Eliminar tramo"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
-                    </button>
-                  </div>
-
-                  {/* Cuerpo expandido */}
-                  {expanded && (
-                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: 16 }}>
-                      {/* Rango */}
-                      <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
-                        <div style={{ flex: 1 }}>
-                          <label className="text-label-sm" style={{ display: 'block', marginBottom: 4, opacity: 0.55, fontSize: 9 }}>
-                            DESDE (días mora, inclusivo)
-                          </label>
-                          <input
-                            type="number" min="0" className="input"
-                            value={tramo.desde ?? 0}
-                            onChange={e => updateTramo(tramo.id, 'desde', Math.max(0, parseInt(e.target.value) || 0))}
-                            style={{ fontWeight: 700, fontSize: 14 }}
-                          />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <label className="text-label-sm" style={{ display: 'block', marginBottom: 4, opacity: 0.55, fontSize: 9 }}>
-                            HASTA (días mora, inclusivo · -1 = sin límite)
-                          </label>
-                          <input
-                            type="number" min="-1" className="input"
-                            value={tramo.hasta ?? -1}
-                            onChange={e => updateTramo(tramo.id, 'hasta', parseInt(e.target.value))}
-                            style={{ fontWeight: 700, fontSize: 14 }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Tabs de canal del tramo */}
-                      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 12 }}>
-                        {CANALES.map(c => (
-                          <button
-                            key={c.key}
-                            className={`btn ${tramoTabActivo === c.key ? '' : 'btn-ghost'}`}
-                            style={{
-                              flex: 1, borderRadius: 0,
-                              borderBottom: tramoTabActivo === c.key ? '2px solid #ff9800' : '2px solid transparent',
-                              padding: '8px', fontSize: 11,
-                              fontWeight: tramoTabActivo === c.key ? 700 : 400,
-                              opacity: tramoTabActivo === c.key ? 1 : 0.5,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-                            }}
-                            onClick={() => setTramoTabActivo(c.key)}
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{c.icon}</span>
-                            {c.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Variables */}
-                      <div style={{ marginBottom: 10 }}>
-                        <label className="text-label-sm" style={{ display: 'block', marginBottom: 5, opacity: 0.45, fontSize: 9 }}>
-                          INSERTAR VARIABLE{tramoTabActivo === 'email' ? ' (se agrega al cuerpo del correo)' : ''}
-                        </label>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {VARIABLE_GROUPS.map(g => (
-                            <div key={g.label} style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {g.items.map(v => (
-                                <button
-                                  key={v.token}
-                                  className="btn btn-outline btn-sm"
-                                  style={{
-                                    fontSize: 9.5, padding: '3px 7px', borderColor: `${g.color}33`,
-                                    display: 'flex', alignItems: 'center', gap: 3,
-                                  }}
-                                  onClick={() => insertVarInTramo(tramo.id, v.token)}
-                                >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 11, color: g.color }}>{v.icon}</span>
-                                  <code style={{ fontSize: 8, opacity: 0.65 }}>{v.token}</code>
-                                </button>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Editor de plantilla */}
-                      {tramoTabActivo === 'email' ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                          <div>
-                            <label className="text-label-sm" style={{ display: 'block', marginBottom: 5, opacity: 0.6, fontSize: 10 }}>ASUNTO</label>
-                            <input
-                              type="text" className="input"
-                              value={tramo.email_subject || ''}
-                              onChange={e => updateTramo(tramo.id, 'email_subject', e.target.value)}
-                              style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }}
-                              placeholder="Asunto del correo para este tramo…"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-label-sm" style={{ display: 'block', marginBottom: 5, opacity: 0.6, fontSize: 10 }}>CUERPO</label>
-                            <textarea
-                              className="input"
-                              value={tramo.email_body || ''}
-                              onChange={e => updateTramo(tramo.id, 'email_body', e.target.value)}
-                              style={{ width: '100%', minHeight: 140, resize: 'vertical', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 }}
-                              placeholder="Cuerpo del correo para este tramo…"
-                            />
-                          </div>
-                        </div>
-                      ) : (
-                        <textarea
-                          className="input"
-                          value={tramo[tramoTabActivo] || ''}
-                          onChange={e => updateTramo(tramo.id, tramoTabActivo, e.target.value)}
-                          style={{ width: '100%', minHeight: 140, resize: 'vertical', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 }}
-                          placeholder={`Plantilla ${tramoTabActivo.toUpperCase()} para ${tramo.desde ?? 0}–${tramo.hasta >= 0 ? tramo.hasta : '∞'} días de mora…`}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
+                <button
+                  key={s.key}
+                  onClick={() => setSegmento(s.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '7px 14px', borderRadius: 22,
+                    border: `1.5px solid ${active ? s.color : 'rgba(255,255,255,0.1)'}`,
+                    background: active ? `${s.color}20` : 'transparent',
+                    color: active ? s.color : 'rgba(255,255,255,0.5)',
+                    fontSize: 12, fontWeight: active ? 700 : 400,
+                    cursor: 'pointer', outline: 'none',
+                    transition: 'all 0.18s ease',
+                    boxShadow: active ? `0 0 12px ${s.color}30` : 'none',
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{s.icon}</span>
+                  {s.label}
+                </button>
               );
             })}
           </div>
-        )}
+        </div>
+
+        {/* Textarea */}
+        <div style={{ marginBottom: 18, position: 'relative' }}>
+          <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Redactar Mensaje
+          </p>
+          <textarea
+            value={mensaje}
+            onChange={e => setMensaje(e.target.value)}
+            rows={4}
+            style={{
+              width: '100%',
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 12,
+              padding: '14px 16px',
+              color: 'rgba(255,255,255,0.9)',
+              fontSize: 13.5,
+              lineHeight: 1.7,
+              fontFamily: 'inherit',
+              resize: 'vertical',
+              minHeight: 110,
+              outline: 'none',
+              transition: 'border-color 0.18s',
+              boxSizing: 'border-box',
+            }}
+            onFocus={e => { e.target.style.borderColor = segActivo.color || 'rgba(0,230,118,0.5)'; }}
+            onBlur={e => { e.target.style.borderColor = 'rgba(255,255,255,0.1)'; }}
+            placeholder="Escribe el mensaje que los gestores deben enviar a sus clientes…"
+          />
+          {mensaje.trim() && (
+            <span style={{
+              position: 'absolute', bottom: 10, right: 12,
+              fontSize: 10, opacity: 0.3,
+            }}>
+              {mensaje.length} chars
+            </span>
+          )}
+        </div>
+
+        {/* Botón enviar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '5px 12px', borderRadius: 20,
+              background: `${segActivo.color || '#00e676'}15`,
+              border: `1.5px solid ${segActivo.color || '#00e676'}40`,
+              color: segActivo.color || '#00e676',
+              fontSize: 11, fontWeight: 700,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{segActivo.icon || 'groups'}</span>
+              {segActivo.label || 'Todos'}
+            </span>
+          </div>
+
+          <button
+            onClick={handleEnviar}
+            disabled={sending || !mensaje.trim()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '10px 24px', borderRadius: 22,
+              background: sending || !mensaje.trim()
+                ? 'rgba(255,255,255,0.08)'
+                : 'linear-gradient(135deg,#00e676,#00bfa5)',
+              border: 'none',
+              color: sending || !mensaje.trim() ? 'rgba(255,255,255,0.3)' : '#000',
+              fontSize: 13, fontWeight: 800,
+              cursor: sending || !mensaje.trim() ? 'not-allowed' : 'pointer',
+              boxShadow: !sending && mensaje.trim() ? '0 4px 18px rgba(0,230,118,0.35)' : 'none',
+              transition: 'all 0.2s ease',
+              outline: 'none',
+            }}
+          >
+            {sending ? (
+              <><span className="spinner" style={{ width: 15, height: 15, borderColor: 'rgba(255,255,255,0.4)', borderTopColor: '#fff' }} /> Enviando…</>
+            ) : (
+              <><span className="material-symbols-outlined" style={{ fontSize: 17 }}>send</span> Enviar a Gestores</>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Botón Guardar */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, gap: 12 }}>
-        <button className="btn btn-ghost" onClick={loadTemplates} disabled={saving}>
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
-          Restaurar
-        </button>
-        <button className="btn btn-primary btn-lg" onClick={handleSave} disabled={saving}>
-          {saving ? (
-            <><span className="spinner" style={{ width: 16, height: 16 }} /> Guardando...</>
-          ) : (
-            <><span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span> Guardar Plantillas</>
-          )}
-        </button>
+      {/* ── Acordeones de estado ─────────────────────────────────────────── */}
+      <div>
+        <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
+          Estado de Mensajes
+        </p>
+
+        <Acordeon id="activos" label="Mensajes Activos" icon="notifications_active" color="#00e676" count={activos.length}>
+          {activos.map(m => <MensajeCard key={m.id} m={m} showDelete />)}
+        </Acordeon>
+
+        <Acordeon id="efectivos" label="Mensajes Efectivos" icon="trending_up" color="#29b6f6" count={efectivos.length}>
+          {efectivos.map(m => <MensajeCard key={m.id} m={m} />)}
+        </Acordeon>
+
+        <Acordeon id="no_efectivos" label="Mensajes No Efectivos" icon="trending_down" color="#ef5350" count={noEfectivos.length}>
+          {noEfectivos.map(m => <MensajeCard key={m.id} m={m} />)}
+        </Acordeon>
       </div>
+
     </div>
   );
 }

@@ -7,6 +7,11 @@
 *.db
 *.db-journal
 *.db-wal
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+datos_uphone.sql
+db_prueba.sql
 
 # Build output
 out/
@@ -67,6 +72,26 @@ npm-debug.log*
 .windsurf/
 .zencoder/
 
+# Windows reserved device name — no existe como archivo real, git no puede indexarlo
+NUL.css
+
+# Scripts temporales de desarrollo/parche (no son parte del producto)
+scripts/
+patch.js
+gen-hash.js
+reset-admin.js
+reset-uphone-users.js
+update_users.py
+AsesorPanel_reconstructed.jsx
+old_AsesorPanel.jsx
+best_match.txt
+vite-proyect/
+audio con requerimeintos/
+
+# Prisma duplicado en raíz (el real está en backend/)
+prisma/
+prisma.config.ts
+
 # Temporary/scratch
 scratch/
 data/
@@ -74,3 +99,5 @@ data/
 # Skills config (local) — scaffolding de agentes IA, no es parte del producto
 skills-lock.json
 skills/
+
+/src/generated/prisma

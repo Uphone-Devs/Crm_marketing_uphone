@@ -77,6 +77,9 @@ function initDatabase() {
     if (!columnNames.includes('operadora')) {
       db.prepare("ALTER TABLE cdrs ADD COLUMN operadora TEXT").run();
     }
+    if (!columnNames.includes('canal')) {
+      db.prepare("ALTER TABLE cdrs ADD COLUMN canal TEXT DEFAULT 'llamada'").run();
+    }
     console.log('[DB] Migración de columnas de métricas completada');
   } catch (err) {
     console.warn('[DB] Error en migración CDR (posiblemente ya migrado):', err.message);
@@ -214,6 +217,24 @@ function initDatabase() {
     }
   } catch (err) {
     console.warn('[DB] Error verificando/añadiendo columnas en tipificaciones:', err.message);
+  }
+
+  // Migración para añadir columnas WSP y RCS en contactos
+  try {
+    const tableInfoContactos = db.pragma("table_info(contactos)");
+    const hasWhatsapp = tableInfoContactos.some(col => col.name === 'whatsapp_status');
+    const hasRcs = tableInfoContactos.some(col => col.name === 'rcs_status');
+
+    if (!hasWhatsapp) {
+      db.prepare("ALTER TABLE contactos ADD COLUMN whatsapp_status TEXT DEFAULT 'INACTIVO'").run();
+      console.log('[DB] Columna whatsapp_status añadida a contactos');
+    }
+    if (!hasRcs) {
+      db.prepare("ALTER TABLE contactos ADD COLUMN rcs_status TEXT DEFAULT 'ACTIVO'").run();
+      console.log('[DB] Columna rcs_status añadida a contactos');
+    }
+  } catch (err) {
+    console.warn('[DB] Error verificando/añadiendo columnas WSP/RCS en contactos:', err.message);
   }
 
   // M-007: Normalización tipificaciones legacy
@@ -536,7 +557,11 @@ function initDatabase() {
           let def = `${c.name} ${c.type || 'TEXT'}`;
           if (c.pk === 1) def += ' PRIMARY KEY AUTOINCREMENT';
           if (c.name !== 'contacto_id' && c.notnull === 1 && c.pk !== 1) def += ' NOT NULL';
-          if (c.dflt_value != null) def += ` DEFAULT ${c.dflt_value}`;
+          // Envolver el default en paréntesis: PRAGMA table_info devuelve las
+          // expresiones (p.ej. datetime('now')) SIN los paréntesis externos, y
+          // SQLite exige DEFAULT (expr) al recrear la tabla. Los literales
+          // (0, 'texto') también son válidos entre paréntesis.
+          if (c.dflt_value != null) def += ` DEFAULT (${c.dflt_value})`;
           return def;
         });
         // Agregar FKs (contacto_id con ON DELETE SET NULL; el resto como estaban)
@@ -781,6 +806,54 @@ function initDatabase() {
     console.warn('[DB] M-018 Error:', err.message);
   }
 
+  // M-028: Insertar nuevas tipificaciones para el menú de gestión rápida
+  try {
+    const tipificacionesNuevas = [
+      { codigo: 'CUELGA', descripcion: 'Cuelga', requiere_agd: 0, categoria: 'NO_CONTACTADO', finaliza_gestion: 1, solo_sistema: 0 },
+      { codigo: 'REF', descripcion: 'Referencia', requiere_agd: 0, categoria: 'NO_CONTACTADO', finaliza_gestion: 1, solo_sistema: 0 },
+      { codigo: 'SIN_BUZON', descripcion: 'Sin buzon', requiere_agd: 0, categoria: 'NO_CONTACTADO', finaliza_gestion: 1, solo_sistema: 0 },
+    ];
+
+    const insertOrUpdateM028 = db.prepare(`
+      INSERT INTO tipificaciones (codigo, descripcion, requiere_agd, categoria, finaliza_gestion, solo_sistema)
+      VALUES (@codigo, @descripcion, @requiere_agd, @categoria, @finaliza_gestion, @solo_sistema)
+      ON CONFLICT(codigo) DO UPDATE SET
+          descripcion = excluded.descripcion,
+          requiere_agd = excluded.requiere_agd,
+          categoria = excluded.categoria,
+          finaliza_gestion = excluded.finaliza_gestion,
+          solo_sistema = excluded.solo_sistema
+    `);
+
+    const hasSoloSistema = db.pragma("table_info(tipificaciones)").some(c => c.name === 'solo_sistema');
+    if (hasSoloSistema) {
+      db.transaction(() => {
+        for (const t of tipificacionesNuevas) {
+          insertOrUpdateM028.run(t);
+        }
+      })();
+      console.log('[DB] M-028: Tipificaciones rápidas añadidas (CUELGA, REF, SIN_BUZON)');
+    } else {
+      const insertOrUpdateLegacy = db.prepare(`
+        INSERT INTO tipificaciones (codigo, descripcion, requiere_agd, categoria, finaliza_gestion)
+        VALUES (@codigo, @descripcion, @requiere_agd, @categoria, @finaliza_gestion)
+        ON CONFLICT(codigo) DO UPDATE SET
+            descripcion = excluded.descripcion,
+            requiere_agd = excluded.requiere_agd,
+            categoria = excluded.categoria,
+            finaliza_gestion = excluded.finaliza_gestion
+      `);
+      db.transaction(() => {
+        for (const t of tipificacionesNuevas) {
+          insertOrUpdateLegacy.run(t);
+        }
+      })();
+      console.log('[DB] M-028: Tipificaciones rápidas añadidas (Fallback sin solo_sistema)');
+    }
+  } catch (err) {
+    console.warn('[DB] M-028 Error:', err.message);
+  }
+
   // M-010: monto_acordado en CDRs — compromiso real ingresado por el asesor
   try {
     const colsCdrs = db.prepare("PRAGMA table_info(cdrs)").all();
@@ -945,7 +1018,7 @@ function initDatabase() {
             nombre        TEXT    NOT NULL,
             email         TEXT    UNIQUE NOT NULL,
             password_hash TEXT    NOT NULL,
-            rol           TEXT    NOT NULL DEFAULT 'asesor' CHECK(rol IN ('supervisor','asesor','admin')),
+            rol           TEXT    NOT NULL DEFAULT 'asesor' CHECK(rol IN ('supervisor','jefe_area','asesor','admin')),
             estado        TEXT    NOT NULL DEFAULT 'activo' CHECK(estado IN ('activo','inactivo')),
             creado_en     TEXT    DEFAULT (datetime('now'))
           )
@@ -959,6 +1032,51 @@ function initDatabase() {
     }
   } catch (err) {
     console.warn('[DB] M-036 Error:', err.message);
+  }
+
+  // M-039: Añadir rol 'jefe_area' al CHECK constraint de usuarios (si aún no está incluido)
+  try {
+    const colInfo = db.prepare("PRAGMA table_info(usuarios)").all();
+    const rolCol  = colInfo.find(c => c.name === 'rol');
+    // SQLite no expone el CHECK textualmente; la estrategia segura es intentar
+    // insertar un row temporal con rol='jefe_area'. Si lanza ConstraintError,
+    // el CHECK no lo permite y hay que recrear la tabla.
+    const needsRebuild = (() => {
+      try {
+        db.prepare("INSERT INTO usuarios (nombre,email,password_hash,rol) VALUES ('__test__','__test__@test','__hash__','jefe_area')").run();
+        db.prepare("DELETE FROM usuarios WHERE email = '__test__@test'").run();
+        return false; // el rol ya es válido
+      } catch { return true; }
+    })();
+
+    if (needsRebuild) {
+      db.exec('PRAGMA foreign_keys = OFF;');
+      (() => {
+        const colNames = colInfo.map(c => c.name).join(', ');
+        db.exec('DROP TABLE IF EXISTS usuarios_m039');
+        db.exec(`
+          CREATE TABLE usuarios_m039 (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre        TEXT    NOT NULL,
+            email         TEXT    UNIQUE NOT NULL,
+            password_hash TEXT    NOT NULL,
+            rol           TEXT    NOT NULL DEFAULT 'asesor' CHECK(rol IN ('supervisor','jefe_area','asesor','admin')),
+            estado        TEXT    NOT NULL DEFAULT 'activo' CHECK(estado IN ('activo','inactivo')),
+            creado_en     TEXT    DEFAULT (datetime('now')),
+            supervisor_id INTEGER REFERENCES usuarios(id)
+          )
+        `);
+        db.exec(`INSERT INTO usuarios_m039 (${colNames}) SELECT ${colNames} FROM usuarios`);
+        db.exec('DROP TABLE usuarios');
+        db.exec('ALTER TABLE usuarios_m039 RENAME TO usuarios');
+      })();
+      db.exec('PRAGMA foreign_keys = ON;');
+      console.log('[DB] M-039: CHECK constraint actualizado — rol jefe_area habilitado');
+    } else {
+      console.log('[DB] M-039: rol jefe_area ya era válido, sin cambios');
+    }
+  } catch (err) {
+    console.warn('[DB] M-039 Error:', err.message);
   }
 
   // M-036b: Seed usuario administrador del sistema (one-time)
@@ -1003,16 +1121,29 @@ function initDatabase() {
     console.warn('[DB] M-038 Error:', err.message);
   }
 
+  // M-040: Añadir columna activo a mensajes_broadcast para borrado lógico y reemplazo en tiempo real
+  try {
+    const colsM = db.prepare("PRAGMA table_info(mensajes_broadcast)").all().map(c => c.name);
+    if (!colsM.includes('activo')) {
+      db.prepare("ALTER TABLE mensajes_broadcast ADD COLUMN activo INTEGER DEFAULT 1").run();
+      console.log('[DB] M-040: Columna activo añadida a mensajes_broadcast');
+    }
+  } catch (err) {
+    console.warn('[DB] M-040 Error:', err.message);
+  }
+
   // Seed si la tabla usuarios está vacía
   const count = db.prepare('SELECT COUNT(*) as c FROM usuarios').get();
   if (count.c === 0) {
     seedDatabase();
   }
 
-  // ── Forzar usuarios de prueba (INSERT + UPDATE para garantizar hash correcto) ──
+  // ── Forzar usuarios operativos (INSERT + UPDATE para garantizar hash correcto) ──
   try {
-    const HASH_ADMIN  = '$2b$10$sRmhftiB8KDe1Yve43B0yuasKe0rUzr2kek42VTi7ElcxAnZVXHNi';
-    const HASH_ASESOR = '$2b$10$Rf7qsMtgiSvKgo4.tUfsde/Ebe6BS5.X0o1RrdR37ZZgcgyt3KXhG';
+    const bcryptSync   = require('bcryptjs');
+    const HASH_ADMIN   = bcryptSync.hashSync('Admin2026!',      10); // admin@sistema.local
+    const HASH_JEFE    = bcryptSync.hashSync('Marketing2026!',  10); // jefe.marketing@uphone.local
+    const HASH_ASESOR  = bcryptSync.hashSync('asesor123',       10); // asesor@uphone.local
 
     const upsertUser = db.prepare(`
       INSERT OR IGNORE INTO usuarios (nombre, email, password_hash, rol, estado)
@@ -1022,17 +1153,53 @@ function initDatabase() {
       UPDATE usuarios SET password_hash = ?, rol = ?, estado = 'activo' WHERE email = ?
     `);
 
-    // Supervisor
-    upsertUser.run('Supervisor Uno', 'supervisor1@uphone.local', HASH_ADMIN, 'supervisor');
-    forceUpdate.run(HASH_ADMIN, 'supervisor', 'supervisor1@uphone.local');
+    // Admin del sistema
+    upsertUser.run('Administrador Sistema', 'admin@sistema.local', HASH_ADMIN, 'admin');
+    forceUpdate.run(HASH_ADMIN, 'admin', 'admin@sistema.local');
 
-    // Asesor
+    // Jefe de Marketing — rol propio jefe_area (supervisor reservado para implementación futura)
+    upsertUser.run('Jefe de Marketing', 'jefe.marketing@uphone.local', HASH_JEFE, 'jefe_area');
+    forceUpdate.run(HASH_JEFE, 'jefe_area', 'jefe.marketing@uphone.local');
+
+    // Jefe temporal para pruebas del usuario
+    const HASH_JEFE_TMP = bcryptSync.hashSync('admin123', 10);
+    upsertUser.run('Jefe Prueba', 'jefe1@uphone.local', HASH_JEFE_TMP, 'jefe_area');
+    forceUpdate.run(HASH_JEFE_TMP, 'jefe_area', 'jefe1@uphone.local');
+
+    // Asesor de prueba
     upsertUser.run('Asesor de Prueba', 'asesor@uphone.local', HASH_ASESOR, 'asesor');
     forceUpdate.run(HASH_ASESOR, 'asesor', 'asesor@uphone.local');
 
-    console.log('[DB] Usuarios de prueba sincronizados (supervisor1 + asesor)');
+    // Usuarios Uphone@2026 (admin, jefe, gestor)
+    const HASH_UPHONE  = bcryptSync.hashSync('Uphone@2026', 10);
+    upsertUser.run('Administrador', 'admin@uphone.local', HASH_UPHONE, 'admin');
+    forceUpdate.run(HASH_UPHONE, 'admin', 'admin@uphone.local');
+    upsertUser.run('Jefe de Area', 'jefe@uphone.local', HASH_UPHONE, 'jefe_area');
+    forceUpdate.run(HASH_UPHONE, 'jefe_area', 'jefe@uphone.local');
+    upsertUser.run('Gestor Demo', 'gestor@uphone.local', HASH_UPHONE, 'asesor');
+    forceUpdate.run(HASH_UPHONE, 'asesor', 'gestor@uphone.local');
+
+    // Gestor de prueba con contraseña Uphone@202
+    const HASH_GESTOR = bcryptSync.hashSync('Uphone@202', 10);
+    upsertUser.run('Gestor de Prueba', 'gestor@uphone.local', HASH_GESTOR, 'asesor');
+    forceUpdate.run(HASH_GESTOR, 'asesor', 'gestor@uphone.local');
+
+    // Limpieza a petición del cliente (quiquilloso)
+    try {
+      db.prepare("DELETE FROM usuarios WHERE email = 'supervisor1@uphone.local'").run();
+      db.prepare("UPDATE usuarios SET rol = 'jefe_area' WHERE rol = 'supervisor'").run();
+    } catch(e) {}
+
+    console.log('[DB] Usuarios operativos sincronizados:');
+    console.log('[DB]   admin@sistema.local         / Admin2026!');
+    console.log('[DB]   jefe.marketing@uphone.local / Marketing2026!');
+    console.log('[DB]   jefe1@uphone.local          / admin123');
+    console.log('[DB]   asesor@uphone.local          / asesor123');
+    console.log('[DB]   admin@uphone.local           / Uphone@2026');
+    console.log('[DB]   jefe@uphone.local            / Uphone@2026');
+    console.log('[DB]   gestor@uphone.local          / Uphone@202  ← cuenta de prueba');
   } catch(e) {
-    console.error('[DB] Error forzando usuarios de prueba:', e.message);
+    console.error('[DB] Error sincronizando usuarios operativos:', e.message);
   }
 
   console.log(`[DB] better-sqlite3 inicializado -> ${dbPath}`);
@@ -1047,8 +1214,8 @@ function initDatabase() {
 function seedDatabase() {
   console.log('[DB] Ejecutando seed de simulación v2.0...');
 
-  const HASH_ADMIN = '$2b$10$sRmhftiB8KDe1Yve43B0yuasKe0rUzr2kek42VTi7ElcxAnZVXHNi';
-  const HASH_ASESOR = '$2b$10$Rf7qsMtgiSvKgo4.tUfsde/Ebe6BS5.X0o1RrdR37ZZgcgyt3KXhG';
+  const HASH_ADMIN = '$2b$10$6ItfBMhhFZ4McGKVD23JruwO8jnMGRklF5bK.dGCH1rXPvWbgBilG'; // admin123
+  const HASH_ASESOR = '$2b$10$x3asUJ1hbzydIh7XiYJfBu8K5pIJk/7mWhDI//CAazIbDfAU22M.2'; // asesor123
 
   const insertUser = db.prepare(`
     INSERT OR IGNORE INTO usuarios (nombre, email, password_hash, rol, estado)
@@ -1072,7 +1239,7 @@ function seedDatabase() {
 
   const seedAll = db.transaction(() => {
     // 1. Usuarios
-    insertUser.run('Alexis Supervisor', 'admin@uphone.local', HASH_ADMIN, 'supervisor');
+    insertUser.run('Jefe de Marketing', 'jefe.marketing@uphone.local', HASH_ADMIN, 'supervisor');
     insertUser.run('Asesor de Prueba', 'asesor@uphone.local', HASH_ASESOR, 'asesor');
 
     // 2. Tipificaciones (Sustituye o complementa)
@@ -1119,6 +1286,11 @@ function getDb() {
   return db;
 }
 
+/** Devuelve true si la BD ya fue inicializada correctamente */
+function isDbReady() {
+  return db !== null;
+}
+
 function closeDb() {
   if (db) {
     db.close();
@@ -1127,4 +1299,4 @@ function closeDb() {
   }
 }
 
-module.exports = { initDatabase, getDb, closeDb };
+module.exports = { initDatabase, getDb, isDbReady, closeDb };

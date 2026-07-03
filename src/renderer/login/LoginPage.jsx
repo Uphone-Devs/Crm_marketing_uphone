@@ -36,7 +36,9 @@ export default function LoginPage({ onLogin }) {
 
     try {
       let result = null;
-      const isRemote = serverIp && serverIp !== '127.0.0.1' && serverIp !== 'localhost';
+      // Cambiamos la lógica: Si hay una IP configurada (incluso 127.0.0.1), usa la API remota (Postgres).
+      // Solo usa SQLite local si el campo IP está vacío o dice "local".
+      const isRemote = serverIp && serverIp.trim() !== '' && serverIp.trim().toLowerCase() !== 'local';
 
       // 1. Intentar vía HTTP/HTTPS si se ha configurado IP o URL de Supervisor
       if (isRemote) {
@@ -106,7 +108,7 @@ export default function LoginPage({ onLogin }) {
           <div className="login-card__logo" style={{ background: 'transparent', display: 'flex', justifyContent: 'center' }}>
             <Logo width="220px" />
           </div>
-          <p className="login-card__subtitle">Terminal de Cobranza v2.0</p>
+          <p className="login-card__subtitle">CRM Marketing Uphone</p>
         </div>
 
         {/* Form */}

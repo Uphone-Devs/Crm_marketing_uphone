@@ -149,7 +149,7 @@ function changePasswordAdmin(id, passwordHash) {
 
 function getCampanas() {
   const db = getDb();
-  return db.prepare("SELECT * FROM campanas WHERE estado = 'activa' ORDER BY id DESC").all();
+  return db.prepare("SELECT id, nombre, descripcion, fecha_inicio, fecha_fin, supervisor_id, estado FROM campanas WHERE estado = 'activa' ORDER BY id DESC").all();
 }
 
 function getCampanasPorAsesor(asesorId) {
@@ -905,6 +905,7 @@ function getCarteraAsesor(asesorId) {
       ct.monto_deuda, ct.producto, ct.metadata,
       ct.estado_marcacion, ct.intentos_realizados,
       ct.ya_pago, ct.campana_id,
+      ct.whatsapp_status, ct.rcs_status, ct.correo_status,
       ${hasValidado ? 'ct.validado_pago' : '0 AS validado_pago'},
       ${hasOrden ? 'ct.orden_marcacion' : 'NULL AS orden_marcacion'},
       ${hasFechaAsig ? 'ct.fecha_asignacion' : 'NULL AS fecha_asignacion'},
@@ -986,6 +987,7 @@ function getCarteraEquipo() {
       ct.monto_deuda, ct.producto, ct.metadata,
       ct.estado_marcacion, ct.intentos_realizados,
       ct.ya_pago, ct.campana_id, ct.asignado_a,
+      ct.whatsapp_status, ct.rcs_status, ct.correo_status,
       ${hasValidado ? 'ct.validado_pago' : '0 AS validado_pago'},
       ${hasOrden ? 'ct.orden_marcacion' : 'NULL AS orden_marcacion'},
       u.nombre AS asesor_nombre,
@@ -1081,7 +1083,8 @@ function getBitacoraAsesor(asesorId, limite = 500) {
         ? `COALESCE(c.duracion_seg, CASE WHEN c.timestamp_fin IS NOT NULL THEN CAST((julianday(c.timestamp_fin) - julianday(c.timestamp_inicio)) * 86400 AS INTEGER) ELSE NULL END) AS duracion_seg`
         : `CASE WHEN c.timestamp_fin IS NOT NULL THEN CAST((julianday(c.timestamp_fin) - julianday(c.timestamp_inicio)) * 86400 AS INTEGER) ELSE NULL END AS duracion_seg`
       },
-      date(${horaBase}) AS fecha_gestion
+      date(${horaBase}) AS fecha_gestion,
+      ct.metadata AS metadata
     FROM cdrs c
     LEFT JOIN tipificaciones t ON c.tipificacion_id = t.id
     LEFT JOIN contactos ct ON c.contacto_id = ct.id
@@ -1390,7 +1393,7 @@ function cerrarSesion(sesionId) {
 // EVENTOS
 // ═══════════════════════════════════════════════════════════════
 
-function insertEvento({ usuario_id, sesion_id, tipo, estado_id, duracion_seg, metadata }) {
+function insertEvento({ usuario_id, sesion_id = null, tipo, estado_id = null, duracion_seg = null, metadata }) {
   const db = getDb();
   return db.prepare(
     `INSERT INTO eventos (usuario_id, sesion_id, tipo, estado_id, duracion_seg, timestamp, metadata)
@@ -1444,36 +1447,18 @@ function getMetricasDia(usuarioId, fecha = null, opts = {}) {
   const evDateExpr     = _dateLocalExpr('e.timestamp');
   const evDateExprAlias = _dateLocalExpr('timestamp');
 
-  // Marcaciones CDRs (dial al cliente)
+  // Marcaciones = CDRs de canal 'llamada' únicamente (no WhatsApp, RCS, Correo)
+  // Triple-OR para cubrir timestamps UTC (Z), locales y sin zona horaria.
   const cdrMarcas = db.prepare(
-    `SELECT COUNT(*) as total FROM cdrs c WHERE c.usuario_id = ? AND ${cdrDateExpr} BETWEEN ? AND ?${campFilterCdr}`
-  ).get(usuarioId, fechaInicio, fechaFin, ...campParam);
+    `SELECT COUNT(*) as total FROM cdrs c WHERE c.usuario_id = ? AND (c.canal = 'llamada' OR c.canal IS NULL)
+     AND (
+       substr(c.timestamp_inicio, 1, 10) BETWEEN ? AND ?
+       OR date(c.timestamp_inicio, 'localtime') BETWEEN ? AND ?
+       OR date(c.creado_en, 'localtime') BETWEEN ? AND ?
+     )${campFilterCdr}`
+  ).get(usuarioId, fechaInicio, fechaFin, fechaInicio, fechaFin, fechaInicio, fechaFin, ...campParam);
 
-  // Marcaciones externas (eventos LLAMADA con metadata DIAL_EXTERNO)
-  // No tiene contacto_id directo en eventos, leemos metadata.contacto_id
-  let extMarcas = { total: 0 };
-  try {
-    if (campanaId) {
-      extMarcas = db.prepare(`
-        SELECT COUNT(*) as total FROM eventos e
-        WHERE e.usuario_id = ?
-          AND e.tipo = 'LLAMADA'
-          AND ${evDateExpr} BETWEEN ? AND ?
-          AND json_extract(e.metadata, '$.subtipo') = 'DIAL_EXTERNO'
-          AND CAST(json_extract(e.metadata, '$.contacto_id') AS INTEGER)
-              IN (SELECT id FROM contactos WHERE campana_id = ?)
-      `).get(usuarioId, fechaInicio, fechaFin, campanaId);
-    } else {
-      extMarcas = db.prepare(`
-        SELECT COUNT(*) as total FROM eventos
-        WHERE usuario_id = ?
-          AND tipo = 'LLAMADA'
-          AND ${evDateExprAlias} BETWEEN ? AND ?
-          AND json_extract(metadata, '$.subtipo') = 'DIAL_EXTERNO'
-      `).get(usuarioId, fechaInicio, fechaFin);
-    }
-  } catch (_) { /* tolerante */ }
-  const marcaciones = { total: (cdrMarcas?.total ?? 0) + (extMarcas?.total ?? 0) };
+  const marcaciones = { total: cdrMarcas?.total ?? 0 };
 
   // Tiempo al aire (CDRs)
   const tiempoAire = db.prepare(
@@ -1539,9 +1524,15 @@ function getMetricasDia(usuarioId, fecha = null, opts = {}) {
 
   // Contactabilidad por categoría — los 4 conteos deben sumar cdrs_total.
   // Tolerantes a variaciones de naming ('CONTACTO_NEUTRO' vs 'CONTACTO NEUTRO').
+  // Usamos triple-OR para cubrir timestamps UTC (Z), locales y sin zona horaria.
   const cdrsTotal = db.prepare(
-    `SELECT COUNT(*) as total FROM cdrs c WHERE c.usuario_id = ? AND ${cdrDateExpr} BETWEEN ? AND ? AND c.tipificacion_id IS NOT NULL${campFilterCdr}`
-  ).get(usuarioId, fechaInicio, fechaFin, ...campParam);
+    `SELECT COUNT(*) as total FROM cdrs c WHERE c.usuario_id = ? AND c.tipificacion_id IS NOT NULL
+     AND (
+       substr(c.timestamp_inicio, 1, 10) BETWEEN ? AND ?
+       OR date(c.timestamp_inicio, 'localtime') BETWEEN ? AND ?
+       OR date(c.creado_en, 'localtime') BETWEEN ? AND ?
+     )${campFilterCdr}`
+  ).get(usuarioId, fechaInicio, fechaFin, fechaInicio, fechaFin, fechaInicio, fechaFin, ...campParam);
 
   const cdrsNeutros = db.prepare(`
     SELECT COUNT(*) as total FROM cdrs c
@@ -1624,13 +1615,90 @@ function getMetricasDia(usuarioId, fecha = null, opts = {}) {
     correosEnviados = accCount('EMAIL');
   } catch (_) { /* tolerante */ }
 
+  // ── Desglose por segmento (S0, S1, S2) ──────────────────────────
+  // Segmento se determina a partir del metadata JSON del contacto:
+  //   DIAS IMPAGO / DIAS EN INPAGO / DIAS MORA
+  //   S0 = 0 días | S1 = 1 día | S2 = 2+ días
+  // Expresión SQL para extraer segmento desde metadata del contacto
+  const segExpr = `CASE
+    WHEN CAST(COALESCE(
+      NULLIF(json_extract(ct.metadata, '$."DIAS IMPAGO"'), ''),
+      NULLIF(json_extract(ct.metadata, '$."DIAS EN INPAGO"'), ''),
+      NULLIF(json_extract(ct.metadata, '$."DIAS MORA"'), ''),
+      '0'
+    ) AS INTEGER) = 0 THEN 0
+    WHEN CAST(COALESCE(
+      NULLIF(json_extract(ct.metadata, '$."DIAS IMPAGO"'), ''),
+      NULLIF(json_extract(ct.metadata, '$."DIAS EN INPAGO"'), ''),
+      NULLIF(json_extract(ct.metadata, '$."DIAS MORA"'), ''),
+      '0'
+    ) AS INTEGER) = 1 THEN 1
+    ELSE 2
+  END`;
+
+  // Marcaciones por segmento
+  let marcacionesDetalle = [0, 0, 0];
+  try {
+    const rows = db.prepare(`
+      SELECT ${segExpr} AS seg, COUNT(*) AS n
+      FROM cdrs c
+      JOIN contactos ct ON c.contacto_id = ct.id
+      WHERE c.usuario_id = ? AND ${cdrDateExpr} BETWEEN ? AND ?${campFilterCdr}
+      GROUP BY seg
+    `).all(usuarioId, fechaInicio, fechaFin, ...campParam);
+    for (const r of rows) marcacionesDetalle[r.seg] = r.n;
+  } catch (_) { /* tolerante */ }
+
+  // Acciones rápidas por segmento (WSP, SMS, EMAIL)
+  let wspDetalle = { 0: 0, 1: 0, 2: 0 };
+  let smsDetalle = { 0: 0, 1: 0, 2: 0 };
+  let emailDetalle = { 0: 0, 1: 0, 2: 0 };
+  try {
+    let accExtraWhere = '';
+    const accExtraParams = [];
+    if (campanaId) {
+      accExtraWhere = ` AND ct.campana_id = ?`;
+      accExtraParams.push(campanaId);
+    }
+    const accBySegCanal = db.prepare(`
+      SELECT json_extract(e.metadata, '$.canal') AS canal, ${segExpr.replace(/ct\./g, 'ct.')} AS seg, COUNT(*) AS n
+      FROM eventos e
+      JOIN contactos ct ON CAST(json_extract(e.metadata, '$.contacto_id') AS INTEGER) = ct.id
+      WHERE e.usuario_id = ? AND e.tipo = 'ACCION_RAPIDA' AND ${evDateExprAlias.replace('timestamp', 'e.timestamp')} BETWEEN ? AND ?${accExtraWhere}
+      GROUP BY canal, seg
+    `).all(usuarioId, fechaInicio, fechaFin, ...accExtraParams);
+    for (const r of accBySegCanal) {
+      if (r.canal === 'WSP')   wspDetalle[r.seg]   = r.n;
+      if (r.canal === 'SMS')   smsDetalle[r.seg]   = r.n;
+      if (r.canal === 'EMAIL') emailDetalle[r.seg]  = r.n;
+    }
+  } catch (_) { /* tolerante */ }
+
+  // Compromisos por segmento
+  let compromisosDetalle = { 0: 0, 1: 0, 2: 0 };
+  try {
+    const rows = db.prepare(`
+      SELECT ${segExpr} AS seg, COUNT(*) AS n
+      FROM cdrs c
+      JOIN tipificaciones t ON c.tipificacion_id = t.id
+      JOIN contactos ct ON c.contacto_id = ct.id
+      WHERE c.usuario_id = ? AND ${cdrDateExpr} BETWEEN ? AND ?
+        AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+        AND (c.resultado IS NULL OR c.resultado != 'INCUMP')${campFilterCdr}
+      GROUP BY seg
+    `).all(usuarioId, fechaInicio, fechaFin, ...campParam);
+    for (const r of rows) compromisosDetalle[r.seg] = r.n;
+  } catch (_) { /* tolerante */ }
+
   return {
     total_marcaciones:   totalMarcas,
+    marcaciones_detalle: marcacionesDetalle,
     tiempo_al_aire:      aire,
     tiempo_muerto:       muerto,
     ratio_productividad: ratio,
     ratio_eficacia:      eficacia,
     total_compromisos:   totalCompro,
+    compromisos_detalle: compromisosDetalle,
     total_asignados:     totalAsignados?.total  ?? 0,
     gestionados_base:    gestionadosBase?.total ?? 0,
     contactos_efectivos: contactosEfectivos?.total ?? 0,
@@ -1648,8 +1716,11 @@ function getMetricasDia(usuarioId, fecha = null, opts = {}) {
     compromisos_incumplidos: compIncumplidos?.total ?? 0,
     compromisos_reagendados: compReagendados?.total ?? 0,
     wsp_enviados:        wspEnviados,
+    wsp_detalle:         wspDetalle,
     sms_enviados:        smsEnviados,
+    sms_detalle:         smsDetalle,
     correos_enviados:    correosEnviados,
+    email_detalle:       emailDetalle,
   };
 }
 
@@ -2052,6 +2123,99 @@ function getMetricasEquipo(fecha = null, opts = {}) {
     cdrsSinTipificarTotal,
     detalleAsesores: detalles,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MENSAJERÍA (WhatsApp, RCS, Correo)
+// ═══════════════════════════════════════════════════════════════
+
+function toggleContactoMensajeria(contactoId, channel, newState, usuarioId = null) {
+  const db = getDb();
+  let column = '';
+  if (channel === 'whatsapp') column = 'whatsapp_status';
+  else if (channel === 'rcs') column = 'rcs_status';
+  else if (channel === 'correo') column = 'correo_status';
+  else throw new Error('Canal no soportado: ' + channel);
+
+  // Asegurar que la columna exista (migración en tiempo de ejecución)
+  if (channel === 'correo') {
+    try {
+      db.prepare(`ALTER TABLE contactos ADD COLUMN correo_status TEXT DEFAULT 'INACTIVO'`).run();
+    } catch (e) {
+      // Ignorar error si la columna ya existe
+    }
+  }
+
+  const stmt = db.prepare(`UPDATE contactos SET ${column} = ? WHERE id = ?`);
+  const result = stmt.run(newState, contactoId);
+
+  if (newState === 'ENVIADO' && usuarioId) {
+    const mapCanal = { whatsapp: 'WSP', rcs: 'SMS', correo: 'EMAIL' };
+    try {
+      // Usamos insertEvento para garantizar que se asigne el timestamp correcto (_nowLocalISO)
+      // y se formatee el metadata correctamente.
+      insertEvento({
+        usuario_id: usuarioId,
+        tipo: 'ACCION_RAPIDA',
+        metadata: { canal: mapCanal[channel], contacto_id: contactoId }
+      });
+    } catch (e) {
+      console.warn('[DB] Error guardando evento ACCION_RAPIDA:', e.message);
+    }
+  }
+
+  return result;
+}
+
+function getLoteMensajeria(asesorId, channel, limit = 200) {
+  const db = getDb();
+  let column = '';
+  if (channel === 'whatsapp' || channel === 'WSP') column = 'whatsapp_status';
+  else if (channel === 'rcs' || channel === 'SMS') column = 'rcs_status';
+  else if (channel === 'correo' || channel === 'EMAIL') column = 'correo_status';
+  else throw new Error('Canal no soportado: ' + channel);
+
+  return db.prepare(`
+    SELECT * FROM contactos 
+    WHERE asesor_id = ? AND (${column} IS NULL OR ${column} != 'ENVIADO')
+    ORDER BY CAST(monto_deuda AS REAL) DESC
+    LIMIT ?
+  `).all(asesorId, limit);
+}
+
+function marcarLoteEnviado(asesorId, channel, contactoIds) {
+  if (!contactoIds || contactoIds.length === 0) return { changes: 0 };
+  const db = getDb();
+  let column = '';
+  let mapCanal = '';
+  if (channel === 'whatsapp' || channel === 'WSP') { column = 'whatsapp_status'; mapCanal = 'WSP'; }
+  else if (channel === 'rcs' || channel === 'SMS') { column = 'rcs_status'; mapCanal = 'SMS'; }
+  else if (channel === 'correo' || channel === 'EMAIL') { column = 'correo_status'; mapCanal = 'EMAIL'; }
+  else throw new Error('Canal no soportado: ' + channel);
+
+  if (column === 'correo_status') {
+    try { db.prepare(`ALTER TABLE contactos ADD COLUMN correo_status TEXT DEFAULT 'INACTIVO'`).run(); } catch (e) {}
+  }
+
+  const placeholders = contactoIds.map(() => '?').join(',');
+  const stmt = db.prepare(`UPDATE contactos SET ${column} = 'ENVIADO' WHERE id IN (${placeholders})`);
+  
+  const tx = db.transaction(() => {
+    const result = stmt.run(...contactoIds);
+    for (const cid of contactoIds) {
+      insertEvento({
+        usuario_id: asesorId,
+        sesion_id: null,
+        tipo: 'ACCION_RAPIDA',
+        estado_id: null,
+        duracion_seg: null,
+        metadata: { canal: mapCanal, contacto_id: cid }
+      });
+    }
+    return result;
+  });
+  
+  return tx();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2628,6 +2792,619 @@ function getMetadataKeys(opts = {}) {
   } catch (_) { return []; }
 }
 
+function insertMensajeBroadcast(supervisor_id, mensaje, segmento_destino) {
+  const db = getDb();
+  try {
+    const segmento = segmento_destino || 'TODOS';
+    
+    // Inactivar mensajes anteriores para el mismo segmento (reemplazo en tiempo real)
+    db.prepare(`
+      UPDATE mensajes_broadcast 
+      SET activo = 0 
+      WHERE segmento_destino = ? AND activo = 1
+    `).run(segmento);
+
+    const stmt = db.prepare(`
+      INSERT INTO mensajes_broadcast (supervisor_id, mensaje, segmento_destino, activo)
+      VALUES (?, ?, ?, 1)
+    `);
+    const info = stmt.run(supervisor_id, mensaje, segmento);
+    return { success: true, id: info.lastInsertRowid };
+  } catch (err) {
+    console.error('Error insertMensajeBroadcast:', err);
+    throw err;
+  }
+}
+
+function deleteMensajeBroadcast(id) {
+  const db = getDb();
+  try {
+    db.prepare(`UPDATE mensajes_broadcast SET activo = 0 WHERE id = ?`).run(id);
+    return { success: true };
+  } catch (err) {
+    console.error('Error deleteMensajeBroadcast:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+function getMensajesBroadcast() {
+  const db = getDb();
+  try {
+    const stmt = db.prepare(`
+      SELECT m.*, u.nombre as supervisor_nombre,
+        (
+          SELECT COUNT(DISTINCT co.id)
+          FROM validaciones_pago vp
+          JOIN contactos co ON co.cedula = vp.cedula
+          WHERE co.estado_marcacion IN ('PAGADO', 'PAGADO_PARCIAL', 'PAGADO_LOTE')
+            AND vp.ultima_fecha >= m.creado_en
+            AND (
+              m.segmento_destino = 'TODOS'
+              OR (m.segmento_destino = 'TRAMO_0' AND (co.metadata LIKE '%"DIAS IMPAGO": "0"%' OR co.metadata LIKE '%"DIAS IMPAGO": 0%'))
+              OR (m.segmento_destino = 'TRAMO_1' AND CAST(json_extract(co.metadata, '$."DIAS IMPAGO"') AS INTEGER) BETWEEN 1 AND 30)
+              OR (m.segmento_destino = 'TRAMO_2' AND CAST(json_extract(co.metadata, '$."DIAS IMPAGO"') AS INTEGER) BETWEEN 31 AND 60)
+              OR (m.segmento_destino = 'PLAZO' AND CAST(json_extract(co.metadata, '$."DIAS IMPAGO"') AS INTEGER) > 60)
+              OR (m.segmento_destino = 'MENSUALES' AND co.metadata LIKE '%"TIPO CAMPANA": "MENSUAL"%')
+              OR (m.segmento_destino = 'QUINCENALES' AND co.metadata LIKE '%"TIPO CAMPANA": "QUINCENAL"%')
+            )
+        ) as pagos_posteriores
+      FROM mensajes_broadcast m
+      JOIN usuarios u ON m.supervisor_id = u.id
+      ORDER BY m.creado_en DESC
+      LIMIT 100
+    `);
+    return stmt.all();
+  } catch (err) {
+    console.error('Error getMensajesBroadcast:', err);
+    return [];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RANKINGS DE ASESORES
+// ═══════════════════════════════════════════════════════════════
+
+function getGestoresRanking() {
+  return [];
+}
+
+function getRankingLlamadas(fecha) {
+  return { totalEquipo: 0, asesores: [], debugError: null };
+}
+
+function getRankingGeneralAsesores(fecha) {
+  const db = getDb();
+  const f = fecha || _todayLocalISO();
+
+  // 1. Asesores activos
+  const asesores = db.prepare("SELECT id, nombre FROM usuarios WHERE rol = 'asesor' AND estado = 'activo' ORDER BY nombre").all();
+
+  const getSegmento = (metaStr) => {
+    try {
+      if (!metaStr) return '0';
+      const m = JSON.parse(metaStr);
+      const val = m['DIAS IMPAGO'] || m['DIAS EN INPAGO'] || m['DIAS MORA'] || m['dias_impago'] || m['dias_mora'] || 0;
+      const d = parseInt(val, 10);
+      if (isNaN(d)) return '0';
+      if (d === 0) return '0';
+      if (d === 1) return '1';
+      return '2'; // 2 o más
+    } catch { return '0'; }
+  };
+
+  const ranking = asesores.map(a => ({
+    id: a.id,
+    nombre: a.nombre,
+    canales: {
+      whatsapp: { global: 0, '0': 0, '1': 0, '2': 0 },
+      rcs:      { global: 0, '0': 0, '1': 0, '2': 0 },
+      gmail:    { global: 0, '0': 0, '1': 0, '2': 0 },
+      llamada:  { global: 0, '0': 0, '1': 0, '2': 0 }
+    }
+  }));
+
+  const rankingMap = {};
+  ranking.forEach(r => rankingMap[r.id] = r);
+
+  try {
+    // 3. Contar CDRs (llamadas)
+    const cdrs = db.prepare(`
+      SELECT c.usuario_id, ct.metadata
+      FROM cdrs c
+      LEFT JOIN contactos ct ON c.contacto_id = ct.id
+      WHERE date(c.timestamp_inicio) = ? OR date(c.creado_en) = ?
+    `).all(f, f);
+
+    for (const cdr of cdrs) {
+      if (rankingMap[cdr.usuario_id]) {
+        const seg = getSegmento(cdr.metadata);
+        rankingMap[cdr.usuario_id].canales.llamada.global += 1;
+        if (['0', '1', '2'].includes(seg)) {
+          rankingMap[cdr.usuario_id].canales.llamada[seg] += 1;
+        }
+      }
+    }
+
+    // 4. Contar Eventos ACCION_RAPIDA
+    const eventos = db.prepare(`
+      SELECT e.usuario_id, e.metadata, ct.metadata as contacto_metadata
+      FROM eventos e
+      LEFT JOIN contactos ct ON CAST(json_extract(e.metadata, '$.contacto_id') AS INTEGER) = ct.id
+      WHERE e.tipo = 'ACCION_RAPIDA' AND date(e.timestamp) = ?
+    `).all(f);
+
+    for (const ev of eventos) {
+      if (rankingMap[ev.usuario_id]) {
+        try {
+          const meta = ev.metadata ? JSON.parse(ev.metadata) : {};
+          let canalStr = meta.canal || '';
+          
+          let tab = null;
+          if (canalStr === 'WSP') tab = 'whatsapp';
+          else if (canalStr === 'SMS') tab = 'rcs';
+          else if (canalStr === 'EMAIL') tab = 'gmail';
+
+          if (tab) {
+            const seg = getSegmento(ev.contacto_metadata);
+            rankingMap[ev.usuario_id].canales[tab].global += 1;
+            if (['0', '1', '2'].includes(seg)) {
+              rankingMap[ev.usuario_id].canales[tab][seg] += 1;
+            }
+          }
+        } catch(e) {}
+      }
+    }
+  } catch(e) {
+    console.error('Error en getRankingGeneralAsesores:', e);
+  }
+
+  return ranking;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// PANEL JEFE DE COBRANZA — Queries de KPIs y Métricas
+// Spec: Todas las fórmulas siguen el documento spec_panel_jefe.md
+// Regla: COALESCE en toda división para prevenir NaN/Infinity/null
+// Extracción de segmento y distribuidor via json_extract(metadata)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Construye cláusula WHERE dinámica según filtros opcionales.
+ * @param {object} filtros - { fechaInicio, fechaFin, segmento, distribuidor, campanaId }
+ * @returns {{ where: string, params: any[] }}
+ */
+function _buildFiltros(filtros = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (filtros.campanaId) {
+    conditions.push('c.campana_id = ?');
+    params.push(filtros.campanaId);
+  }
+  if (filtros.segmento !== undefined && filtros.segmento !== null && filtros.segmento !== 'todos') {
+    conditions.push("CAST(json_extract(c.metadata, '$.segmento') AS TEXT) = ?");
+    params.push(String(filtros.segmento));
+  }
+  if (filtros.distribuidor) {
+    conditions.push("json_extract(c.metadata, '$.distribuidor') = ?");
+    params.push(filtros.distribuidor);
+  }
+
+  const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+  return { where, params };
+}
+
+/**
+ * Indicadores monetarios y por unidades, globales y desglosados por segmento.
+ * Spec §2.1 y §2.2
+ * @param {object} filtros - { campanaId, segmento, distribuidor }
+ * @returns {{ global: object, porSegmento: object[] }}
+ */
+function getIndicadoresCobranza(filtros = {}) {
+  const db = getDb();
+  const { where, params } = _buildFiltros(filtros);
+
+  // ── Consolidado global ──────────────────────────────────────────
+  const globalRow = db.prepare(`
+    SELECT
+      COALESCE(SUM(c.monto_deuda), 0)                                         AS valor_vencido,
+      COALESCE(SUM(CASE WHEN c.estado_marcacion = 'PAGADO' THEN c.monto_deuda ELSE 0 END), 0) AS valor_cobrado,
+      COUNT(c.id)                                                               AS unidades_vencidas,
+      COUNT(CASE WHEN c.estado_marcacion = 'PAGADO' THEN 1 END)               AS unidades_cobradas
+    FROM contactos c
+    ${where}
+  `).get(...params);
+
+  const gVencido   = globalRow.valor_vencido   ?? 0;
+  const gCobrado   = globalRow.valor_cobrado   ?? 0;
+  const gUVen      = globalRow.unidades_vencidas ?? 0;
+  const gUCob      = globalRow.unidades_cobradas ?? 0;
+
+  const global = {
+    valor_vencido:          gVencido,
+    valor_cobrado:          gCobrado,
+    diferencia_monetaria:   gVencido - gCobrado,
+    pct_recuperacion:       gVencido > 0 ? Math.round((gCobrado / gVencido) * 10000) / 100 : 0,
+    unidades_vencidas:      gUVen,
+    unidades_cobradas:      gUCob,
+    diferencia_unidades:    gUVen - gUCob,
+    pct_recuperacion_und:   gUVen > 0 ? Math.round((gUCob / gUVen) * 10000) / 100 : 0,
+  };
+
+  // ── Desglose por segmento (0, 1, 2 y Sin asignar) ──────────────
+  const segExpr = `CASE
+    WHEN CAST(COALESCE(
+      NULLIF(json_extract(c.metadata, '$."DIAS IMPAGO"'), ''),
+      NULLIF(json_extract(c.metadata, '$."dias impago"'), ''),
+      NULLIF(json_extract(c.metadata, '$."DIAS EN INPAGO"'), ''),
+      NULLIF(json_extract(c.metadata, '$."dias en inpago"'), ''),
+      NULLIF(json_extract(c.metadata, '$."DIAS MORA"'), ''),
+      NULLIF(json_extract(c.metadata, '$."dias mora"'), ''),
+      '0'
+    ) AS INTEGER) <= 0 THEN '0'
+    WHEN CAST(COALESCE(
+      NULLIF(json_extract(c.metadata, '$."DIAS IMPAGO"'), ''),
+      NULLIF(json_extract(c.metadata, '$."dias impago"'), ''),
+      NULLIF(json_extract(c.metadata, '$."DIAS EN INPAGO"'), ''),
+      NULLIF(json_extract(c.metadata, '$."dias en inpago"'), ''),
+      NULLIF(json_extract(c.metadata, '$."DIAS MORA"'), ''),
+      NULLIF(json_extract(c.metadata, '$."dias mora"'), ''),
+      '0'
+    ) AS INTEGER) = 1 THEN '1'
+    ELSE '2'
+  END`;
+
+  const segRows = db.prepare(`
+    SELECT
+      ${segExpr} AS segmento,
+      COALESCE(SUM(c.monto_deuda), 0)                                                AS valor_vencido,
+      COALESCE(SUM(CASE WHEN c.estado_marcacion = 'PAGADO' THEN c.monto_deuda ELSE 0 END), 0) AS valor_cobrado,
+      COUNT(c.id)                                                                     AS unidades_vencidas,
+      COUNT(CASE WHEN c.estado_marcacion = 'PAGADO' THEN 1 END)                     AS unidades_cobradas,
+      SUM(
+        (SELECT COUNT(*) FROM cdrs cd 
+         JOIN tipificaciones t ON cd.tipificacion_id = t.id 
+         WHERE cd.contacto_id = c.id 
+           AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP') 
+           AND (cd.resultado IS NULL OR cd.resultado != 'INCUMP')
+        )
+      ) AS total_promesas
+    FROM contactos c
+    ${where}
+    GROUP BY segmento
+    ORDER BY segmento
+  `).all(...params);
+
+  const porSegmento = segRows.map(r => {
+    const vencido = r.valor_vencido ?? 0;
+    const cobrado = r.valor_cobrado ?? 0;
+    const uVen    = r.unidades_vencidas ?? 0;
+    const uCob    = r.unidades_cobradas ?? 0;
+    const promesas = r.total_promesas ?? 0;
+    return {
+      segmento:              r.segmento,
+      valor_vencido:         vencido,
+      valor_cobrado:         cobrado,
+      diferencia_monetaria:  vencido - cobrado,
+      pct_recuperacion:      vencido > 0 ? Math.round((cobrado / vencido) * 10000) / 100 : 0,
+      unidades_vencidas:     uVen,
+      unidades_cobradas:     uCob,
+      diferencia_unidades:   uVen - uCob,
+      pct_recuperacion_und:  uVen > 0 ? Math.round((uCob / uVen) * 10000) / 100 : 0,
+      promesas:              promesas,
+    };
+  });
+
+  return { global, porSegmento };
+}
+
+/**
+ * Productividad: gestiones por canal, avance de cartera y cobertura única.
+ * Spec §2.3
+ * @param {object} filtros - { campanaId, fechaInicio, fechaFin }
+ */
+function getProductividadJefe(filtros = {}) {
+  const db = getDb();
+  const params = [];
+  const cdrConditions = ['1=1'];
+
+  if (filtros.campanaId) {
+    cdrConditions.push('co.campana_id = ?');
+    params.push(filtros.campanaId);
+  }
+  if (filtros.fechaInicio) {
+    cdrConditions.push("DATE(cd.creado_en) >= ?");
+    params.push(filtros.fechaInicio);
+  }
+  if (filtros.fechaFin) {
+    cdrConditions.push("DATE(cd.creado_en) <= ?");
+    params.push(filtros.fechaFin);
+  }
+
+  const cdrWhere = cdrConditions.join(' AND ');
+
+  // Gestiones por canal (CDRs)
+  const gestionesCanalRows = db.prepare(`
+    SELECT
+      COALESCE(cd.canal, 'llamada') AS canal,
+      COUNT(cd.id)                  AS total
+    FROM cdrs cd
+    JOIN contactos co ON co.id = cd.contacto_id
+    WHERE ${cdrWhere}
+    GROUP BY canal
+  `).all(...params);
+
+  // Compromisos vigentes (agendamientos PMP pendientes)
+  const compromisos = db.prepare(`
+    SELECT COUNT(id) AS total FROM agendamientos WHERE estado = 'pendiente'
+  `).get();
+
+  // Cartera total (base de comparación)
+  const carteraFiltros = filtros.campanaId ? { campanaId: filtros.campanaId } : {};
+  const { global: indicadores } = getIndicadoresCobranza(carteraFiltros);
+  const carteraTotal = indicadores.unidades_vencidas;
+
+  // Reducir a objeto canal→total
+  const canales = { llamada: 0, whatsapp: 0, correo: 0, rcs: 0, sms: 0 };
+  for (const row of gestionesCanalRows) {
+    const key = (row.canal || 'llamada').toLowerCase();
+    canales[key] = row.total;
+  }
+
+  const gestionesTotales = Object.values(canales).reduce((a, b) => a + b, 0) + (compromisos?.total ?? 0);
+  const avanceCartera    = carteraTotal > 0 ? Math.round((gestionesTotales / carteraTotal) * 10000) / 100 : 0;
+
+  // Cobertura única: contactos con al menos 1 CDR vs total
+  const contactadosUnicos = db.prepare(`
+    SELECT COUNT(DISTINCT cd.contacto_id) AS total
+    FROM cdrs cd
+    JOIN contactos co ON co.id = cd.contacto_id
+    WHERE ${cdrWhere}
+  `).get(...params);
+
+  const cobertura = carteraTotal > 0
+    ? Math.round(((contactadosUnicos?.total ?? 0) / carteraTotal) * 10000) / 100
+    : 0;
+
+  return {
+    canales,
+    compromisos:        compromisos?.total ?? 0,
+    gestiones_totales:  gestionesTotales,
+    cartera_total:      carteraTotal,
+    avance_cartera:     avanceCartera,
+    contactados_unicos: contactadosUnicos?.total ?? 0,
+    cobertura,
+  };
+}
+
+/**
+ * Top N asesores por canal o por valor recuperado.
+ * Spec §2 (Rankings)
+ * @param {'llamada'|'whatsapp'|'correo'|'rcs'|'global'} canal
+ * @param {number} limit - default 5
+ */
+function getTopAsesoresJefe(canal = 'global', limit = 5) {
+  const db = getDb();
+
+  if (canal === 'global') {
+    const segExpr = `CASE
+      WHEN CAST(COALESCE(
+        NULLIF(json_extract(co.metadata, '$."DIAS IMPAGO"'), ''),
+        NULLIF(json_extract(co.metadata, '$."dias impago"'), ''),
+        NULLIF(json_extract(co.metadata, '$."DIAS EN INPAGO"'), ''),
+        NULLIF(json_extract(co.metadata, '$."dias en inpago"'), ''),
+        NULLIF(json_extract(co.metadata, '$."DIAS MORA"'), ''),
+        NULLIF(json_extract(co.metadata, '$."dias mora"'), ''),
+        '0'
+      ) AS INTEGER) <= 0 THEN '0'
+      WHEN CAST(COALESCE(
+        NULLIF(json_extract(co.metadata, '$."DIAS IMPAGO"'), ''),
+        NULLIF(json_extract(co.metadata, '$."dias impago"'), ''),
+        NULLIF(json_extract(co.metadata, '$."DIAS EN INPAGO"'), ''),
+        NULLIF(json_extract(co.metadata, '$."dias en inpago"'), ''),
+        NULLIF(json_extract(co.metadata, '$."DIAS MORA"'), ''),
+        NULLIF(json_extract(co.metadata, '$."dias mora"'), ''),
+        '0'
+      ) AS INTEGER) = 1 THEN '1'
+      ELSE '2'
+    END`;
+
+    const rows = db.prepare(`
+      SELECT 
+        u.id, 
+        u.nombre AS asesor,
+        ${segExpr} AS segmento,
+        COUNT(cd.id) AS gestiones,
+        SUM(CASE WHEN t.codigo = 'PMP' THEN 1 ELSE 0 END) AS promesas,
+        SUM(CASE WHEN t.codigo IN ('PAGO_REAL', 'AB_PARC', 'COMP_CUM') THEN 1 ELSE 0 END) AS cumplidas,
+        SUM(CASE WHEN cd.resultado = 'INCUMP' THEN 1 ELSE 0 END) AS vencidas
+      FROM usuarios u
+      LEFT JOIN cdrs cd ON u.id = cd.usuario_id
+      LEFT JOIN contactos co ON co.id = cd.contacto_id
+      LEFT JOIN tipificaciones t ON t.id = cd.tipificacion_id
+      WHERE u.rol = 'asesor'
+      GROUP BY u.id, segmento
+    `).all();
+
+    const asesoresMap = {};
+    for (const r of rows) {
+      if (!asesoresMap[r.id]) {
+         asesoresMap[r.id] = {
+           asesor: r.asesor,
+           total_gestiones: 0,
+           segmentos: {
+             '0': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
+             '1': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
+             '2': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 }
+           }
+         };
+      }
+      // If the LEFT JOIN found nothing, it still returns one row with gestiones=0 and a default segment (usually '0')
+      // We only map it if there are actual gestiones or we just map it anyway, it will be 0.
+      const s = r.segmento || '0';
+      if (asesoresMap[r.id].segmentos[s]) {
+         asesoresMap[r.id].segmentos[s].gestiones += (r.gestiones || 0);
+         asesoresMap[r.id].segmentos[s].promesas += (r.promesas || 0);
+         asesoresMap[r.id].segmentos[s].cumplidas += (r.cumplidas || 0);
+         asesoresMap[r.id].segmentos[s].vencidas += (r.vencidas || 0);
+         asesoresMap[r.id].total_gestiones += (r.gestiones || 0);
+      }
+    }
+    
+    return Object.values(asesoresMap)
+      .sort((a, b) => b.total_gestiones - a.total_gestiones)
+      .slice(0, limit);
+  }
+
+  // Ranking por gestiones en un canal específico
+  return db.prepare(`
+    SELECT
+      u.id,
+      u.nombre,
+      COUNT(cd.id) AS gestiones
+    FROM cdrs cd
+    JOIN usuarios u ON u.id = cd.usuario_id
+    WHERE u.rol = 'asesor' AND LOWER(COALESCE(cd.canal, 'llamada')) = LOWER(?)
+    GROUP BY u.id
+    ORDER BY gestiones DESC
+    LIMIT ?
+  `).all(canal, limit);
+}
+
+/**
+ * Morosidad agrupada por distribuidor.
+ * Spec §2.4
+ * Morosos = contactos con estado_marcacion NOT IN ('PAGADO','PAGADO_PARCIAL')
+ */
+function getMorosidadPorDistribuidor() {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT
+      COALESCE(json_extract(c.metadata, '$.distribuidor'), 'Sin asignar') AS distribuidor,
+      COUNT(c.id)                                                           AS total_entregados,
+      COUNT(CASE WHEN c.estado_marcacion NOT IN ('PAGADO','PAGADO_PARCIAL','PAGADO_LOTE') THEN 1 END) AS total_morosos
+    FROM contactos c
+    GROUP BY distribuidor
+    ORDER BY total_morosos DESC
+  `).all();
+
+  return rows.map(r => ({
+    distribuidor:    r.distribuidor,
+    total_entregados: r.total_entregados,
+    total_morosos:   r.total_morosos,
+    pct_morosidad:   r.total_entregados > 0
+      ? Math.round((r.total_morosos / r.total_entregados) * 10000) / 100
+      : 0,
+  }));
+}
+
+/**
+ * Recaudación diaria de los últimos N días.
+ * Spec §2.4 — Indicadores Semanales
+ * @param {number} dias - default 7
+ */
+function getRecaudacionSemanal(dias = 7) {
+  const db = getDb();
+  // Usamos CDRs con resultado de pago. Si existe monto_pagado lo usamos,
+  // si no, usamos monto_deuda del contacto cuando está marcado PAGADO.
+  const rows = db.prepare(`
+    SELECT
+      DATE(cd.creado_en)                                AS fecha,
+      COUNT(DISTINCT co.id)                              AS num_pagos,
+      COALESCE(SUM(co.monto_deuda), 0)                  AS valor_cobrado
+    FROM cdrs cd
+    JOIN contactos co ON co.id = cd.contacto_id
+    WHERE co.estado_marcacion = 'PAGADO'
+      AND DATE(cd.creado_en) >= DATE('now', ?)
+    GROUP BY fecha
+    ORDER BY fecha ASC
+  `).all(`-${dias} days`);
+
+  return rows;
+}
+
+/**
+ * Proyección mensual: meta vs cobrado acumulado en el mes en curso.
+ * Spec §2.4
+ */
+function getProyeccionMensual() {
+  const db = getDb();
+
+  // Meta mensual desde tabla config (clave: meta_mensual_usd)
+  const metaRow = db.prepare("SELECT valor FROM config WHERE clave = 'meta_mensual_usd'").get();
+  const metaMensual = metaRow ? parseFloat(metaRow.valor) || 0 : 0;
+
+  // Cobrado acumulado en el mes en curso
+  const cobradoRow = db.prepare(`
+    SELECT
+      COALESCE(SUM(co.monto_deuda), 0)  AS cobrado_mes,
+      COUNT(DISTINCT co.id)              AS pagos_mes
+    FROM cdrs cd
+    JOIN contactos co ON co.id = cd.contacto_id
+    WHERE co.estado_marcacion = 'PAGADO'
+      AND strftime('%Y-%m', cd.creado_en) = strftime('%Y-%m', 'now')
+  `).get();
+
+  const cobradoMes = cobradoRow?.cobrado_mes ?? 0;
+  const pagosMes   = cobradoRow?.pagos_mes   ?? 0;
+  const diferencia = metaMensual - cobradoMes;
+  const pctCumplimiento = metaMensual > 0
+    ? Math.round((cobradoMes / metaMensual) * 10000) / 100
+    : 0;
+
+  return {
+    meta_mensual:     metaMensual,
+    cobrado_mes:      cobradoMes,
+    pagos_mes:        pagosMes,
+    diferencia:       diferencia,
+    pct_cumplimiento: pctCumplimiento,
+  };
+}
+
+// ── Indicadores de Recaudo (Dinámicos) ──────────────────────
+function getIndicadoresRecaudo(asesorId, mes, anio) {
+  const db = getDb();
+  if (!asesorId || !mes || !anio) return { '0': {}, '1': {}, '2': {} };
+  const likeDate = `${anio}-${String(mes).padStart(2, '0')}-%`;
+  
+  const rows = db.prepare(`
+    SELECT segmento, fecha, valores
+    FROM indicadores_datos
+    WHERE asesor_id = ? AND fecha LIKE ?
+  `).all(asesorId, likeDate);
+
+  const result = { '0': {}, '1': {}, '2': {} };
+  for (const row of rows) {
+    if (!result[row.segmento]) result[row.segmento] = {};
+    try {
+      result[row.segmento][row.fecha] = JSON.parse(row.valores);
+    } catch(e) {
+      result[row.segmento][row.fecha] = {};
+    }
+  }
+  return result;
+}
+
+function saveIndicadoresRecaudo(asesorId, datosArray) {
+  const db = getDb();
+  if (!asesorId || !Array.isArray(datosArray)) return;
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO indicadores_datos (asesor_id, fecha, segmento, valores)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  const tx = db.transaction((items) => {
+    for (const item of items) {
+      if (!item.fecha || !item.segmento) continue;
+      stmt.run(asesorId, item.fecha, item.segmento, JSON.stringify(item.valores || {}));
+    }
+  });
+
+  tx(datosArray);
+}
+
 module.exports = {
   // Auth
   findUserByEmail, findUserById,
@@ -2664,4 +3441,21 @@ module.exports = {
   // Evolución de Cartera
   getCarteraAnalisis, getCarteraRefinanciada, getMetadataKeys,
   getGestionesAsesores, upsertMetaAsesor,
+  // Rankings
+  getGestoresRanking, getRankingLlamadas, getRankingGeneralAsesores,
+  // Mensajes Broadcast
+  insertMensajeBroadcast, deleteMensajeBroadcast, getMensajesBroadcast,
+  // ── Panel Jefe de Cobranza (Spec §2) ──
+  getIndicadoresCobranza,
+  getProductividadJefe,
+  getTopAsesoresJefe,
+  getMorosidadPorDistribuidor,
+  getRecaudacionSemanal,
+  getProyeccionMensual,
+  toggleContactoMensajeria,
+  getLoteMensajeria,
+  marcarLoteEnviado,
+  getIndicadoresRecaudo,
+  saveIndicadoresRecaudo,
 };
+

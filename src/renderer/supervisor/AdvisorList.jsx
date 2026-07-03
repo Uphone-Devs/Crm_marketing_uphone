@@ -94,70 +94,7 @@ function AdvisorCard({ asesor, estadoWS, metricas, tiempoEnEstado, configMarcaci
         </div>
       </div>
 
-      {/* Marcación individual: solo editable si modo global = PERSONALIZADO */}
-      <div className="adv-card__actions" style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 130 }}>
-        {(() => {
-          const personalizable = modoGlobal === 'PERSONALIZADO';
-          const modoAsignado = configMarcacion?.modo || null;
-          const intentosAsignado = configMarcacion?.intentos ?? null;
-          // En modo PERSONALIZADO usa override (o default MANUAL/1 si no hay). En otros modos muestra el global.
-          const modoMostrado = personalizable
-            ? (modoAsignado || 'MANUAL')
-            : (modoGlobal || 'MANUAL');
-          const intentosMostrados = personalizable
-            ? (intentosAsignado != null ? intentosAsignado : 1)
-            : (intentosGlobal ?? 1);
-          const opacidad = personalizable ? 1 : 0.45;
-          return (
-            <>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: opacidad }}>
-                <select
-                  value={modoMostrado === 'PERSONALIZADO' ? 'MANUAL' : modoMostrado}
-                  disabled={!personalizable}
-                  onChange={(e) => onChangeMarcacion(asesor.id, { modo: e.target.value, intentos: intentosMostrados })}
-                  title={personalizable ? 'Modo de marcación de este asesor' : 'Activá modo global PERSONALIZADO para editar'}
-                  style={{
-                    flex: 1, padding: '3px 6px', fontSize: 10, fontWeight: 700,
-                    background: modoMostrado === 'AUTOMATICA' ? 'rgba(0,230,118,0.12)' : 'rgba(255,255,255,0.05)',
-                    color: modoMostrado === 'AUTOMATICA' ? 'var(--color-primary)' : 'inherit',
-                    border: '1px solid ' + (modoMostrado === 'AUTOMATICA' ? 'rgba(0,230,118,0.3)' : 'rgba(255,255,255,0.1)'),
-                    borderRadius: 6, outline: 'none', cursor: personalizable ? 'pointer' : 'not-allowed',
-                  }}
-                >
-                  <option value="MANUAL">MANUAL</option>
-                  <option value="AUTOMATICA">AUTOMÁTICA</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 4, alignItems: 'center', opacity: opacidad }}>
-                <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 600 }}>Intentos:</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={intentosMostrados}
-                  disabled={!personalizable}
-                  onChange={(e) => {
-                    const v = Math.max(1, Math.min(10, parseInt(e.target.value) || 1));
-                    onChangeMarcacion(asesor.id, { modo: modoMostrado === 'PERSONALIZADO' ? 'MANUAL' : modoMostrado, intentos: v });
-                  }}
-                  title={personalizable ? 'Intentos máximos para este asesor' : 'Activá modo global PERSONALIZADO para editar'}
-                  style={{
-                    width: 42, padding: '3px 4px', fontSize: 10, fontWeight: 700, textAlign: 'center',
-                    background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 6, color: 'inherit', outline: 'none',
-                    cursor: personalizable ? 'text' : 'not-allowed',
-                  }}
-                />
-              </div>
-              <span style={{ fontSize: 8, opacity: 0.5, fontStyle: 'italic', textAlign: 'center' }}>
-                {personalizable
-                  ? (modoAsignado ? 'config personalizada' : 'sin override · default MANUAL')
-                  : `siguiendo modo global · ${modoGlobal}`}
-              </span>
-            </>
-          );
-        })()}
-      </div>
+
     </div>
   );
 }

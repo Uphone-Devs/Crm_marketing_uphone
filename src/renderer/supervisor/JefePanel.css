@@ -1,0 +1,53 @@
+/* ── SupervisorPanel ────────────────────────────────────────── */
+
+/* Dashboard Monitoreo Full Width */
+.sup-dashboard-monitoreo {
+  width: 100%;
+}
+
+
+/* Config placeholder */
+.sup-config {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-3xl) 0;
+}
+
+/* Reporte Form */
+.reporte-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.reporte-form__label {
+  font-family: var(--font-label);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--color-on-surface-variant);
+  margin-top: var(--space-sm);
+}
+
+.reporte-form__label:first-child {
+  margin-top: 0;
+}
+
+.reporte-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(61, 74, 62, 0.1);
+}
+
+/* Select styling */
+.reporte-form select.input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='%23869486'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
