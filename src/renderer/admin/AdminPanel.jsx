@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import './AdminPanel.css';
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers ─────────────────────────────────────────────────────
 
 const fmt = (bytes) => {
   if (!bytes) return '0 MB';
@@ -19,7 +19,7 @@ const fmtUptime = ({ hours = 0, minutes = 0 } = {}) => `${hours}h ${minutes}m`;
 
 const IS_VM = (cfg) => cfg?.mode === 'vm' && cfg?.vmUrl;
 
-// â”€â”€ vmApiFetch â€” fetch hacia el REST API de la VM â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── vmApiFetch — fetch hacia el REST API de la VM ───────────────
 
 async function vmApiFetch(vmUrl, vmToken, path, options = {}) {
   const base = (vmUrl || '').replace(/\/$/, '');
@@ -35,7 +35,7 @@ async function vmApiFetch(vmUrl, vmToken, path, options = {}) {
   return res.json();
 }
 
-// â”€â”€ Sub-componentes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Sub-componentes ──────────────────────────────────────────────
 
 function GaugeCircle({ percent = 0, label, color = '#00e676', size = 110 }) {
   const r    = (size / 2) - 12;
@@ -100,7 +100,7 @@ function VmOnlyPlaceholder({ label = 'Datos disponibles en modo VM' }) {
   );
 }
 
-// â”€â”€ PageDashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PageDashboard ────────────────────────────────────────────────
 
 function MetaMensualCard() {
   const [meta, setMeta] = useState('');
@@ -158,12 +158,12 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
             <GaugeCircle percent={sysInfo?.disk?.percent ?? 0} label="DISCO" color="#ffd740" />
           </div>
           <div className="sys-info-table">
-            <div className="sys-info-row"><span>CPU</span><span>{sysInfo?.cpu?.model ?? 'â€”'} Â· {sysInfo?.cpu?.cores ?? 0} nÃºcleos</span></div>
+            <div className="sys-info-row"><span>CPU</span><span>{sysInfo?.cpu?.model ?? '—'} · {sysInfo?.cpu?.cores ?? 0} núcleos</span></div>
             {!IS_VM(dbConfig) && <div className="sys-info-row"><span>Velocidad</span><span>{sysInfo?.cpu?.speed ?? 0} MHz</span></div>}
-            <div className="sys-info-row"><span>RAM Total</span><span>{fmt(sysInfo?.ram?.total)} Â· Usado {fmt(sysInfo?.ram?.used)}</span></div>
-            {!IS_VM(dbConfig) && <div className="sys-info-row"><span>Disco</span><span>Total {fmt(sysInfo?.disk?.total)} Â· Libre {fmt(sysInfo?.disk?.free)}</span></div>}
+            <div className="sys-info-row"><span>RAM Total</span><span>{fmt(sysInfo?.ram?.total)} · Usado {fmt(sysInfo?.ram?.used)}</span></div>
+            {!IS_VM(dbConfig) && <div className="sys-info-row"><span>Disco</span><span>Total {fmt(sysInfo?.disk?.total)} · Libre {fmt(sysInfo?.disk?.free)}</span></div>}
             <div className="sys-info-row"><span>Uptime</span><span>{fmtUptime(sysInfo?.uptime)}</span></div>
-            <div className="sys-info-row"><span>Hostname</span><span>{sysInfo?.hostname ?? 'â€”'}</span></div>
+            <div className="sys-info-row"><span>Hostname</span><span>{sysInfo?.hostname ?? '—'}</span></div>
           </div>
         </div>
       </Card>
@@ -182,7 +182,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
       </Card>
 
       {/* Performance Graph */}
-      <Card title="Rendimiento CPU â€” Ãºltimos 60 seg" onRefresh={() => reload('sys')} className="card--wide">
+      <Card title="Rendimiento CPU — últimos 60 seg" onRefresh={() => reload('sys')} className="card--wide">
         <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height={160}>
           <AreaChart data={cpuHistory} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <defs>
@@ -200,7 +200,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
         </ResponsiveContainer>
       </Card>
 
-      {/* Usuarios Conectados â€” resumen */}
+      {/* Usuarios Conectados — resumen */}
       <Card title="Usuarios Conectados" onRefresh={() => reload('users')}>
         <>
           <div className="conn-summary">
@@ -228,7 +228,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
       </Card>
 
       {/* Resumen Global */}
-      <Card title="Resumen Operativo del DÃ­a" onRefresh={() => reload('metrics')}>
+      <Card title="Resumen Operativo del Día" onRefresh={() => reload('metrics')}>
         {globalMetrics ? (
           <div className="global-kpis">
             <div className="kpi-item">
@@ -260,7 +260,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
   );
 }
 
-// â”€â”€ PageConectados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PageConectados ───────────────────────────────────────────────
 
 function PageConectados({ connUsers, dbConfig, reload }) {
   const supervisores = (connUsers || []).filter(u => u.tipo === 'SUPERVISOR');
@@ -300,7 +300,7 @@ function PageConectados({ connUsers, dbConfig, reload }) {
                   <td className="td-num">{m.marcaciones ?? 0}</td>
                   <td className="td-num">{m.total_gestiones ?? 0}</td>
                   <td className="td-num">{m.total_compromisos ?? 0}</td>
-                  <td className="td-num">{m.tiempo_productivo ? `${Math.floor(m.tiempo_productivo / 60)}m` : 'â€”'}</td>
+                  <td className="td-num">{m.tiempo_productivo ? `${Math.floor(m.tiempo_productivo / 60)}m` : '—'}</td>
                 </tr>
               );
             })}
@@ -311,7 +311,7 @@ function PageConectados({ connUsers, dbConfig, reload }) {
   );
 }
 
-// â”€â”€ PageUsuarios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PageUsuarios ─────────────────────────────────────────────────
 
 function PageUsuarios({ users, dbConfig, reload }) {
   const [modal,   setModal]   = useState(null);
@@ -321,9 +321,9 @@ function PageUsuarios({ users, dbConfig, reload }) {
   const [saving,  setSaving]  = useState(false);
   const [msg,     setMsg]     = useState('');
 
-  const ROL_COLORS = { admin: '#ea80fc', supervisor: '#40c4ff', asesor: '#00e676' };
+  const ROL_COLORS = { admin: '#ea80fc', supervisor: '#40c4ff', jefe_area: '#ffab40', asesor: '#00e676' };
 
-  // Decide si usar IPC o REST segÃºn modo
+  // Decide si usar IPC o REST según modo
   async function apiCall(ipcChannel, ipcArgs, restMethod, restPath, restBody) {
     if (IS_VM(dbConfig)) {
       const base = dbConfig.vmUrl.replace(/\/$/, '');
@@ -361,7 +361,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
   }
 
   async function handlePwSave() {
-    if (!newPw || newPw.length < 6) { setMsg('MÃ­nimo 6 caracteres'); return; }
+    if (!newPw || newPw.length < 6) { setMsg('Mínimo 6 caracteres'); return; }
     setSaving(true);
     const res = await apiCall(
       'admin:changePassword', { id: pwModal.id, password: newPw },
@@ -374,7 +374,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
 
   return (
     <div className="page-grid">
-      <Card title={`GestiÃ³n de Usuarios ${IS_VM(dbConfig) ? 'â€” VM / PostgreSQL' : 'â€” Local SQLite'}`} onRefresh={() => reload('userList')} className="card--full">
+      <Card title={`Gestión de Usuarios ${IS_VM(dbConfig) ? '— VM / PostgreSQL' : '— Local SQLite'}`} onRefresh={() => reload('userList')} className="card--full">
         <div className="users-toolbar">
           <button className="btn btn--primary" onClick={() => { setForm({ nombre: '', email: '', password: '', rol: 'asesor', supervisor_id: null }); setMsg(''); setModal('create'); }}>
             <span className="material-icons" style={{ fontSize: 16 }}>person_add</span>
@@ -395,13 +395,13 @@ function PageUsuarios({ users, dbConfig, reload }) {
                 <td className="td-email">{u.email}</td>
                 <td><span className="rol-badge" style={{ color: ROL_COLORS[u.rol] || '#aaa' }}>{u.rol}</span></td>
                 <td><span className={`status-badge ${u.estado === 'activo' ? 'status-badge--ok' : 'status-badge--off'}`}>{u.estado}</span></td>
-                <td className="td-date">{u.creado_en?.slice(0, 10) || 'â€”'}</td>
+                <td className="td-date">{u.creado_en?.slice(0, 10) || '—'}</td>
                 <td>
                   <div className="action-btns">
                     <button className="btn-icon" title="Editar" onClick={() => { setForm({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, estado: u.estado, supervisor_id: u.supervisor_id ?? null }); setMsg(''); setModal('edit'); }}>
                       <span className="material-icons">edit</span>
                     </button>
-                    <button className="btn-icon" title="Cambiar contraseÃ±a" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
+                    <button className="btn-icon" title="Cambiar contraseña" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
                       <span className="material-icons">lock_reset</span>
                     </button>
                     <button className={`btn-icon ${u.estado === 'activo' ? 'btn-icon--warn' : 'btn-icon--ok'}`} title={u.estado === 'activo' ? 'Desactivar' : 'Activar'} onClick={() => handleToggle(u)}>
@@ -427,23 +427,24 @@ function PageUsuarios({ users, dbConfig, reload }) {
               {msg && <div className="modal-err">{msg}</div>}
               <label>Nombre<input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></label>
               <label>Email<input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></label>
-              {modal === 'create' && <label>ContraseÃ±a<input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></label>}
+              {modal === 'create' && <label>Contraseña<input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></label>}
               <label>Rol
                 <select value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
                   <option value="asesor">Asesor</option>
+                  <option value="jefe_area">Jefe de Área</option>
                   <option value="supervisor">Supervisor</option>
                   <option value="admin">Admin</option>
                 </select>
               </label>
               {form.rol === 'asesor' && (
-                <label>Supervisor (equipo)
+                <label>Jefe / Supervisor (equipo)
                   <select
                     value={form.supervisor_id ?? ''}
                     onChange={e => setForm(f => ({ ...f, supervisor_id: e.target.value ? Number(e.target.value) : null }))}
                   >
-                    <option value="">â€” Sin asignar â€”</option>
-                    {(users || []).filter(u => u.rol === 'supervisor').map(s => (
-                      <option key={s.id} value={s.id}>{s.nombre}</option>
+                    <option value="">— Sin asignar —</option>
+                    {(users || []).filter(u => u.rol === 'supervisor' || u.rol === 'jefe_area').map(s => (
+                      <option key={s.id} value={s.id}>{s.nombre} ({s.rol})</option>
                     ))}
                   </select>
                 </label>
@@ -459,7 +460,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
             </div>
             <div className="modal-footer">
               <button className="btn btn--ghost" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="btn btn--primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardandoâ€¦' : 'Guardar'}</button>
+              <button className="btn btn--primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
             </div>
           </div>
         </div>
@@ -469,16 +470,16 @@ function PageUsuarios({ users, dbConfig, reload }) {
         <div className="modal-overlay" onClick={() => setPwModal(null)}>
           <div className="modal-box modal-box--sm" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span>Cambiar ContraseÃ±a â€” {pwModal.nombre}</span>
+              <span>Cambiar Contraseña — {pwModal.nombre}</span>
               <button className="btn-icon" onClick={() => setPwModal(null)}><span className="material-icons">close</span></button>
             </div>
             <div className="modal-body">
               {msg && <div className="modal-err">{msg}</div>}
-              <label>Nueva ContraseÃ±a<input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoFocus /></label>
+              <label>Nueva Contraseña<input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoFocus /></label>
             </div>
             <div className="modal-footer">
               <button className="btn btn--ghost" onClick={() => setPwModal(null)}>Cancelar</button>
-              <button className="btn btn--primary" onClick={handlePwSave} disabled={saving}>{saving ? 'Guardandoâ€¦' : 'Cambiar'}</button>
+              <button className="btn btn--primary" onClick={handlePwSave} disabled={saving}>{saving ? 'Guardando…' : 'Cambiar'}</button>
             </div>
           </div>
         </div>
@@ -487,7 +488,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
   );
 }
 
-// â”€â”€ PageConexion â€” configuraciÃ³n de BD dual-mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PageConexion — configuración de BD dual-mode ────────────────
 
 function PageConexion({ dbConfig, onConfigChange }) {
   const [mode,      setMode]      = useState(dbConfig.mode     || 'local');
@@ -520,7 +521,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
   }
 
   async function handleVmLogin() {
-    if (!vmUrl || !vmEmail || !vmPw) { setMsg('Completa URL, email y contraseÃ±a de la VM'); return; }
+    if (!vmUrl || !vmEmail || !vmPw) { setMsg('Completa URL, email y contraseña de la VM'); return; }
     setLogging(true); setMsg('');
     const res = await window.api.invoke('admin:vmLogin', { vmUrl, email: vmEmail, password: vmPw });
     setLogging(false);
@@ -546,7 +547,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
   return (
     <div className="page-grid">
       {/* Selector de modo */}
-      <Card title="Modo de ConexiÃ³n" className="card--full">
+      <Card title="Modo de Conexión" className="card--full">
         <div className="conn-mode-selector">
           <div
             className={`conn-mode-card ${mode === 'local' ? 'conn-mode-card--active' : ''}`}
@@ -556,7 +557,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
               <span className="material-icons">storage</span>
             </div>
             <div className="conn-mode-info">
-              <div className="conn-mode-title">Local LAN â€” SQLite</div>
+              <div className="conn-mode-title">Local LAN — SQLite</div>
               <div className="conn-mode-desc">Datos desde la base de datos local (better-sqlite3). Funciona sin internet. Ideal para uso en oficina / red LAN.</div>
               <div className="conn-mode-tech">
                 <span className="tech-chip tech-chip--green">better-sqlite3</span>
@@ -577,8 +578,8 @@ function PageConexion({ dbConfig, onConfigChange }) {
               <span className="material-icons">cloud</span>
             </div>
             <div className="conn-mode-info">
-              <div className="conn-mode-title">Servidor VM â€” SQLite Centralizado</div>
-              <div className="conn-mode-desc">Datos desde el servidor remoto vÃ­a REST API. VM centraliza la BD â€” todos los asesores comparten los mismos datos. PostgreSQL disponible en Fase 2.</div>
+              <div className="conn-mode-title">Servidor VM — SQLite Centralizado</div>
+              <div className="conn-mode-desc">Datos desde el servidor remoto vía REST API. VM centraliza la BD — todos los asesores comparten los mismos datos. PostgreSQL disponible en Fase 2.</div>
               <div className="conn-mode-tech">
                 <span className="tech-chip tech-chip--green">SQLite WAL</span>
                 <span className="tech-chip tech-chip--blue">REST / JWT</span>
@@ -593,13 +594,13 @@ function PageConexion({ dbConfig, onConfigChange }) {
         </div>
       </Card>
 
-      {/* ConfiguraciÃ³n Local */}
+      {/* Configuración Local */}
       {mode === 'local' && (
-        <Card title="ConfiguraciÃ³n Local" className="card--full">
+        <Card title="Configuración Local" className="card--full">
           <div className="local-info">
             <div className="local-info-row">
               <span className="material-icons" style={{ color: '#00e676' }}>check_circle</span>
-              <span>Motor: <strong>better-sqlite3</strong> (WAL mode, sincrÃ³nico)</span>
+              <span>Motor: <strong>better-sqlite3</strong> (WAL mode, sincrónico)</span>
             </div>
             <div className="local-info-row">
               <span className="material-icons" style={{ color: '#40c4ff' }}>folder</span>
@@ -607,20 +608,20 @@ function PageConexion({ dbConfig, onConfigChange }) {
             </div>
             <div className="local-info-row">
               <span className="material-icons" style={{ color: '#ffd740' }}>info</span>
-              <span>No requiere configuraciÃ³n adicional. La BD se inicializa automÃ¡ticamente al arrancar la app.</span>
+              <span>No requiere configuración adicional. La BD se inicializa automáticamente al arrancar la app.</span>
             </div>
             <div className="local-info-row">
               <span className="material-icons" style={{ color: '#ea80fc' }}>schedule</span>
-              <span>Migraciones: M-001 â†’ M-036 aplicadas automÃ¡ticamente.</span>
+              <span>Migraciones: M-001 â†’ M-041 aplicadas automáticamente.</span>
             </div>
           </div>
         </Card>
       )}
 
-      {/* ConfiguraciÃ³n VM */}
+      {/* Configuración VM */}
       {mode === 'vm' && (
         <>
-          <Card title="ConexiÃ³n al Servidor VM" className="card--full">
+          <Card title="Conexión al Servidor VM" className="card--full">
             <div className="vm-form">
               <div className="vm-form-section">
                 <div className="vm-form-section-title">Servidor Express / REST API</div>
@@ -630,7 +631,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
                     <input
                       value={vmUrl}
                       onChange={e => setVmUrl(e.target.value)}
-                      placeholder="https://cobranza.midominio.com  Ã³  http://10.20.1.4:3001"
+                      placeholder="https://cobranza.midominio.com  ó  http://10.20.1.4:3001"
                     />
                     <span className="input-hint">Puerto 3001 por defecto</span>
                   </div>
@@ -649,14 +650,14 @@ function PageConexion({ dbConfig, onConfigChange }) {
                 <div className="vm-form-actions">
                   <button className="btn btn--outline" onClick={handleTest} disabled={testing}>
                     <span className="material-icons" style={{ fontSize: 15 }}>{testing ? 'hourglass_empty' : 'wifi_tethering'}</span>
-                    {testing ? 'Probandoâ€¦' : 'Test ConexiÃ³n'}
+                    {testing ? 'Probando…' : 'Test Conexión'}
                   </button>
                   {testResult && (
                     <div className={`test-result ${testResult.ok ? 'test-result--ok' : 'test-result--err'}`}>
                       <span className="material-icons">{testResult.ok ? 'check_circle' : 'error'}</span>
                       {testResult.ok
-                        ? `VM online â€” HTTP ${testResult.status} Â· ${testResult.ms}ms`
-                        : `Sin conexiÃ³n â€” ${testResult.error || `HTTP ${testResult.status}`}`
+                        ? `VM online — HTTP ${testResult.status} · ${testResult.ms}ms`
+                        : `Sin conexión — ${testResult.error || `HTTP ${testResult.status}`}`
                       }
                     </div>
                   )}
@@ -666,58 +667,58 @@ function PageConexion({ dbConfig, onConfigChange }) {
               <div className="vm-form-divider" />
 
               <div className="vm-form-section">
-                <div className="vm-form-section-title">Obtener Token â€” Login en VM</div>
+                <div className="vm-form-section-title">Obtener Token — Login en VM</div>
                 <div className="vm-login-form">
                   <label className="form-label">
                     Email admin en VM
                     <input type="email" value={vmEmail} onChange={e => setVmEmail(e.target.value)} placeholder="admin@sistema.local" />
                   </label>
                   <label className="form-label">
-                    ContraseÃ±a
-                    <input type="password" value={vmPw} onChange={e => setVmPw(e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" />
+                    Contraseña
+                    <input type="password" value={vmPw} onChange={e => setVmPw(e.target.value)} placeholder="••••••••" />
                   </label>
                   <button className="btn btn--primary" onClick={handleVmLogin} disabled={logging}>
                     <span className="material-icons" style={{ fontSize: 15 }}>login</span>
-                    {logging ? 'Conectandoâ€¦' : 'Conectar y obtener token'}
+                    {logging ? 'Conectando…' : 'Conectar y obtener token'}
                   </button>
                 </div>
               </div>
             </div>
           </Card>
 
-          <Card title="PostgreSQL + Prisma â€” Fase 2 (referencia futura)" className="card--full">
+          <Card title="PostgreSQL + Prisma — Activo" className="card--full">
             <div className="vm-form">
               <div className="vm-form-section">
-                <div className="vm-form-section-title">Connection String (referencia â€” se conecta en el servidor VM)</div>
+                <div className="vm-form-section-title">Connection String (se conecta en el servidor VM)</div>
                 <label className="form-label">
                   DATABASE_URL
                   <input
                     value={pgString}
                     onChange={e => setPgString(e.target.value)}
-                    placeholder="postgresql://usuario:contraseÃ±a@vm-host:5432/cobranza_db"
+                    placeholder="postgresql://usuario:contraseña@vm-host:5432/crm_marketing"
                     className="input-mono"
                   />
                   <span className="input-hint-block">
-                    Este valor se almacena como referencia. La conexiÃ³n Prisma/PostgreSQL ocurre en el servidor VM,
-                    no en esta aplicaciÃ³n Electron. Configura <code>DATABASE_URL</code> en el <code>.env</code> de la VM.
+                    La conexión Prisma/PostgreSQL ocurre en el servidor VM.
+                    Configura <code>DATABASE_URL</code> en el <code>.env</code> del backend. Schema sincronizado hasta M-041.
                   </span>
                 </label>
                 <div className="prisma-info-chips">
                   <div className="prisma-chip">
+                    <span className="material-icons" style={{ fontSize: 14 }}>check_circle</span>
+                    Estado: Operativo
+                  </div>
+                  <div className="prisma-chip">
                     <span className="material-icons" style={{ fontSize: 14 }}>account_tree</span>
-                    ORM: Prisma Client
+                    ORM: Prisma Client v7
                   </div>
                   <div className="prisma-chip">
                     <span className="material-icons" style={{ fontSize: 14 }}>storage</span>
-                    Motor: PostgreSQL 15+
-                  </div>
-                  <div className="prisma-chip">
-                    <span className="material-icons" style={{ fontSize: 14 }}>cloud</span>
-                    Hosted: Azure VM / Azure DB for PostgreSQL
+                    Motor: PostgreSQL 18.4
                   </div>
                   <div className="prisma-chip">
                     <span className="material-icons" style={{ fontSize: 14 }}>swap_horiz</span>
-                    API: REST / JSON (misma interfaz que modo local)
+                    API: REST / JSON — misma interfaz que modo local
                   </div>
                 </div>
               </div>
@@ -727,16 +728,16 @@ function PageConexion({ dbConfig, onConfigChange }) {
       )}
 
       {/* Save */}
-      <Card title="Aplicar ConfiguraciÃ³n" className="card--full">
+      <Card title="Aplicar Configuración" className="card--full">
         {msg && <div className="modal-err" style={{ marginBottom: 12 }}>{msg}</div>}
         <div className="save-row">
           <button className="btn btn--primary btn--lg" onClick={handleSave} disabled={saving}>
             <span className="material-icons">{saving ? 'hourglass_empty' : saved ? 'check' : 'save'}</span>
-            {saving ? 'Guardandoâ€¦' : saved ? 'Â¡Guardado!' : 'Guardar y Aplicar'}
+            {saving ? 'Guardando…' : saved ? '¡Guardado!' : 'Guardar y Aplicar'}
           </button>
           <div className="save-note">
             <span className="material-icons" style={{ fontSize: 14, color: '#ffd740' }}>warning</span>
-            Al cambiar de modo, los datos del dashboard se actualizarÃ¡n automÃ¡ticamente desde la fuente seleccionada.
+            Al cambiar de modo, los datos del dashboard se actualizarán automáticamente desde la fuente seleccionada.
           </div>
         </div>
       </Card>
@@ -744,15 +745,15 @@ function PageConexion({ dbConfig, onConfigChange }) {
   );
 }
 
-// â”€â”€ PageSistema â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PageSistema ──────────────────────────────────────────────────
 
 function PageSistema({ sysInfo, dbConfig, reload }) {
   return (
     <div className="page-grid">
       <Card title="CPU" onRefresh={() => reload('sys')}>
         <div className="sys-detail">
-          <div className="sys-detail-row"><span>Modelo</span><span>{sysInfo?.cpu?.model || 'â€”'}</span></div>
-          <div className="sys-detail-row"><span>NÃºcleos</span><span>{sysInfo?.cpu?.cores || 0}</span></div>
+          <div className="sys-detail-row"><span>Modelo</span><span>{sysInfo?.cpu?.model || '—'}</span></div>
+          <div className="sys-detail-row"><span>Núcleos</span><span>{sysInfo?.cpu?.cores || 0}</span></div>
           {!IS_VM(dbConfig) && <div className="sys-detail-row"><span>Velocidad</span><span>{sysInfo?.cpu?.speed || 0} MHz</span></div>}
           <div className="sys-detail-row"><span>Uso actual</span><span>{sysInfo?.cpu?.percent || 0}%</span></div>
         </div>
@@ -768,7 +769,7 @@ function PageSistema({ sysInfo, dbConfig, reload }) {
       <Card title="Almacenamiento" onRefresh={() => reload('sys')}>
         <div className="sys-detail">
           {IS_VM(dbConfig)
-            ? <div className="sys-detail-row"><span>Info</span><span>No disponible vÃ­a API</span></div>
+            ? <div className="sys-detail-row"><span>Info</span><span>No disponible vía API</span></div>
             : <>
                 <div className="sys-detail-row"><span>Total</span><span>{fmt(sysInfo?.disk?.total)}</span></div>
                 <div className="sys-detail-row"><span>Libre</span><span>{fmt(sysInfo?.disk?.free)}</span></div>
@@ -779,8 +780,8 @@ function PageSistema({ sysInfo, dbConfig, reload }) {
       </Card>
       <Card title="Sistema Operativo" onRefresh={() => reload('sys')}>
         <div className="sys-detail">
-          <div className="sys-detail-row"><span>Plataforma</span><span>{sysInfo?.platform || 'â€”'}</span></div>
-          <div className="sys-detail-row"><span>Hostname</span><span>{sysInfo?.hostname || 'â€”'}</span></div>
+          <div className="sys-detail-row"><span>Plataforma</span><span>{sysInfo?.platform || '—'}</span></div>
+          <div className="sys-detail-row"><span>Hostname</span><span>{sysInfo?.hostname || '—'}</span></div>
           <div className="sys-detail-row"><span>Uptime</span><span>{fmtUptime(sysInfo?.uptime)}</span></div>
         </div>
       </Card>
@@ -788,13 +789,13 @@ function PageSistema({ sysInfo, dbConfig, reload }) {
   );
 }
 
-// â”€â”€ AdminPanel principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── AdminPanel principal ─────────────────────────────────────────
 
 const NAV = [
   { id: 'dashboard',  label: 'Dashboard',          icon: 'dashboard'          },
   { id: 'conectados', label: 'Usuarios Conectados', icon: 'supervisor_account' },
-  { id: 'usuarios',   label: 'GestiÃ³n Usuarios',    icon: 'manage_accounts'    },
-  { id: 'conexion',   label: 'ConexiÃ³n BD',         icon: 'dns'                },
+  { id: 'usuarios',   label: 'Gestión Usuarios',    icon: 'manage_accounts'    },
+  { id: 'conexion',   label: 'Conexión BD',         icon: 'dns'                },
   { id: 'sistema',    label: 'Sistema',             icon: 'memory'             },
 ];
 
@@ -813,14 +814,14 @@ export default function AdminPanel() {
     try { return JSON.parse(localStorage.getItem('auth_user')); } catch { return null; }
   })();
 
-  // â”€â”€ Carga dbConfig al inicio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Carga dbConfig al inicio ─────────────────────────────────
   useEffect(() => {
     window.api.invoke('admin:getDbConfig').then(cfg => {
       if (cfg) setDbConfig(cfg);
     }).catch(() => {});
   }, []);
 
-  // â”€â”€ Load functions mode-aware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Load functions mode-aware ────────────────────────────────
 
   const loadSys = useCallback(async () => {
     try {
@@ -829,12 +830,12 @@ export default function AdminPanel() {
         const raw = await vmApiFetch(dbConfig.vmUrl, dbConfig.vmToken, '/api/admin/sysinfo');
         const uptimeSec = raw.uptime || 0;
         info = {
-          cpu: { percent: raw.cpu?.usage ?? 0, model: raw.cpu?.model || 'â€”', cores: raw.cpu?.cores || 0, speed: 0 },
+          cpu: { percent: raw.cpu?.usage ?? 0, model: raw.cpu?.model || '—', cores: raw.cpu?.cores || 0, speed: 0 },
           ram: { percent: raw.memory?.usedPercent ?? 0, total: raw.memory?.total ?? 0, used: raw.memory?.used ?? 0, free: raw.memory?.free ?? 0 },
           disk: { percent: 0, total: 0, free: 0 },
           uptime: { hours: Math.floor(uptimeSec / 3600), minutes: Math.floor((uptimeSec % 3600) / 60) },
-          hostname: raw.hostname || 'â€”',
-          platform: raw.platform || 'â€”',
+          hostname: raw.hostname || '—',
+          platform: raw.platform || '—',
           processes: { express: true, websocket: true, adb: true, sqlite: true }
         };
       } else {
@@ -950,7 +951,7 @@ export default function AdminPanel() {
               <div className="sidebar-user__role">Administrador</div>
             </div>
           </div>
-          <button className="btn-icon btn-icon--logout" onClick={handleLogout} title="Cerrar sesiÃ³n">
+          <button className="btn-icon btn-icon--logout" onClick={handleLogout} title="Cerrar sesión">
             <span className="material-icons">logout</span>
           </button>
         </div>
@@ -967,7 +968,7 @@ export default function AdminPanel() {
           <div className="topbar-right">
             <div className={`topbar-mode topbar-mode--${dbConfig.mode}`}>
               <span className="material-icons" style={{ fontSize: 14 }}>{vmConnected ? 'cloud' : 'storage'}</span>
-              {vmConnected ? `VM SQLite: ${(dbConfig.vmUrl || '').replace(/^https?:\/\//, '').slice(0, 25)}` : 'Local SQLite'}
+              {vmConnected ? `VM PostgreSQL: ${(dbConfig.vmUrl || '').replace(/^https?:\/\//, '').slice(0, 25)}` : 'Local SQLite'}
             </div>
             <div className="topbar-online">
               <span className="online-dot" />

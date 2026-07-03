@@ -20,6 +20,32 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/campanas/dashboard — Resumen de campañas activas con métricas
+// DEBE ir antes de /:id para evitar que 'dashboard' sea tratado como id
+router.get('/dashboard', async (req, res, next) => {
+  try {
+    const campanas = await db.campana.findMany({
+      where: { estado: 'activa' },
+      orderBy: { id: 'desc' },
+      include: {
+        _count: { select: { contactos: true } },
+        supervisor: { select: { id: true, nombre: true } },
+      },
+    });
+
+    const dashboard = await Promise.all(campanas.map(async (c) => {
+      const [total, gestionados, pagados] = await Promise.all([
+        db.contacto.count({ where: { campanaId: c.id } }),
+        db.contacto.count({ where: { campanaId: c.id, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO', 'AGENDADO'] } } }),
+        db.contacto.count({ where: { campanaId: c.id, yaPago: true } }),
+      ]);
+      return { ...c, total_contactos: total, gestionados, pagados };
+    }));
+
+    res.json(dashboard);
+  } catch (err) { next(err); }
+});
+
 // GET /api/campanas/:id — Detalle de campaña con contactos
 router.get('/:id', async (req, res, next) => {
   try {
