@@ -268,7 +268,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           url = `${apiBase}/bitacora/refs?limite=${args[1] || 1000}`;
           break;
         case 'db:getCarteraAsesor':
-          url = `${apiBase}/cartera`;
+          url = `${apiBase}/cartera?campanaId=${args[1] || ''}`;
           break;
         case 'db:insertSubGestion':
           url = `${apiBase}/sub-gestiones`;
@@ -976,7 +976,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
     if (!usuario?.id) return;
     const isWsp = tipo === 'whatsapp';
     const isCorreo = tipo === 'correo';
-    const activos = cartera.filter(c => (isWsp ? c.whatsapp_status : isCorreo ? c.correo_status : c.rcs_status) === 'ACTIVO');
+    const activos = cartera.filter(c => {
+      const st = isWsp ? c.whatsapp_status : isCorreo ? c.correo_status : c.rcs_status;
+      return st !== 'ENVIADO';
+    });
     if (activos.length === 0) {
       showToast('No hay contactos activos en el lote', 'warning');
       return;
@@ -985,6 +988,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       await callApi('db:marcarLoteEnviado', usuario.id, tipo, activos.map(c => c.id));
       showToast(`✓ ${activos.length} contactos marcados como Enviado`, 'success');
       cargarCartera();
+      fetchMetricasYEnviar();
     } catch (err) {
       showToast('Error al marcar enviado: ' + err.message, 'error');
     }
@@ -994,7 +998,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     if (!usuario?.id) return;
     setCarteraLoading(true);
     try {
-      const data = await callApi('db:getCarteraAsesor', usuario.id);
+      const data = await callApi('db:getCarteraAsesor', usuario.id, campana?.id);
       setCartera(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('[CARTERA]', err);
@@ -2247,15 +2251,36 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               <td style={{ padding: '8px 10px', fontSize: 10, opacity: 0.7 }}>
                                 {c.ultima_tipificacion || <span style={{ opacity: 0.3, fontStyle: 'italic' }}>sin gestiones</span>}
                               </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#00e676' }}>check</span>
-                              </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#00e676' }}>check</span>
-                              </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#00e676' }}>check</span>
-                              </td>
+                              {['rcs','correo','wsp'].map(canal => {
+                                const statusKey = canal === 'wsp' ? 'whatsapp_status' : canal === 'rcs' ? 'rcs_status' : 'correo_status';
+                                const enviado = c[statusKey] === 'ENVIADO';
+                                const canalApi = canal === 'wsp' ? 'whatsapp' : canal;
+                                return (
+                                  <td key={canal} style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                    <button
+                                      title={enviado ? 'Enviado hoy' : `Marcar ${canal.toUpperCase()} como enviado`}
+                                      onClick={async () => {
+                                        if (enviado) return;
+                                        try {
+                                          await callApi('db:marcarLoteEnviado', usuario.id, canalApi, [c.id]);
+                                          cargarCartera();
+                                        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+                                      }}
+                                      style={{
+                                        background: 'none', border: 'none', cursor: enviado ? 'default' : 'pointer',
+                                        padding: 2, borderRadius: 4, display: 'inline-flex', alignItems: 'center',
+                                        transition: 'opacity 0.15s',
+                                      }}
+                                      onMouseEnter={e => { if (!enviado) e.currentTarget.querySelector('span').style.color = '#00e676'; }}
+                                      onMouseLeave={e => { if (!enviado) e.currentTarget.querySelector('span').style.color = 'rgba(255,255,255,0.2)'; }}
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: enviado ? '#00e676' : 'rgba(255,255,255,0.2)' }}>
+                                        {enviado ? 'check_circle' : 'radio_button_unchecked'}
+                                      </span>
+                                    </button>
+                                  </td>
+                                );
+                              })}
                               <td style={{ padding: '8px 10px', textAlign: 'right' }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                                   <select 
@@ -2330,7 +2355,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   const lotes = [];
                   for (let i = 0; i < base.length; i += BLOQUE) {
                     const clients = base.slice(i, i + BLOQUE);
-                    const pendientes = clients.filter(c => (isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status) === 'ACTIVO').length;
+                    const pendientes = clients.filter(c => {
+                      const st = isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status;
+                      return st !== 'ENVIADO';
+                    }).length;
                     const total = clients.length;
                     const pct = total > 0 ? Math.round(((total - pendientes) / total) * 100) : 100;
                     lotes.push({ num: Math.floor(i / BLOQUE) + 1, clients, pendientes, total, pct });
@@ -2430,12 +2458,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
                                     disabled={completado}
                                     onClick={async () => {
-                                      const ids = lote.clients.filter(c => (isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status) === 'ACTIVO').map(c => c.id);
+                                      const ids = lote.clients.filter(c => {
+                                        const st = isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status;
+                                        return st !== 'ENVIADO';
+                                      }).map(c => c.id);
                                       if (!ids.length) return;
                                       try {
                                         await callApi('db:marcarLoteEnviado', usuario.id, isWsp ? 'whatsapp' : isRcs ? 'rcs' : 'correo', ids);
                                         showToast(`✓ ${ids.length} contactos marcados como Enviado`, 'success');
                                         cargarCartera();
+                                        fetchMetricasYEnviar();
                                       } catch (err) {
                                         showToast('Error: ' + err.message, 'error');
                                       }

@@ -890,13 +890,29 @@ function getCdrsByUsuario(usuarioId, fecha) {
  * Cada fila incluye datos del contacto + último CDR/tipificación + conteo de gestiones.
  * Permite al asesor ver qué clientes tiene asignados y cuáles ya fueron trabajados.
  */
-function getCarteraAsesor(asesorId) {
+function getCarteraAsesor(asesorId, campanaId = null) {
   const db = getDb();
   const cols = db.prepare("PRAGMA table_info(contactos)").all().map(c => c.name);
   const hasFechaAsig = cols.includes('fecha_asignacion');
-
   const hasOrden = cols.includes('orden_marcacion');
   const hasValidado = cols.includes('validado_pago');
+  const hasWspFecha = cols.includes('wsp_enviado_fecha');
+  const hasRcsFecha = cols.includes('rcs_enviado_fecha');
+  const hasCorreoFecha = cols.includes('correo_enviado_fecha');
+
+  // Status ENVIADO solo si enviado HOY — contabilización diaria
+  const wspStatusExpr = hasWspFecha
+    ? `CASE WHEN ct.whatsapp_status = 'ENVIADO' AND ct.wsp_enviado_fecha = date('now','localtime') THEN 'ENVIADO' WHEN ct.whatsapp_status = 'ENVIADO' THEN 'INACTIVO' ELSE ct.whatsapp_status END`
+    : 'ct.whatsapp_status';
+  const rcsStatusExpr = hasRcsFecha
+    ? `CASE WHEN ct.rcs_status = 'ENVIADO' AND ct.rcs_enviado_fecha = date('now','localtime') THEN 'ENVIADO' WHEN ct.rcs_status = 'ENVIADO' THEN 'ACTIVO' ELSE ct.rcs_status END`
+    : 'ct.rcs_status';
+  const correoStatusExpr = hasCorreoFecha
+    ? `CASE WHEN ct.correo_status = 'ENVIADO' AND ct.correo_enviado_fecha = date('now','localtime') THEN 'ENVIADO' WHEN ct.correo_status = 'ENVIADO' THEN 'INACTIVO' ELSE ct.correo_status END`
+    : 'ct.correo_status';
+
+  const campanaFilter = campanaId ? ' AND ct.campana_id = ?' : '';
+  const params = campanaId ? [asesorId, campanaId] : [asesorId];
 
   // PASO 1: contactos base
   const contactos = db.prepare(`
@@ -905,14 +921,16 @@ function getCarteraAsesor(asesorId) {
       ct.monto_deuda, ct.producto, ct.metadata,
       ct.estado_marcacion, ct.intentos_realizados,
       ct.ya_pago, ct.campana_id,
-      ct.whatsapp_status, ct.rcs_status, ct.correo_status,
+      (${wspStatusExpr}) AS whatsapp_status,
+      (${rcsStatusExpr}) AS rcs_status,
+      (${correoStatusExpr}) AS correo_status,
       ${hasValidado ? 'ct.validado_pago' : '0 AS validado_pago'},
       ${hasOrden ? 'ct.orden_marcacion' : 'NULL AS orden_marcacion'},
       ${hasFechaAsig ? 'ct.fecha_asignacion' : 'NULL AS fecha_asignacion'},
       cmp.nombre AS campana_nombre
     FROM contactos ct
     LEFT JOIN campanas cmp ON ct.campana_id = cmp.id
-    WHERE ct.asignado_a = ?
+    WHERE ct.asignado_a = ?${campanaFilter}
     ORDER BY
       ${hasOrden ? 'CASE WHEN ct.orden_marcacion IS NULL THEN 1 ELSE 0 END, ct.orden_marcacion ASC,' : ''}
       CASE ct.estado_marcacion
@@ -924,7 +942,7 @@ function getCarteraAsesor(asesorId) {
         ELSE 5
       END,
       ct.id ASC
-  `).all(asesorId);
+  `).all(...params);
 
   if (contactos.length === 0) return [];
 
@@ -2170,14 +2188,23 @@ function toggleContactoMensajeria(contactoId, channel, newState, usuarioId = nul
 function getLoteMensajeria(asesorId, channel, limit = 200) {
   const db = getDb();
   let column = '';
-  if (channel === 'whatsapp' || channel === 'WSP') column = 'whatsapp_status';
-  else if (channel === 'rcs' || channel === 'SMS') column = 'rcs_status';
-  else if (channel === 'correo' || channel === 'EMAIL') column = 'correo_status';
+  let fechaCol = '';
+  if (channel === 'whatsapp' || channel === 'WSP') { column = 'whatsapp_status'; fechaCol = 'wsp_enviado_fecha'; }
+  else if (channel === 'rcs' || channel === 'SMS') { column = 'rcs_status'; fechaCol = 'rcs_enviado_fecha'; }
+  else if (channel === 'correo' || channel === 'EMAIL') { column = 'correo_status'; fechaCol = 'correo_enviado_fecha'; }
   else throw new Error('Canal no soportado: ' + channel);
 
+  const cols = db.prepare("PRAGMA table_info(contactos)").all().map(c => c.name);
+  const hasFechaCol = cols.includes(fechaCol);
+
+  // Excluir solo si fue enviado HOY — enviados de días anteriores vuelven al lote
+  const enviadoHoyExpr = hasFechaCol
+    ? `(${column} = 'ENVIADO' AND ${fechaCol} = date('now','localtime'))`
+    : `${column} = 'ENVIADO'`;
+
   return db.prepare(`
-    SELECT * FROM contactos 
-    WHERE asesor_id = ? AND (${column} IS NULL OR ${column} != 'ENVIADO')
+    SELECT * FROM contactos
+    WHERE asignado_a = ? AND NOT (${enviadoHoyExpr})
     ORDER BY CAST(monto_deuda AS REAL) DESC
     LIMIT ?
   `).all(asesorId, limit);
@@ -2187,21 +2214,27 @@ function marcarLoteEnviado(asesorId, channel, contactoIds) {
   if (!contactoIds || contactoIds.length === 0) return { changes: 0 };
   const db = getDb();
   let column = '';
+  let fechaCol = '';
   let mapCanal = '';
-  if (channel === 'whatsapp' || channel === 'WSP') { column = 'whatsapp_status'; mapCanal = 'WSP'; }
-  else if (channel === 'rcs' || channel === 'SMS') { column = 'rcs_status'; mapCanal = 'SMS'; }
-  else if (channel === 'correo' || channel === 'EMAIL') { column = 'correo_status'; mapCanal = 'EMAIL'; }
+  if (channel === 'whatsapp' || channel === 'WSP') { column = 'whatsapp_status'; fechaCol = 'wsp_enviado_fecha'; mapCanal = 'WSP'; }
+  else if (channel === 'rcs' || channel === 'SMS') { column = 'rcs_status'; fechaCol = 'rcs_enviado_fecha'; mapCanal = 'SMS'; }
+  else if (channel === 'correo' || channel === 'EMAIL') { column = 'correo_status'; fechaCol = 'correo_enviado_fecha'; mapCanal = 'EMAIL'; }
   else throw new Error('Canal no soportado: ' + channel);
 
   if (column === 'correo_status') {
     try { db.prepare(`ALTER TABLE contactos ADD COLUMN correo_status TEXT DEFAULT 'INACTIVO'`).run(); } catch (e) {}
   }
+  // Asegurar columna de fecha (M-041)
+  try { db.prepare(`ALTER TABLE contactos ADD COLUMN ${fechaCol} TEXT DEFAULT NULL`).run(); } catch (e) {}
 
   const placeholders = contactoIds.map(() => '?').join(',');
-  const stmt = db.prepare(`UPDATE contactos SET ${column} = 'ENVIADO' WHERE id IN (${placeholders})`);
-  
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD local
+  const stmt = db.prepare(
+    `UPDATE contactos SET ${column} = 'ENVIADO', ${fechaCol} = ? WHERE id IN (${placeholders})`
+  );
+
   const tx = db.transaction(() => {
-    const result = stmt.run(...contactoIds);
+    const result = stmt.run(today, ...contactoIds);
     for (const cid of contactoIds) {
       insertEvento({
         usuario_id: asesorId,
@@ -2214,7 +2247,7 @@ function marcarLoteEnviado(asesorId, channel, contactoIds) {
     }
     return result;
   });
-  
+
   return tx();
 }
 
