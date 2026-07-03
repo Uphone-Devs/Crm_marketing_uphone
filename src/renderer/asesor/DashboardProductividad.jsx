@@ -19,7 +19,7 @@ const SEGMENTS = [
 
 const CANALES = [
   { id: 'whatsapp', label: 'WhatsApp', icon: 'chat' },
-  { id: 'rcs',      label: 'RCS',      icon: 'rcs' },
+  { id: 'rcs',      label: 'RCS',      icon: 'sms' },
   { id: 'gmail',    label: 'Correos',  icon: 'mail' },
   { id: 'llamada',  label: 'Llamadas', icon: 'call' },
 ];
@@ -311,30 +311,34 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
 
 
         {/* Ranking */}
-        <div style={{ ...S.card, display:'flex', flexDirection:'column', gap:10 }}>
+        <div style={{ ...S.card, display:'flex', flexDirection:'column', gap:16, border: '1px solid rgba(255,255,255,0.06)' }}>
 
           {/* Ranking header + filters */}
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8 }}>
-            <div style={S.sectionTitle}>
-              <span className="material-symbols-outlined" style={{ fontSize:14 }}>social_leaderboard</span>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12 }}>
+            <div style={{ ...S.sectionTitle, color: 'var(--color-primary)', marginBottom: 0 }}>
+              <span className="material-symbols-outlined" style={{ fontSize:18, opacity: 0.8 }}>social_leaderboard</span>
               Competencia — Top 5
             </div>
 
-            {/* Canal tabs */}
-            <div style={{ display:'flex', gap:2, background:'rgba(0,0,0,0.25)', padding:3, borderRadius:8 }}>
+            {/* Canal tabs (Segmented Control style) */}
+            <div style={{ display:'flex', background:'rgba(255,255,255,0.03)', padding:4, borderRadius:12, border: '1px solid rgba(255,255,255,0.05)', flex: 1, minWidth: 280, maxWidth: '100%' }}>
               {CANALES.map(c => (
                 <button
                   key={c.id}
                   onClick={() => setActiveTab(c.id)}
                   style={{
-                    display:'flex', alignItems:'center', gap:4,
-                    background: activeTab === c.id ? 'var(--color-primary)' : 'transparent',
-                    color:      activeTab === c.id ? '#fff' : 'rgba(255,255,255,0.45)',
-                    border:'none', borderRadius:6, padding:'3px 8px',
-                    fontSize:10, fontWeight:700, cursor:'pointer', transition:'all .15s',
+                    flex: 1,
+                    display:'flex', alignItems:'center', justifyContent: 'center', gap:6,
+                    background: activeTab === c.id ? 'rgba(0,230,118,0.1)' : 'transparent',
+                    color:      activeTab === c.id ? '#00e676' : 'rgba(255,255,255,0.4)',
+                    border:     activeTab === c.id ? '1px solid rgba(0,230,118,0.2)' : '1px solid transparent',
+                    borderRadius:8, padding:'6px 8px',
+                    fontSize:11, fontWeight:700, cursor:'pointer', transition:'all .2s ease',
                   }}
+                  onMouseEnter={e => { if (activeTab !== c.id) e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
+                  onMouseLeave={e => { if (activeTab !== c.id) e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize:12 }}>{c.icon}</span>
+                  <span className="material-symbols-outlined" style={{ fontSize:15 }}>{c.icon}</span>
                   {c.label}
                 </button>
               ))}
@@ -342,26 +346,29 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
           </div>
 
           {/* Segment pills */}
-          <div style={{ display:'flex', gap:6 }}>
+          <div style={{ display:'flex', gap:8 }}>
             {SEGMENTS.map(s => (
               <button
                 key={s.id}
                 onClick={() => setActiveSeg(s.id)}
                 style={{
                   flex:1,
-                  background: activeSeg === s.id ? s.color + '22' : 'transparent',
-                  border: `1px solid ${activeSeg === s.id ? s.color : 'rgba(255,255,255,0.08)'}`,
-                  borderRadius:8, padding:'5px 0',
-                  fontSize:10, fontWeight:700,
+                  background: activeSeg === s.id ? `linear-gradient(135deg, ${s.color}25 0%, ${s.color}08 100%)` : 'rgba(255,255,255,0.02)',
+                  border: `1px solid ${activeSeg === s.id ? `${s.color}50` : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: 10, padding: '8px 0',
+                  fontSize:11, fontWeight:700, letterSpacing: 0.5,
                   color: activeSeg === s.id ? s.color : 'rgba(255,255,255,0.4)',
-                  cursor:'pointer', transition:'all .15s',
+                  cursor:'pointer', transition:'all .2s ease',
+                  boxShadow: activeSeg === s.id ? `0 4px 12px ${s.color}15` : 'none',
                 }}
+                onMouseEnter={e => { if (activeSeg !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                onMouseLeave={e => { if (activeSeg !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
               >{s.label}</button>
             ))}
           </div>
 
           {/* Top-5 list */}
-          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
             {top5.length > 0 && top5.some(d => d.score > 0) ? top5.map((entry, listIdx) => {
               const rank     = full.indexOf(entry) + 1;
               const isMe     = entry.isMe;
@@ -373,29 +380,29 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
                   key={entry.id}
                   style={{
                     display:'grid',
-                    gridTemplateColumns:'28px 1fr 48px',
+                    gridTemplateColumns:'36px 1fr 60px',
                     alignItems:'center',
-                    gap:10,
-                    background: isMe ? 'rgba(0,230,118,0.07)' : 'rgba(255,255,255,0.02)',
-                    border: `1px solid ${isMe ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.05)'}`,
-                    borderRadius:9, padding:'9px 12px',
+                    gap:12,
+                    background: isMe ? 'linear-gradient(90deg, rgba(0,230,118,0.08) 0%, rgba(0,230,118,0.02) 100%)' : 'rgba(255,255,255,0.02)',
+                    border: `1px solid ${isMe ? 'rgba(0,230,118,0.25)' : 'rgba(255,255,255,0.04)'}`,
+                    borderRadius: 12, padding:'12px 14px',
                     transition:'background .2s',
                   }}
                 >
                   {/* Badge */}
-                  <div style={{ textAlign:'center', fontSize: rank <= 3 ? 16 : 11, fontWeight:800, color: isMe ? '#00e676' : 'rgba(255,255,255,0.4)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, background: rank <= 3 ? 'rgba(255,255,255,0.05)' : 'transparent', fontSize: rank <= 3 ? 18 : 12, fontWeight:800, color: isMe ? '#00e676' : 'rgba(255,255,255,0.3)' }}>
                     {rank <= 3 ? MEDAL[rank - 1] : `#${rank}`}
                   </div>
 
                   {/* Name + bar */}
                   <div>
-                    <div style={{ fontSize:12, fontWeight: isMe ? 800 : 600, color: isMe ? '#00e676' : isLeader ? '#ffca28' : '#e2e8f0', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginBottom:4 }}>
+                    <div style={{ fontSize:13, fontWeight: isMe ? 800 : 600, color: isMe ? '#00e676' : isLeader ? '#ffca28' : '#e2e8f0', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginBottom:6 }}>
                       {entry.name}{isMe ? ' (Tú)' : ''}
                     </div>
-                    <div style={{ height:3, background:'rgba(255,255,255,0.06)', borderRadius:4, overflow:'hidden' }}>
-                      <div style={{ width:`${pct}%`, height:'100%', background: isMe ? '#00e676' : segColor, borderRadius:4, transition:'width .5s ease' }} />
+                    <div style={{ height:4, background:'rgba(255,255,255,0.06)', borderRadius:6, overflow:'hidden' }}>
+                      <div style={{ width:`${pct}%`, height:'100%', background: isMe ? 'var(--color-primary)' : segColor, borderRadius:6, transition:'width .8s cubic-bezier(0.34,1.56,0.64,1)', boxShadow: isMe ? '0 0 8px rgba(0,230,118,0.5)' : 'none' }} />
                     </div>
-                    <div style={{ fontSize:9, opacity:0.35, marginTop:2 }}>{pct}% del líder</div>
+                    <div style={{ fontSize:10, opacity:0.4, marginTop:4, letterSpacing: 0.3 }}>{pct}% del líder</div>
                   </div>
 
                   {/* Score */}
