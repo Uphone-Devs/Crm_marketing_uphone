@@ -762,11 +762,11 @@ function registerIpcHandlers() {
     try { return getAllUsuariosAdmin('admin'); } catch (err) { return { error: err.message }; }
   });
 
-  ipcMain.handle('admin:createUser', async (_, { nombre, email, password, rol }) => {
+  ipcMain.handle('admin:createUser', async (_, { nombre, email, password, rol, supervisor_id }) => {
     try {
       if (!nombre || !email || !password || !rol) return { error: 'Campos requeridos' };
       const hash = await bcrypt.hash(password, 10);
-      const result = insertAsesor({ nombre, email, passwordHash: hash, rol });
+      const result = insertAsesor({ nombre, email, passwordHash: hash, rol, supervisorId: supervisor_id ?? null });
       return { success: true, id: result.lastInsertRowid };
     } catch (err) { return { error: err.message }; }
   });
