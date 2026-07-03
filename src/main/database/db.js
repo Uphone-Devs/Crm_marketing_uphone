@@ -1132,6 +1132,26 @@ function initDatabase() {
     console.warn('[DB] M-040 Error:', err.message);
   }
 
+  // M-041: Columnas de fecha de envío por canal para contabilización diaria.
+  // El checkmark ✓ en Cartera Asignada solo debe aparecer si se envió HOY.
+  try {
+    const colsCt = db.prepare("PRAGMA table_info(contactos)").all().map(c => c.name);
+    if (!colsCt.includes('wsp_enviado_fecha')) {
+      db.prepare("ALTER TABLE contactos ADD COLUMN wsp_enviado_fecha TEXT DEFAULT NULL").run();
+      console.log('[DB] M-041: Columna wsp_enviado_fecha añadida a contactos');
+    }
+    if (!colsCt.includes('rcs_enviado_fecha')) {
+      db.prepare("ALTER TABLE contactos ADD COLUMN rcs_enviado_fecha TEXT DEFAULT NULL").run();
+      console.log('[DB] M-041: Columna rcs_enviado_fecha añadida a contactos');
+    }
+    if (!colsCt.includes('correo_enviado_fecha')) {
+      db.prepare("ALTER TABLE contactos ADD COLUMN correo_enviado_fecha TEXT DEFAULT NULL").run();
+      console.log('[DB] M-041: Columna correo_enviado_fecha añadida a contactos');
+    }
+  } catch (err) {
+    console.warn('[DB] M-041 Error:', err.message);
+  }
+
   // Seed si la tabla usuarios está vacía
   const count = db.prepare('SELECT COUNT(*) as c FROM usuarios').get();
   if (count.c === 0) {

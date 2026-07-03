@@ -508,7 +508,8 @@ function initApiServer(port = 3001) {
 
   app.get('/api/cartera', requireAuth, (req, res) => {
     try {
-      res.json(getCarteraAsesor(req.user.id));
+      const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
+      res.json(getCarteraAsesor(req.user.id, campanaId));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
