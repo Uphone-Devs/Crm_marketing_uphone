@@ -28,10 +28,11 @@ app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // ── Rutas REST ────────────────────────────────────────────────
-app.use('/api/auth',     require('./routes/auth.routes'));
-app.use('/api/campanas', require('./routes/campanas.routes'));
-app.use('/api/cdrs',     require('./routes/cdrs.routes'));
-app.use('/api/admin',    require('./routes/admin.routes'));
+app.use('/api/auth',      require('./routes/auth.routes'));
+app.use('/api/campanas',  require('./routes/campanas.routes'));
+app.use('/api/contactos', require('./routes/contactos.routes'));
+app.use('/api/cdrs',      require('./routes/cdrs.routes'));
+app.use('/api/admin',     require('./routes/admin.routes'));
 
 // ── Health check ──────────────────────────────────────────────
 app.get('/health', (req, res) => {
