@@ -82,8 +82,8 @@ let ReportGenerator = null;
 try {
   windowManager = require('./windowManager');
   ReportGenerator = require('./reports/ReportGenerator');
-} catch {
-  // Ignorar si hay error de carga
+} catch (e) {
+  console.error('[DEBUG] Error al cargar modulos en ipcHandlers:', e);
 }
 
 function registerIpcHandlers() {
@@ -795,9 +795,16 @@ function registerIpcHandlers() {
 
   ipcMain.handle('admin:openSupervisor', () => {
     try {
-      if (windowManager) windowManager.createSupervisorWindow();
+      console.log('[DEBUG] admin:openSupervisor called. windowManager:', !!windowManager);
+      if (windowManager) {
+        const win = windowManager.createSupervisorWindow();
+        console.log('[DEBUG] createSupervisorWindow returned:', !!win);
+      }
       return { success: true };
-    } catch (err) { return { error: err.message }; }
+    } catch (err) { 
+      console.error('[DEBUG] Error in admin:openSupervisor:', err);
+      return { error: err.message }; 
+    }
   });
 
   // ── ADMIN: Configuración de BD dual-mode ───────────────────────

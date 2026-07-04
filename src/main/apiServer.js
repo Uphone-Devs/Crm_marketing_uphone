@@ -1084,12 +1084,12 @@ function initApiServer(port = 3001) {
 
   // ═══════════════════════════════════════════════════════════════
   // RUTAS: Panel Jefe de Cobranza — KPIs y Métricas
-  // Todas protegidas por requireAuth + requireSupervisor (incluye jefe_area)
+  // Todas protegidas por requireAuth + requireSupervisorOrAdmin (incluye admin)
   // Spec: spec_panel_jefe.md §2
   // ═══════════════════════════════════════════════════════════════
 
   // GET /api/jefe/indicadores?campanaId=&segmento=&distribuidor=
-  app.get('/api/jefe/indicadores', requireAuth, requireSupervisor, (req, res) => {
+  app.get('/api/jefe/indicadores', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       const filtros = {
         campanaId:    req.query.campanaId    ? parseInt(req.query.campanaId)   : undefined,
@@ -1101,7 +1101,7 @@ function initApiServer(port = 3001) {
   });
 
   // GET /api/jefe/productividad?campanaId=&fechaInicio=&fechaFin=
-  app.get('/api/jefe/productividad', requireAuth, requireSupervisor, (req, res) => {
+  app.get('/api/jefe/productividad', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       const filtros = {
         campanaId:    req.query.campanaId    ? parseInt(req.query.campanaId)   : undefined,
@@ -1113,7 +1113,7 @@ function initApiServer(port = 3001) {
   });
 
   // GET /api/jefe/top-asesores?canal=global&limit=5
-  app.get('/api/jefe/top-asesores', requireAuth, requireSupervisor, (req, res) => {
+  app.get('/api/jefe/top-asesores', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       const canal = req.query.canal || 'global';
       const limit = req.query.limit ? parseInt(req.query.limit) : 5;
@@ -1122,14 +1122,14 @@ function initApiServer(port = 3001) {
   });
 
   // GET /api/jefe/morosidad
-  app.get('/api/jefe/morosidad', requireAuth, requireSupervisor, (req, res) => {
+  app.get('/api/jefe/morosidad', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       res.json(getMorosidadPorDistribuidor());
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   // GET /api/jefe/tendencia-semanal?dias=7
-  app.get('/api/jefe/tendencia-semanal', requireAuth, requireSupervisor, (req, res) => {
+  app.get('/api/jefe/tendencia-semanal', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       const dias = req.query.dias ? parseInt(req.query.dias) : 7;
       res.json(getRecaudacionSemanal(dias));
@@ -1137,7 +1137,7 @@ function initApiServer(port = 3001) {
   });
 
   // GET /api/jefe/meta-mensual
-  app.get('/api/jefe/meta-mensual', requireAuth, requireSupervisor, (req, res) => {
+  app.get('/api/jefe/meta-mensual', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       res.json(getProyeccionMensual());
     } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1176,7 +1176,7 @@ function initApiServer(port = 3001) {
   // ── FIN DEV SEED ─────────────────────────────────────────────────
 
   // POST /api/jefe/meta-mensual  { meta: 50000 }
-  app.post('/api/jefe/meta-mensual', requireAuth, requireSupervisor, (req, res) => {
+  app.post('/api/jefe/meta-mensual', requireAuth, requireSupervisorOrAdmin, (req, res) => {
     try {
       const { meta } = req.body;
       if (meta === undefined || isNaN(parseFloat(meta))) {

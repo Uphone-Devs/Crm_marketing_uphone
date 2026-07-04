@@ -59,7 +59,7 @@ router.get('/connected', authMiddleware, requireRole('admin', 'supervisor', 'jef
 
 // ── User CRUD ─────────────────────────────────────────────────────────────────
 
-router.get('/users', authMiddleware, requireRole('admin'), async (req, res) => {
+router.get('/users', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
     try {
         const raw = await prisma.usuario.findMany({
             orderBy: { nombre: 'asc' },
@@ -76,7 +76,7 @@ router.get('/users', authMiddleware, requireRole('admin'), async (req, res) => {
     }
 });
 
-router.post('/users', authMiddleware, requireRole('admin'), async (req, res) => {
+router.post('/users', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
     try {
         const { nombre, email, password, rol, supervisor_id } = req.body;
         if (!nombre || !email || !password || !rol) {
@@ -101,7 +101,7 @@ router.post('/users', authMiddleware, requireRole('admin'), async (req, res) => 
     }
 });
 
-router.put('/users/:id', authMiddleware, requireRole('admin'), async (req, res) => {
+router.put('/users/:id', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
         const { nombre, email, rol, estado, supervisor_id } = req.body;
@@ -118,7 +118,7 @@ router.put('/users/:id', authMiddleware, requireRole('admin'), async (req, res) 
     }
 });
 
-router.post('/users/:id/toggle', authMiddleware, requireRole('admin'), async (req, res) => {
+router.post('/users/:id/toggle', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
         const current = await prisma.usuario.findUnique({ where: { id }, select: { estado: true } });
@@ -147,6 +147,85 @@ router.post('/users/:id/password', authMiddleware, requireRole('admin'), async (
         res.json({ success: true });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/admin/users/:id — Soft-delete con redistribución de cartera al supervisor
+router.delete('/users/:id', authMiddleware, requireRole('admin'), async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+
+        if (req.user.id === id) {
+            return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta.' });
+        }
+
+        const usuario = await prisma.usuario.findUnique({
+            where: { id },
+            select: { id: true, rol: true, supervisorId: true, estado: true },
+        });
+        if (!usuario) return res.status(404).json({ error: 'Usuario no encontrado.' });
+
+        if (usuario.estado === 'inactivo') {
+            return res.status(400).json({ error: 'El usuario ya está desactivado.' });
+        }
+
+        if (usuario.rol === 'admin') {
+            const otrosAdmins = await prisma.usuario.count({
+                where: { rol: 'admin', estado: 'activo', id: { not: id } },
+            });
+            if (otrosAdmins === 0) {
+                return res.status(400).json({ error: 'No puedes eliminar el último administrador activo.' });
+            }
+        }
+
+        const supervisorId = usuario.supervisorId ?? null;
+        const ESTADOS_CERRADOS = ['YA_PAGO', 'GESTIONADO'];
+
+        await prisma.$transaction(async (tx) => {
+            // Contactos activos (no cerrados) → al supervisor del asesor
+            await tx.contacto.updateMany({
+                where: {
+                    asignadoA: id,
+                    yaPago: false,
+                    estadoMarcacion: { notIn: ESTADOS_CERRADOS },
+                },
+                data: { asignadoA: supervisorId },
+            });
+
+            // Contactos cerrados → sin asignar (archivo histórico)
+            await tx.contacto.updateMany({
+                where: {
+                    asignadoA: id,
+                    OR: [
+                        { yaPago: true },
+                        { estadoMarcacion: { in: ESTADOS_CERRADOS } },
+                    ],
+                },
+                data: { asignadoA: null },
+            });
+
+            // Cancelar agendamientos pendientes del asesor
+            await tx.agendamiento.updateMany({
+                where: { asesorId: id, estado: 'pendiente' },
+                data: { estado: 'cancelado' },
+            });
+
+            // Soft delete — preserva FK de CDRs, Sesiones y Eventos
+            await tx.usuario.update({
+                where: { id },
+                data: { estado: 'inactivo' },
+            });
+        });
+
+        res.json({
+            success: true,
+            message: supervisorId
+                ? 'Usuario desactivado. Contactos activos reasignados al supervisor.'
+                : 'Usuario desactivado. Contactos activos liberados (sin supervisor asignado).',
+        });
+    } catch (err) {
+        if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado.' });
         res.status(500).json({ error: err.message });
     }
 });
