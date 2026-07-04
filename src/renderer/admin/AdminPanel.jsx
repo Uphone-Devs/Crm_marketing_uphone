@@ -1,6 +1,7 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  PieChart, Pie, Cell, BarChart, Bar, Legend,
 } from 'recharts';
 import './AdminPanel.css';
 
@@ -106,10 +107,22 @@ function MetaMensualCard() {
   const [meta, setMeta] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const _wsIp   = localStorage.getItem('uphone_ws_ip');
+  const _isVm   = !!_wsIp;
+  const _vmBase = _isVm
+    ? (_wsIp.startsWith('http') ? _wsIp.replace(/\/$/, '') : `http://${_wsIp}:3001`) + '/api'
+    : null;
+  const _token = localStorage.getItem('auth_token');
+
   useEffect(() => {
-    if (window.api) {
+    if (_isVm && _vmBase) {
+      fetch(`${_vmBase}/config`, { headers: { Authorization: `Bearer ${_token}` } })
+        .then(r => r.json())
+        .then(cfg => { if (cfg?.meta_mensual_usd) setMeta(cfg.meta_mensual_usd); })
+        .catch(() => {});
+    } else if (window.api) {
       window.api.invoke('db:getAllConfig').then(configs => {
-        if (configs && configs.meta_mensual_usd) setMeta(configs.meta_mensual_usd);
+        if (configs?.meta_mensual_usd) setMeta(configs.meta_mensual_usd);
       });
     }
   }, []);
@@ -117,10 +130,18 @@ function MetaMensualCard() {
   const handleSave = async () => {
     if (isNaN(meta) || meta === '') return;
     setSaving(true);
-    if (window.api) {
-      await window.api.invoke('db:setConfig', 'meta_mensual_usd', String(meta));
+    try {
+      if (_isVm && _vmBase) {
+        await fetch(`${_vmBase}/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${_token}` },
+          body: JSON.stringify({ clave: 'meta_mensual_usd', valor: String(meta) }),
+        });
+      } else if (window.api) {
+        await window.api.invoke('db:setConfig', 'meta_mensual_usd', String(meta));
+      }
       alert('Meta mensual guardada exitosamente.');
-    }
+    } catch { alert('Error al guardar meta.'); }
     setSaving(false);
   };
 
@@ -135,8 +156,16 @@ function MetaMensualCard() {
   );
 }
 
-function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig, reload }) {
+function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig, reload, users, campaigns, indicators }) {
   const procs = sysInfo?.processes || {};
+  const adminCount  = (users||[]).filter(u => u.rol === 'admin').length;
+  const jefeCount   = (users||[]).filter(u => u.rol === 'supervisor' || u.rol === 'jefe_area').length;
+  const gestorCount = (users||[]).filter(u => u.rol === 'asesor').length;
+  const userPieData = [
+    { name: 'Admins',         value: adminCount,  fill: '#ea80fc' },
+    { name: 'Jefes de Area',  value: jefeCount,   fill: '#40c4ff' },
+    { name: 'Gestores',       value: gestorCount, fill: '#00e676' },
+  ].filter(d => d.value > 0);
   const processList = [
     { label: 'Express API Server', key: 'express',   icon: 'dns'        },
     { label: 'WebSocket Server',   key: 'websocket', icon: 'sync_alt'   },
@@ -206,7 +235,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
           <div className="conn-summary">
             <div className="conn-chip conn-chip--sup">
               <span className="material-icons">supervisor_account</span>
-              <div><div className="conn-chip__count">{supervisores.length}</div><div className="conn-chip__label">Supervisores</div></div>
+              <div><div className="conn-chip__count">{supervisores.length}</div><div className="conn-chip__label">Jefes de Area</div></div>
             </div>
             <div className="conn-chip conn-chip--ase">
               <span className="material-icons">headset_mic</span>
@@ -218,7 +247,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
               <div key={i} className="conn-mini-row">
                 <span className={`conn-dot conn-dot--${u.tipo === 'SUPERVISOR' ? 'sup' : 'ase'}`} />
                 <span className="conn-mini-name">{u.nombre}</span>
-                <span className="conn-mini-tipo">{u.tipo}</span>
+                <span className="conn-mini-tipo">{u.tipo === 'SUPERVISOR' ? 'JEFE DE AREA' : 'GESTOR'}</span>
                 {u.metricas && <span className="conn-mini-metric">{u.metricas.marcaciones ?? 0} marc.</span>}
               </div>
             ))}
@@ -314,14 +343,18 @@ function PageConectados({ connUsers, dbConfig, reload }) {
 // ── PageUsuarios ─────────────────────────────────────────────────
 
 function PageUsuarios({ users, dbConfig, reload }) {
-  const [modal,   setModal]   = useState(null);
-  const [form,    setForm]    = useState({ nombre: '', email: '', password: '', rol: 'asesor' });
-  const [pwModal, setPwModal] = useState(null);
-  const [newPw,   setNewPw]   = useState('');
-  const [saving,  setSaving]  = useState(false);
-  const [msg,     setMsg]     = useState('');
+  const [modal,       setModal]       = useState(null);
+  const [form,        setForm]        = useState({ nombre: '', email: '', password: '', rol: 'asesor' });
+  const [pwModal,     setPwModal]     = useState(null);
+  const [newPw,       setNewPw]       = useState('');
+  const [deleteModal, setDeleteModal] = useState(null);
+  const [saving,      setSaving]      = useState(false);
+  const [msg,         setMsg]         = useState('');
 
-  const ROL_COLORS = { admin: '#ea80fc', supervisor: '#40c4ff', jefe_area: '#ffab40', asesor: '#00e676' };
+  const currentUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
+
+  const ROL_COLORS  = { admin: '#ea80fc', supervisor: '#40c4ff', asesor: '#00e676' };
+  const ROL_LABELS  = { admin: 'Admin', supervisor: 'Jefe de Area', asesor: 'Gestor', jefe_area: 'Jefe de Area' };
 
   // Decide si usar IPC o REST según modo
   async function apiCall(ipcChannel, ipcArgs, restMethod, restPath, restBody) {
@@ -372,6 +405,35 @@ function PageUsuarios({ users, dbConfig, reload }) {
     setMsg(''); setPwModal(null); setNewPw('');
   }
 
+  async function confirmDelete() {
+    if (!deleteModal) return;
+    if (!IS_VM(dbConfig)) {
+      setMsg('Eliminar usuarios solo disponible en modo VM / PostgreSQL.');
+      setDeleteModal(null);
+      return;
+    }
+    setSaving(true);
+    const base = dbConfig.vmUrl.replace(/\/$/, '');
+    try {
+      const res = await fetch(`${base}/api/admin/users/${deleteModal.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(dbConfig.vmToken ? { Authorization: `Bearer ${dbConfig.vmToken}` } : {}),
+        },
+      });
+      const data = await res.json();
+      if (data?.error) { setMsg(`Error: ${data.error}`); setSaving(false); return; }
+    } catch (e) {
+      setMsg(`Error de red: ${e.message}`);
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+    setDeleteModal(null);
+    reload('userList');
+  }
+
   return (
     <div className="page-grid">
       <Card title={`Gestión de Usuarios ${IS_VM(dbConfig) ? '— VM / PostgreSQL' : '— Local SQLite'}`} onRefresh={() => reload('userList')} className="card--full">
@@ -381,7 +443,13 @@ function PageUsuarios({ users, dbConfig, reload }) {
             Nuevo Usuario
           </button>
           {msg && <span className="toolbar-msg toolbar-msg--err">{msg}</span>}
-          {IS_VM(dbConfig) && <span className="toolbar-vm-note"><span className="material-icons" style={{ fontSize: 13 }}>cloud</span>Operando en VM: {dbConfig.vmUrl}</span>}
+          {IS_VM(dbConfig)
+            ? <span className="toolbar-vm-note"><span className="material-icons" style={{ fontSize: 13 }}>cloud</span>Operando en VM: {dbConfig.vmUrl}</span>
+            : <span className="toolbar-msg" style={{ color: '#ffab40', background: 'rgba(255,171,64,0.1)', border: '1px solid rgba(255,171,64,0.3)', borderRadius: 6, padding: '4px 10px', fontSize: 12 }}>
+                <span className="material-icons" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4 }}>warning</span>
+                Modo LOCAL: usuarios creados aquí solo funcionan en esta PC. Para multi-PC, conecta a VM PostgreSQL primero.
+              </span>
+          }
         </div>
         <table className="admin-table">
           <thead>
@@ -393,7 +461,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
                 <td className="td-num">{u.id}</td>
                 <td>{u.nombre}</td>
                 <td className="td-email">{u.email}</td>
-                <td><span className="rol-badge" style={{ color: ROL_COLORS[u.rol] || '#aaa' }}>{u.rol}</span></td>
+                <td><span className="rol-badge" style={{ color: ROL_COLORS[u.rol] || '#aaa' }}>{ROL_LABELS[u.rol] || u.rol}</span></td>
                 <td><span className={`status-badge ${u.estado === 'activo' ? 'status-badge--ok' : 'status-badge--off'}`}>{u.estado}</span></td>
                 <td className="td-date">{u.creado_en?.slice(0, 10) || '—'}</td>
                 <td>
@@ -401,12 +469,22 @@ function PageUsuarios({ users, dbConfig, reload }) {
                     <button className="btn-icon" title="Editar" onClick={() => { setForm({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, estado: u.estado, supervisor_id: u.supervisor_id ?? null }); setMsg(''); setModal('edit'); }}>
                       <span className="material-icons">edit</span>
                     </button>
-                    <button className="btn-icon" title="Cambiar contraseña" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
+                    <button className="btn-icon" title="Cambiar contrasena" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
                       <span className="material-icons">lock_reset</span>
                     </button>
                     <button className={`btn-icon ${u.estado === 'activo' ? 'btn-icon--warn' : 'btn-icon--ok'}`} title={u.estado === 'activo' ? 'Desactivar' : 'Activar'} onClick={() => handleToggle(u)}>
                       <span className="material-icons">{u.estado === 'activo' ? 'block' : 'check_circle'}</span>
                     </button>
+                    {u.id !== currentUser.id && (
+                      <button
+                        className="btn-icon"
+                        style={{ color: '#ff5252' }}
+                        title="Eliminar usuario (transfiere cartera al supervisor)"
+                        onClick={() => { setMsg(''); setDeleteModal(u); }}
+                      >
+                        <span className="material-icons">delete</span>
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -430,21 +508,20 @@ function PageUsuarios({ users, dbConfig, reload }) {
               {modal === 'create' && <label>Contraseña<input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} /></label>}
               <label>Rol
                 <select value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
-                  <option value="asesor">Asesor</option>
-                  <option value="jefe_area">Jefe de Área</option>
-                  <option value="supervisor">Supervisor</option>
+                  <option value="asesor">Gestor</option>
+                  <option value="supervisor">Jefe de Area</option>
                   <option value="admin">Admin</option>
                 </select>
               </label>
               {form.rol === 'asesor' && (
-                <label>Jefe / Supervisor (equipo)
+                <label>Jefe de Area (equipo)
                   <select
                     value={form.supervisor_id ?? ''}
                     onChange={e => setForm(f => ({ ...f, supervisor_id: e.target.value ? Number(e.target.value) : null }))}
                   >
                     <option value="">— Sin asignar —</option>
-                    {(users || []).filter(u => u.rol === 'supervisor' || u.rol === 'jefe_area').map(s => (
-                      <option key={s.id} value={s.id}>{s.nombre} ({s.rol})</option>
+                    {(users || []).filter(u => u.rol === 'supervisor').map(s => (
+                      <option key={s.id} value={s.id}>{s.nombre}</option>
                     ))}
                   </select>
                 </label>
@@ -470,16 +547,62 @@ function PageUsuarios({ users, dbConfig, reload }) {
         <div className="modal-overlay" onClick={() => setPwModal(null)}>
           <div className="modal-box modal-box--sm" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span>Cambiar Contraseña — {pwModal.nombre}</span>
+              <span>Cambiar Contrasena — {pwModal.nombre}</span>
               <button className="btn-icon" onClick={() => setPwModal(null)}><span className="material-icons">close</span></button>
             </div>
             <div className="modal-body">
               {msg && <div className="modal-err">{msg}</div>}
-              <label>Nueva Contraseña<input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoFocus /></label>
+              <label>Nueva Contrasena<input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoFocus /></label>
             </div>
             <div className="modal-footer">
               <button className="btn btn--ghost" onClick={() => setPwModal(null)}>Cancelar</button>
-              <button className="btn btn--primary" onClick={handlePwSave} disabled={saving}>{saving ? 'Guardando…' : 'Cambiar'}</button>
+              <button className="btn btn--primary" onClick={handlePwSave} disabled={saving}>{saving ? 'Guardando...' : 'Cambiar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteModal && (
+        <div className="modal-overlay" onClick={() => setDeleteModal(null)}>
+          <div className="modal-box modal-box--sm" onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ borderBottom: '1px solid rgba(255,82,82,0.3)' }}>
+              <span style={{ color: '#ff5252' }}>
+                <span className="material-icons" style={{ verticalAlign: 'middle', marginRight: 6, fontSize: 18 }}>warning</span>
+                Eliminar Usuario
+              </span>
+              <button className="btn-icon" onClick={() => setDeleteModal(null)}><span className="material-icons">close</span></button>
+            </div>
+            <div className="modal-body">
+              {msg && <div className="modal-err">{msg}</div>}
+              <p style={{ marginBottom: 12 }}>
+                <strong>{deleteModal.nombre}</strong> ({deleteModal.email}) sera desactivado.
+              </p>
+              <div style={{ background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.25)', borderRadius: 8, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
+                <strong>Que ocurre con su cartera:</strong>
+                <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
+                  <li>Contactos activos (pendientes/en gestion) se transfieren a su supervisor asignado.</li>
+                  <li>Contactos cerrados (ya pagados/gestionados) quedan archivados sin asignar.</li>
+                  <li>Agendamientos pendientes se cancelan.</li>
+                  <li>El historial de llamadas (CDRs) se conserva.</li>
+                </ul>
+              </div>
+              {!deleteModal.supervisor_id && deleteModal.rol === 'asesor' && (
+                <p style={{ marginTop: 10, color: '#ffab40', fontSize: 12 }}>
+                  <span className="material-icons" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>info</span>
+                  Este asesor no tiene supervisor asignado. Los contactos activos quedaran sin asignar.
+                </p>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn--ghost" onClick={() => setDeleteModal(null)}>Cancelar</button>
+              <button
+                className="btn"
+                style={{ background: '#ff5252', color: '#fff', border: 'none' }}
+                onClick={confirmDelete}
+                disabled={saving}
+              >
+                {saving ? 'Procesando...' : 'Confirmar Eliminacion'}
+              </button>
             </div>
           </div>
         </div>
@@ -492,7 +615,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
 
 function PageConexion({ dbConfig, onConfigChange }) {
   const [mode,      setMode]      = useState(dbConfig.mode     || 'local');
-  const [vmUrl,     setVmUrl]     = useState(dbConfig.vmUrl    || '');
+  const [vmUrl,     setVmUrl]     = useState(dbConfig.vmUrl    || 'http://localhost:3001');
   const [vmToken,   setVmToken]   = useState(dbConfig.vmToken  || '');
   const [pgString,  setPgString]  = useState(dbConfig.pgString || '');
   const [vmEmail,   setVmEmail]   = useState('');
@@ -507,7 +630,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
   // Sync cuando llega nueva config desde fuera
   useEffect(() => {
     setMode(dbConfig.mode     || 'local');
-    setVmUrl(dbConfig.vmUrl   || '');
+    setVmUrl(dbConfig.vmUrl   || 'http://localhost:3001');
     setVmToken(dbConfig.vmToken || '');
     setPgString(dbConfig.pgString || '');
   }, [dbConfig]);
@@ -536,7 +659,14 @@ function PageConexion({ dbConfig, onConfigChange }) {
 
   async function handleSave() {
     setSaving(true); setMsg('');
-    const res = await window.api.invoke('admin:setDbConfig', { mode, vmUrl, vmToken, pgString });
+    // Sincronizar con localStorage para que JefePanel y AdminPanel compartan la misma fuente
+    if (mode === 'vm' && vmUrl) {
+      localStorage.setItem('uphone_ws_ip', vmUrl.replace(/\/$/, ''));
+      if (vmToken) localStorage.setItem('auth_token', vmToken);
+    } else if (mode === 'local') {
+      localStorage.setItem('uphone_ws_ip', '127.0.0.1');
+    }
+    const res = await window.api?.invoke('admin:setDbConfig', { mode, vmUrl, vmToken, pgString });
     setSaving(false);
     if (res?.error) { setMsg(`Error al guardar: ${res.error}`); return; }
     setSaved(true);
@@ -814,11 +944,14 @@ export default function AdminPanel() {
     try { return JSON.parse(localStorage.getItem('auth_user')); } catch { return null; }
   })();
 
-  // ── Carga dbConfig al inicio ─────────────────────────────────
+  // ── Carga dbConfig al inicio — localStorage primero (misma fuente que JefePanel) ──
   useEffect(() => {
-    window.api.invoke('admin:getDbConfig').then(cfg => {
-      if (cfg) setDbConfig(cfg);
-    }).catch(() => {});
+    const wsIp = localStorage.getItem('uphone_ws_ip');
+    const token = localStorage.getItem('auth_token');
+    if (wsIp) {
+      const vmUrl = wsIp.startsWith('http') ? wsIp.replace(/\/$/, '') : `http://${wsIp}:3001`;
+      setDbConfig({ mode: 'vm', vmUrl, vmToken: token || '', pgString: '' });
+    }
   }, []);
 
   // ── Load functions mode-aware ────────────────────────────────
@@ -912,8 +1045,14 @@ export default function AdminPanel() {
     try { await window.api.invoke('app:logout'); } catch {}
   }
 
-  async function handleOpenSupervisor() {
-    try { await window.api.invoke('admin:openSupervisor'); } catch {}
+  const handleOpenSupervisor = async () => {
+    console.log('[DEBUG] Calling admin:openSupervisor...');
+    try { 
+      const res = await window.api.invoke('admin:openSupervisor');
+      console.log('[DEBUG] admin:openSupervisor result:', res);
+    } catch (err) {
+      console.error('[DEBUG] admin:openSupervisor failed:', err);
+    }
   }
 
   const vmConnected = IS_VM(dbConfig);
@@ -966,9 +1105,15 @@ export default function AdminPanel() {
             <span>{NAV.find(n => n.id === page)?.label}</span>
           </div>
           <div className="topbar-right">
-            <div className={`topbar-mode topbar-mode--${dbConfig.mode}`}>
+            <div
+              className={`topbar-mode topbar-mode--${dbConfig.mode}`}
+              onClick={() => !vmConnected && setPage('conexion')}
+              title={!vmConnected ? 'Clic para conectar a PostgreSQL' : undefined}
+              style={{ cursor: vmConnected ? 'default' : 'pointer' }}
+            >
               <span className="material-icons" style={{ fontSize: 14 }}>{vmConnected ? 'cloud' : 'storage'}</span>
               {vmConnected ? `VM PostgreSQL: ${(dbConfig.vmUrl || '').replace(/^https?:\/\//, '').slice(0, 25)}` : 'Local SQLite'}
+              {!vmConnected && <span className="material-icons" style={{ fontSize: 12, marginLeft: 4, opacity: 0.7 }}>settings</span>}
             </div>
             <div className="topbar-online">
               <span className="online-dot" />

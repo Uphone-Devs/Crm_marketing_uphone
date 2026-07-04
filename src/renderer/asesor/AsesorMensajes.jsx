@@ -160,7 +160,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
           </span>
           <div style={{ fontSize: 12, opacity: 0.7, display: 'flex', alignItems: 'center', gap: 4 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>person</span>
-            Supervisor: {msg.supervisor_nombre}
+            Jefe de Area: {msg.supervisor_nombre}
           </div>
           {!isActive && (
             <span style={{ fontSize: 10, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Inactivo</span>

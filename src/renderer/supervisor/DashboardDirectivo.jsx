@@ -117,8 +117,9 @@ export default function DashboardDirectivo({ apiBase, token }) {
 
   // Filtros
   const [campanaId,    setCampanaId]    = useState('');
-  const [segmento,     setSegmento]     = useState('');
+  const [grupo,        setGrupo]        = useState('');
   const [distribuidor, setDistribuidor] = useState('');
+  const [numeroCuota,  setNumeroCuota]  = useState('');
 
   // Meta input
   const [inputMeta,   setInputMeta]   = useState('');
@@ -133,18 +134,19 @@ export default function DashboardDirectivo({ apiBase, token }) {
     setError(null);
     try {
       const q = new URLSearchParams();
-      if (campanaId)    q.append('campanaId',    campanaId);
-      if (segmento)     q.append('segmento',     segmento);
+      if (campanaId)   q.append('campanaId',   campanaId);
+      if (grupo)       q.append('grupo',       grupo);
       if (distribuidor) q.append('distribuidor', distribuidor);
+      if (numeroCuota) q.append('numeroCuota', numeroCuota);
       const qs = q.toString() ? `?${q}` : '';
 
       const [rMeta, rInd, rProd, rTop, rMor, rTend] = await Promise.all([
-        fetch(`${apiBase}/jefe/meta-mensual`,          { headers: hdr }),
-        fetch(`${apiBase}/jefe/indicadores${qs}`,      { headers: hdr }),
-        fetch(`${apiBase}/jefe/productividad${qs}`,    { headers: hdr }),
-        fetch(`${apiBase}/jefe/top-asesores?limit=5`,  { headers: hdr }),
-        fetch(`${apiBase}/jefe/morosidad`,             { headers: hdr }),
-        fetch(`${apiBase}/jefe/tendencia-semanal`,     { headers: hdr }),
+        fetch(`${apiBase}/jefe/meta-mensual`,              { headers: hdr }),
+        fetch(`${apiBase}/jefe/indicadores${qs}`,          { headers: hdr }),
+        fetch(`${apiBase}/jefe/productividad${qs}`,        { headers: hdr }),
+        fetch(`${apiBase}/jefe/top-asesores?limit=5${qs ? '&' + q : ''}`, { headers: hdr }),
+        fetch(`${apiBase}/jefe/morosidad${qs}`,            { headers: hdr }),
+        fetch(`${apiBase}/jefe/tendencia-semanal${qs}`,    { headers: hdr }),
       ]);
 
       if (!rInd.ok) throw new Error(`Error API: ${rInd.status}`);
@@ -163,7 +165,7 @@ export default function DashboardDirectivo({ apiBase, token }) {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, token, campanaId, segmento, distribuidor]);
+  }, [apiBase, token, campanaId, grupo, distribuidor, numeroCuota]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -222,9 +224,10 @@ export default function DashboardDirectivo({ apiBase, token }) {
         </div>
 
         <div className="dd-filters">
-          <input type="text" placeholder="ID Campaña"   value={campanaId}    onChange={e => setCampanaId(e.target.value)} />
-          <input type="text" placeholder="Segmento"     value={segmento}     onChange={e => setSegmento(e.target.value)} />
+          <input type="text" placeholder="ID Campaña"   value={campanaId}   onChange={e => setCampanaId(e.target.value)} />
           <input type="text" placeholder="Distribuidor" value={distribuidor} onChange={e => setDistribuidor(e.target.value)} />
+          <input type="text" placeholder="Grupo"        value={grupo}        onChange={e => setGrupo(e.target.value)} />
+          <input type="text" placeholder="N° Cuota"     value={numeroCuota}  onChange={e => setNumeroCuota(e.target.value)} />
           <button className="btn-secondary" onClick={fetchData}>Filtrar</button>
         </div>
       </div>

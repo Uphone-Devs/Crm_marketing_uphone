@@ -133,7 +133,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
   
   // Cualquier usuario con rol supervisor puede gestionar roles
   const esAdminPrincipal = usuario?.rol === 'supervisor';
-  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '127.0.0.1'); // IP en el input
+  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.173');
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
   const authToken = localStorage.getItem('auth_token');
@@ -1469,7 +1469,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
       <div className="app-main">
         <TopAppBar
           userName={usuario?.nombre || 'Supervisor'}
-          userRole="Supervisor Administrador"
+          userRole="Jefe de Área"
           isConnected={wsStatus === 'CONECTADO'}
           onLogout={onLogout}
           actions={

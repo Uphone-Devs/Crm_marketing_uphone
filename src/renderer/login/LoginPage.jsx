@@ -14,7 +14,7 @@ export default function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [serverIp, setServerIp] = useState(localStorage.getItem('uphone_ws_ip') || '127.0.0.1');
+  const [serverIp, setServerIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.173');
 
   function buildBaseUrl(ip) {
     if (ip.startsWith('http://') || ip.startsWith('https://')) {

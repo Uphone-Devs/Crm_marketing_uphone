@@ -15,7 +15,6 @@ import './NavigationDrawer.css';
 
 const NAV_ITEMS_SUPERVISOR = [
   { id: 'dashboard_directivo', icon: 'dashboard',     label: 'Dashboard Directivo' },
-  { id: 'monitoreo',           icon: 'monitor_heart', label: 'Monitoreo' },
   { id: 'campanas',            icon: 'campaign',      label: 'Campañas' },
   { id: 'carteras',    icon: 'folder_shared', label: 'Carteras' },
   { id: 'validacion',  icon: 'verified',      label: 'Validación Pagos' },
