@@ -76,16 +76,10 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   console.log('[APP] [OK] IPC handlers registrados');
 
-  // ── 3. Servidor unificado (REST + WS) ─────────────────
-  try {
-    initApiServer(3001);
-    console.log('[APP] [OK] Servidor API + WebSocket en puerto 3001');
-  } catch (err) {
-    console.error('[APP] ❌ Error servidor:', err.message);
-  }
-
-  // ── 3b. Regla de Firewall (best-effort, requiere privilegios de admin) ──
-  ensureFirewallRule();
+  // ── 3. Servidor SQLite LOCAL deshabilitado — todo va a PostgreSQL backend ──
+  // initApiServer(3001) comentado: el backend PostgreSQL (backend/) ocupa el puerto 3001.
+  // Para arrancar el backend: cd backend && npm run dev
+  console.log('[APP] [INFO] Modo PostgreSQL: servidor SQLite local deshabilitado.');
 
   // ── 4. Ventana de inicio (Login) ─────────────────────
   createLoginWindow();

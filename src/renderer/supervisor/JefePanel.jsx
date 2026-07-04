@@ -132,7 +132,7 @@ export default function JefePanel({ usuario, onLogout }) {
   
   // Jefe de Área / Jefa de Cobranza puede gestionar usuarios
   const esAdminPrincipal = usuario?.rol === 'supervisor' || usuario?.rol === 'jefe_area' || usuario?.rol === 'jefe';
-  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '127.0.0.1'); // IP en el input
+  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.173');
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
   const authToken = localStorage.getItem('auth_token');
@@ -1468,7 +1468,7 @@ export default function JefePanel({ usuario, onLogout }) {
       <div className="app-main">
         <TopAppBar
           userName={usuario?.nombre || 'Supervisor'}
-          userRole="Supervisor Administrador"
+          userRole="Jefe de Área"
           isConnected={wsStatus === 'CONECTADO'}
           onLogout={onLogout}
           actions={
