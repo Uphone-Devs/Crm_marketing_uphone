@@ -5,6 +5,7 @@
  */
 
 const { Router } = require('express');
+const { Prisma } = require('@prisma/client');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 
@@ -13,6 +14,44 @@ router.use(authMiddleware);
 
 function isSupervisor(rol) {
   return rol === 'supervisor' || rol === 'jefe_area' || rol === 'jefe' || rol === 'admin';
+}
+
+// ── Helper: Resolve contacto WHERE with JSON metadata filters ─────────────────
+// Returns Prisma-compatible where clause. Uses raw SQL when metadata filters present.
+async function resolveContactoWhere(q) {
+  const { campanaId, distribuidor, grupo, numeroCuota } = q || {};
+
+  if (!distribuidor && !grupo && !numeroCuota) {
+    return campanaId ? { campanaId: parseInt(campanaId) } : {};
+  }
+
+  const parts = [];
+  if (campanaId) parts.push(Prisma.sql`AND campana_id = ${parseInt(campanaId)}`);
+  if (distribuidor) {
+    const d = `%${distribuidor}%`;
+    parts.push(Prisma.sql`AND (
+      COALESCE(metadata->>'DISTRIBUIDOR','') ILIKE ${d}
+      OR COALESCE(metadata->>'Distribuidor','') ILIKE ${d}
+      OR COALESCE(metadata->>'DISTRIBUIDORA','') ILIKE ${d}
+    )`);
+  }
+  if (grupo) {
+    parts.push(Prisma.sql`AND COALESCE(metadata->>'GRUPO','') ILIKE ${'%' + grupo + '%'}`);
+  }
+  if (numeroCuota) {
+    const n = `%${numeroCuota}%`;
+    parts.push(Prisma.sql`AND (
+      COALESCE(metadata->>'CUOTA','') ILIKE ${n}
+      OR COALESCE(metadata->>'NRO CUOTA','') ILIKE ${n}
+      OR COALESCE(metadata->>'NUMERO CUOTA','') ILIKE ${n}
+      OR COALESCE(metadata->>'N° CUOTA','') ILIKE ${n}
+    )`);
+  }
+
+  const extraWhere = Prisma.join(parts, ' ');
+  const rows = await db.$queryRaw(Prisma.sql`SELECT id FROM contactos WHERE 1=1 ${extraWhere}`);
+  const ids = rows.map(r => Number(r.id));
+  return { id: { in: ids.length ? ids : [-1] } };
 }
 
 async function getAsesorIdsDelEquipo(user) {
@@ -391,6 +430,216 @@ router.get('/indicadores/config', async (req, res, next) => {
 router.post('/indicadores/config', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── RUTAS /jefe/* — Dashboard Directivo (DashboardDirectivo.jsx) ─────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── GET /api/jefe/meta-mensual ────────────────────────────────────────────────
+router.get('/jefe/meta-mensual', async (req, res, next) => {
+  if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const configRow = await db.config.findUnique({ where: { clave: 'meta_mensual_usd' } });
+    const meta_mensual = configRow ? parseFloat(configRow.valor) : 0;
+
+    const now = new Date();
+    const mesInicio = new Date(now.getFullYear(), now.getMonth(), 1);
+    const mesFin    = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const agg = await db.cdr.aggregate({
+      _sum: { montoAcordado: true },
+      where: { timestampInicio: { gte: mesInicio, lte: mesFin }, montoAcordado: { not: null } },
+    });
+    const cobrado_mes = parseFloat(agg._sum.montoAcordado ?? 0);
+    const pct_cumplimiento = meta_mensual > 0 ? (cobrado_mes / meta_mensual) * 100 : 0;
+
+    res.json({ meta_mensual, cobrado_mes, pct_cumplimiento });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/jefe/meta-mensual ───────────────────────────────────────────────
+router.post('/jefe/meta-mensual', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const val = parseFloat(req.body.meta);
+    if (!val || isNaN(val) || val < 0) return res.status(400).json({ error: 'Meta inválida' });
+    await db.config.upsert({
+      where:  { clave: 'meta_mensual_usd' },
+      create: { clave: 'meta_mensual_usd', valor: String(val) },
+      update: { valor: String(val) },
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/jefe/indicadores ─────────────────────────────────────────────────
+router.get('/jefe/indicadores', async (req, res, next) => {
+  if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const where = await resolveContactoWhere(req.query);
+
+    const [aggVencido, aggCobrado, unidades_vencidas, unidades_cobradas] = await Promise.all([
+      db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { ...where, yaPago: false } }),
+      db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { ...where, yaPago: true  } }),
+      db.contacto.count({ where: { ...where, yaPago: false } }),
+      db.contacto.count({ where: { ...where, yaPago: true  } }),
+    ]);
+
+    const valor_vencido  = parseFloat(aggVencido._sum.montoDeuda  ?? 0);
+    const valor_cobrado  = parseFloat(aggCobrado._sum.montoDeuda  ?? 0);
+    const diferencia_monetaria  = valor_vencido - valor_cobrado;
+    const diferencia_unidades   = unidades_vencidas - unidades_cobradas;
+    const total_valor = valor_vencido + valor_cobrado;
+    const total_und   = unidades_vencidas + unidades_cobradas;
+    const pct_recuperacion     = total_valor > 0 ? (valor_cobrado / total_valor) * 100 : 0;
+    const pct_recuperacion_und = total_und   > 0 ? (unidades_cobradas / total_und) * 100 : 0;
+
+    res.json({
+      global: { valor_vencido, valor_cobrado, unidades_vencidas, unidades_cobradas,
+                diferencia_monetaria, diferencia_unidades, pct_recuperacion, pct_recuperacion_und },
+      porSegmento: [],
+    });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/jefe/productividad ───────────────────────────────────────────────
+router.get('/jefe/productividad', async (req, res, next) => {
+  if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const cWhere = await resolveContactoWhere(req.query);
+    const cdrWhere = Object.keys(cWhere).length > 0 ? { contacto: cWhere } : {};
+
+    const [cartera_total, gestionados, gestiones_totales,
+           cdrs_llamada, cdrs_whatsapp, cdrs_rcs, cdrs_gmail, contactados_arr] = await Promise.all([
+      db.contacto.count({ where: cWhere }),
+      db.contacto.count({ where: { ...cWhere, estadoMarcacion: { not: 'PENDIENTE' } } }),
+      db.cdr.count({ where: cdrWhere }),
+      db.cdr.count({ where: { canal: 'llamada',   ...cdrWhere } }),
+      db.cdr.count({ where: { canal: 'whatsapp',  ...cdrWhere } }),
+      db.cdr.count({ where: { canal: 'rcs',       ...cdrWhere } }),
+      db.cdr.count({ where: { canal: 'gmail',     ...cdrWhere } }),
+      db.contacto.findMany({ where: { ...cWhere, estadoMarcacion: { not: 'PENDIENTE' } }, select: { id: true } }),
+    ]);
+
+    const contactados_unicos = contactados_arr.length;
+    const avance_cartera = cartera_total > 0 ? (gestionados / cartera_total) * 100 : 0;
+    const cobertura      = cartera_total > 0 ? (contactados_unicos / cartera_total) * 100 : 0;
+
+    res.json({
+      avance_cartera, gestiones_totales, cartera_total, contactados_unicos, cobertura,
+      canales: { llamada: cdrs_llamada, whatsapp: cdrs_whatsapp, rcs: cdrs_rcs, gmail: cdrs_gmail },
+    });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/jefe/top-asesores ────────────────────────────────────────────────
+router.get('/jefe/top-asesores', async (req, res, next) => {
+  if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 5, 20);
+    const whereU = { rol: 'asesor', estado: 'activo' };
+    if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
+
+    const cWhere = await resolveContactoWhere(req.query);
+    const cdrContacto = Object.keys(cWhere).length > 0 ? { contacto: cWhere } : {};
+
+    const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
+
+    const result = await Promise.all(asesores.map(async (a) => {
+      const total_gestiones = await db.cdr.count({ where: { usuarioId: a.id, ...cdrContacto } });
+      return { asesor: a.nombre, total_gestiones, segmentos: {} };
+    }));
+
+    result.sort((a, b) => b.total_gestiones - a.total_gestiones);
+    res.json(result.slice(0, limit));
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/jefe/morosidad ───────────────────────────────────────────────────
+router.get('/jefe/morosidad', async (req, res, next) => {
+  if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const { campanaId, distribuidor: distFilt, grupo, numeroCuota } = req.query;
+
+    const parts = [];
+    if (campanaId) parts.push(Prisma.sql`AND campana_id = ${parseInt(campanaId)}`);
+    if (distFilt) {
+      const d = `%${distFilt}%`;
+      parts.push(Prisma.sql`AND (
+        COALESCE(metadata->>'DISTRIBUIDOR','') ILIKE ${d}
+        OR COALESCE(metadata->>'Distribuidor','') ILIKE ${d}
+        OR COALESCE(metadata->>'DISTRIBUIDORA','') ILIKE ${d}
+      )`);
+    }
+    if (grupo) {
+      parts.push(Prisma.sql`AND COALESCE(metadata->>'GRUPO','') ILIKE ${'%' + grupo + '%'}`);
+    }
+    if (numeroCuota) {
+      const n = `%${numeroCuota}%`;
+      parts.push(Prisma.sql`AND (
+        COALESCE(metadata->>'CUOTA','') ILIKE ${n}
+        OR COALESCE(metadata->>'NRO CUOTA','') ILIKE ${n}
+        OR COALESCE(metadata->>'NUMERO CUOTA','') ILIKE ${n}
+      )`);
+    }
+
+    const extraWhere = parts.length > 0 ? Prisma.join(parts, ' ') : Prisma.sql``;
+
+    const rows = await db.$queryRaw(Prisma.sql`
+      SELECT
+        COALESCE(
+          NULLIF(metadata->>'DISTRIBUIDOR', ''),
+          NULLIF(metadata->>'Distribuidor', ''),
+          NULLIF(metadata->>'DISTRIBUIDORA', ''),
+          producto,
+          'Sin Distribuidor'
+        ) AS distribuidor,
+        COUNT(*)::int               AS total,
+        SUM(CASE WHEN ya_pago = false THEN 1 ELSE 0 END)::int AS morosos
+      FROM contactos
+      WHERE 1=1 ${extraWhere}
+      GROUP BY 1
+      ORDER BY (SUM(CASE WHEN ya_pago = false THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0)) DESC NULLS LAST
+      LIMIT 10
+    `);
+
+    res.json(rows.map(r => ({
+      distribuidor: r.distribuidor,
+      pct_morosidad: r.total > 0 ? Math.round((Number(r.morosos) / Number(r.total)) * 100) : 0,
+    })));
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/jefe/tendencia-semanal ──────────────────────────────────────────
+router.get('/jefe/tendencia-semanal', async (req, res, next) => {
+  if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+  try {
+    const ahora  = new Date();
+    const hace7  = new Date(ahora);
+    hace7.setDate(hace7.getDate() - 6);
+    hace7.setHours(0, 0, 0, 0);
+
+    const cWhere = await resolveContactoWhere(req.query);
+    const cdrContacto = Object.keys(cWhere).length > 0 ? { contacto: cWhere } : {};
+
+    const cdrs = await db.cdr.findMany({
+      where: { timestampInicio: { gte: hace7 }, montoAcordado: { not: null }, ...cdrContacto },
+      select: { timestampInicio: true, montoAcordado: true },
+    });
+
+    const byDay = {};
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(hace7);
+      d.setDate(d.getDate() + i);
+      byDay[d.toISOString().slice(0, 10)] = 0;
+    }
+    for (const c of cdrs) {
+      const key = c.timestampInicio.toISOString().slice(0, 10);
+      if (byDay[key] !== undefined) byDay[key] += parseFloat(c.montoAcordado ?? 0);
+    }
+
+    res.json(Object.entries(byDay).map(([fecha, valor_cobrado]) => ({ fecha, valor_cobrado })));
   } catch (err) { next(err); }
 });
 

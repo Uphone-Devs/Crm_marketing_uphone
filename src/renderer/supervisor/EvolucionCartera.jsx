@@ -70,7 +70,7 @@ function GestionTable({ data, loading, showPago = false }) {
       </div>
     );
   }
-  if (!data || data.length === 0) {
+  if (!Array.isArray(data) || data.length === 0) {
     return (
       <div style={{ padding: '20px 0', textAlign: 'center', opacity: 0.4, fontSize: 12 }}>
         Sin datos para los filtros aplicados
@@ -287,7 +287,7 @@ export function AnalisisCartera({ filtroFechaDesde, filtroFechaHasta }) {
     const p = _isRem
       ? vmFetch(_api, _tok, `/cartera/analisis?fechaAsig=${p1Fecha || ''}&desdeD=${p1Desde}&hastaD=${p1Hasta}${campanaId ? `&campana_id=${campanaId}` : ''}`)
       : window.api.invoke('db:getCarteraAnalisis', { fechaAsig: p1Fecha || null, desdeD: Number(p1Desde), hastaD: Number(p1Hasta), campanaId: campanaId ? Number(campanaId) : null });
-    p.then(d => setP1Data(d || [])).catch(() => setP1Data([])).finally(() => setP1Load(false));
+    p.then(d => setP1Data(Array.isArray(d) ? d : [])).catch(() => setP1Data([])).finally(() => setP1Load(false));
   }, [openPanels.composicion, p1Fecha, p1Desde, p1Hasta, campanaId]);
 
   useEffect(() => {

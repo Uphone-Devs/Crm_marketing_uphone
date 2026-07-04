@@ -63,8 +63,9 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 API + Socket.io Server running on port ${PORT}`);
+const HOST = process.env.HOST || '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  console.log(`🚀 API + Socket.io Server running on ${HOST}:${PORT}`);
 });
 
 // Manejo de Upgrade para WebSockets Nativos (Monitor)
