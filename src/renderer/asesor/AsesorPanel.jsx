@@ -2572,17 +2572,52 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
                                     disabled={completado}
                                     onClick={async () => {
-                                      const ids = lote.clients.filter(c => {
-                                        const st = isWsp ? c.whatsapp_status : isRcs ? c.rcs_status : c.correo_status;
-                                        return st !== 'ENVIADO';
-                                      }).map(c => c.id);
+                                      const statusKey = isWsp ? 'whatsapp_status' : isRcs ? 'rcs_status' : 'correo_status';
+                                      const canalApi = isWsp ? 'whatsapp' : isRcs ? 'rcs' : 'correo';
+                                      const pendingClients = lote.clients.filter(c => c[statusKey] !== 'ENVIADO');
+                                      const ids = pendingClients.map(c => c.id);
                                       if (!ids.length) return;
+
+                                      // Actualizar círculos en cartera optimísticamente
+                                      setCartera(prev => prev.map(x =>
+                                        ids.includes(x.id) ? { ...x, [statusKey]: 'ENVIADO' } : x
+                                      ));
+
+                                      // Sumar S0/S1/S2 al top bar
+                                      const detalleInc = { 0: 0, 1: 0, 2: 0 };
+                                      pendingClients.forEach(c => {
+                                        let meta = {};
+                                        try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                                        const dias = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
+                                        if (dias >= 0 && dias <= 2) detalleInc[dias]++;
+                                      });
+                                      const addDetalle = (setter) => setter(p => ({
+                                        0: (p[0] || 0) + detalleInc[0],
+                                        1: (p[1] || 0) + detalleInc[1],
+                                        2: (p[2] || 0) + detalleInc[2],
+                                      }));
+                                      if (isRcs)         addDetalle(setSmsDetalle);
+                                      else if (isWsp)    addDetalle(setWspDetalle);
+                                      else               addDetalle(setEmailDetalle);
+
                                       try {
-                                        await callApi('db:marcarLoteEnviado', usuario.id, isWsp ? 'whatsapp' : isRcs ? 'rcs' : 'correo', ids);
+                                        await callApi('db:marcarLoteEnviado', usuario.id, canalApi, ids);
                                         showToast(`✓ ${ids.length} contactos marcados como Enviado`, 'success');
                                         cargarCartera();
                                         fetchMetricasYEnviar();
                                       } catch (err) {
+                                        // Revertir cartera y contadores
+                                        setCartera(prev => prev.map(x =>
+                                          ids.includes(x.id) ? { ...x, [statusKey]: 'ACTIVO' } : x
+                                        ));
+                                        const subDetalle = (setter) => setter(p => ({
+                                          0: Math.max(0, (p[0] || 0) - detalleInc[0]),
+                                          1: Math.max(0, (p[1] || 0) - detalleInc[1]),
+                                          2: Math.max(0, (p[2] || 0) - detalleInc[2]),
+                                        }));
+                                        if (isRcs)         subDetalle(setSmsDetalle);
+                                        else if (isWsp)    subDetalle(setWspDetalle);
+                                        else               subDetalle(setEmailDetalle);
                                         showToast('Error: ' + err.message, 'error');
                                       }
                                     }}
