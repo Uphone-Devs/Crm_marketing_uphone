@@ -91,7 +91,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [activePage, setActivePage] = useState('dashboard');
   const wsStatusRef = useRef('DESCONECTADO');
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.192');
+  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.82');
   const wsActiveIpRef = useRef(wsIp);
   const adbErrorNotifiedRef = useRef(false);
 
@@ -140,6 +140,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [tipificacionesCache, setTipificacionesCache] = useState([]);
   const [dashRefreshTrigger, setDashRefreshTrigger] = useState(0);
   const [historialGestiones, setHistorialGestiones] = useState([]);
+  const [historialContactoPopup, setHistorialContactoPopup] = useState(null);
+  const [ritmoTick, setRitmoTick] = useState(0);
   const [totalGestiones, setTotalGestiones] = useState(0);
   const [totalCompromisos, setTotalCompromisos] = useState(0);
   const [compCumplidos, setCompCumplidos] = useState(0);
@@ -200,18 +202,24 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
   const [carteraDesde, setCarteraDesde] = useState('');
   const [carteraHasta, setCarteraHasta] = useState('');
+  const [contactoInfoPopup, setContactoInfoPopup] = useState(null);
 
   // ── Refs para estabilidad de red (Backbone de Comunicación) ──
   const wsRef = useRef(null);
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
   const estadoRef = useRef(estadoActual);
+  const historialGestionesRef = useRef([]);
+  const tiempoEstadoRef = useRef(0);
+  const ritmoAlertaRef = useRef(0); // última ventana de 40min alertada
   const metricasRef = useRef({
     marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
     wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos,
   });
 
   // Sincronizar Refs con el estado de React (sin disparar re-renderizados)
-  useEffect(() => { estadoRef.current = estadoActual; }, [estadoActual]);
+  useEffect(() => { estadoRef.current = estadoActual; ritmoAlertaRef.current = 0; }, [estadoActual]);
+  useEffect(() => { historialGestionesRef.current = historialGestiones; }, [historialGestiones]);
+  useEffect(() => { tiempoEstadoRef.current = tiempoEstado; }, [tiempoEstado]);
   useEffect(() => {
     metricasRef.current = {
       marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
@@ -810,8 +818,75 @@ export default function AsesorPanel({ usuario, onLogout }) {
     return () => clearInterval(pollInterval);
   }, [enLlamada, grabando]);
 
+  // ── TICK RITMO (60s) — fuerza re-cálculo + chequeo ventanas de 40 min ──
+  useEffect(() => {
+    const t = setInterval(() => {
+      setRitmoTick(n => n + 1);
+
+      const META = 30;
+      const VENTANA_MIN = 40;
+      const VENTANA_MS = VENTANA_MIN * 60 * 1000;
+
+      // Solo cuando asesor está "En Gestión"
+      if (estadoRef.current?.id !== 1) return;
+
+      const minActivos = Math.floor(tiempoEstadoRef.current / 60);
+      if (minActivos < VENTANA_MIN) return; // aún no completó primera ventana
+
+      const ventanaActual = Math.floor(minActivos / VENTANA_MIN);
+      if (ventanaActual <= ritmoAlertaRef.current) return; // ya alertamos esta ventana
+
+      ritmoAlertaRef.current = ventanaActual;
+
+      // Contar gestiones en la última VENTANA_MIN minutos
+      const ahora = Date.now();
+      const enVentana = historialGestionesRef.current.filter(g => {
+        const ts = g.hora_gestion || g.timestamp_inicio || g.creado_en;
+        if (!ts) return false;
+        try { return (ahora - new Date(String(ts).replace(' ', 'T')).getTime()) <= VENTANA_MS; } catch { return false; }
+      });
+      const cuenta = enVentana.length;
+      const deficit = Math.max(0, META - cuenta);
+
+      if (cuenta >= META) {
+        // En ritmo — felicitar asesor
+        showToast(
+          `¡Cumpliste el ritmo! ${cuenta}/${META} gestiones en ${VENTANA_MIN} min. ¡Excelente!`,
+          'success', 8000
+        );
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            tipo: 'RITMO_OK',
+            gestiones: cuenta,
+            meta: META,
+            deficit: 0,
+            ventana_min: VENTANA_MIN,
+          }));
+        }
+      } else {
+        // Fuera de ritmo — alertar asesor
+        const paraPonerseAlDia = META + deficit; // normal + deuda
+        showToast(
+          `Fuera de ritmo: ${cuenta}/${META} gestiones en ${VENTANA_MIN} min. Llevas ${deficit} clientes de atraso. Debes gestionar ${paraPonerseAlDia} en los próximos ${VENTANA_MIN} min.`,
+          'error', 0
+        );
+        // Alertar supervisor vía WS automáticamente
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            tipo: 'RITMO_BAJO',
+            gestiones: cuenta,
+            meta: META,
+            deficit,
+            ventana_min: VENTANA_MIN,
+          }));
+        }
+      }
+    }, 60000);
+    return () => clearInterval(t);
+  }, [showToast]);
+
   // ── LISTENERS DE AGENDAMIENTO ──
-  const cargarContactoAgendado = useCallback(async (contactoId, abrirPMP = false) => {
+  const cargarContactoAgendado = useCallback(async (contactoId, abrirPMP = false, abrirTipif = false) => {
     try {
       const contacto = await callApi('db:getContactoById', contactoId);
       if (contacto) {
@@ -823,6 +898,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
         intentosContactoRef.current = 0;
         if (abrirPMP) {
           setTipifInicial('PMP');
+          setShowTipificacion(true);
+        } else if (abrirTipif) {
+          setTipifInicial(null);
           setShowTipificacion(true);
         } else {
           showToast(`Contacto ${contacto.nombre_deudor || contacto.telefono} cargado`, 'success');
@@ -871,14 +949,24 @@ export default function AsesorPanel({ usuario, onLogout }) {
   }, [cargarContactoAgendado]);
 
   useEffect(() => {
-    const offAviso = window.api.on('agendamiento:aviso', handleAvisoLocal);
+    const offAviso   = window.api.on('agendamiento:aviso', handleAvisoLocal);
     const offEjecutar = window.api.on('agendamiento:ejecutar', handleEjecutarLocal);
+    const offPmp = window.api.on('agendamiento:aviso_pmp', (data) => {
+      const nombre = data.nombre_deudor || `#${data.contacto_id}`;
+      playBeep();
+      showToast(
+        `⚠️ Promesa de pago en 3 min — ${nombre} (${data.telefono || ''})`,
+        'warning', 0,
+        { actionLabel: 'VER CLIENTE', onClick: () => cargarContactoAgendado(data.contacto_id, true) }
+      );
+    });
 
     return () => {
       if (typeof offAviso === 'function') offAviso();
       if (typeof offEjecutar === 'function') offEjecutar();
+      if (typeof offPmp === 'function') offPmp();
     };
-  }, [handleAvisoLocal, handleEjecutarLocal]);
+  }, [handleAvisoLocal, handleEjecutarLocal, cargarContactoAgendado]);
 
   // 🚀 CONEXIÓN WEB SOCKET ESTABLE (Solo al montar o cambiar IP)
   useEffect(() => {
@@ -1018,6 +1106,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
       .catch(() => setHistorialCliente({ cdrs: [], refs: [] }));
   }, [contactoActual?.id]);
 
+  // Limpiar expediente al salir del dashboard (si no hay llamada activa)
+  useEffect(() => {
+    if (activePage !== 'dashboard' && !enLlamada) {
+      setContactoActual(null);
+    }
+  }, [activePage, enLlamada]);
+
   // Cargar bitácora completa cuando se entra a la página de Historial de Gestiones
   useEffect(() => {
     if (activePage === 'historial' && usuario?.id) {
@@ -1037,6 +1132,34 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const text = clientes.map(c => c.telefono).join(',');
     navigator.clipboard.writeText(text).then(() => {
       showToast('Teléfonos del Lote ' + loteId + ' copiados', 'success');
+    }).catch(err => showToast('Error al copiar: ' + err.message, 'error'));
+  };
+
+  const copiarLoteRCS = (loteId, clientes, canal = 'RCS') => {
+    const rows = clientes.map(c => {
+      let meta = {};
+      try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+      const nombre = meta['NOMBRE CLIENTE'] || (c.nombre_deudor || '').split(' ')[0] || '';
+      const apellido = meta['APELLIDO CLIENTE'] || (c.nombre_deudor || '').split(' ').slice(1).join(' ') || '';
+      const telefono = c.telefono || '';
+      const cedula = c.cedula || meta['CEDULA'] || '';
+      const mora = meta['VALOR EN MORA'] || c.monto_deuda || '';
+      return [nombre, apellido, telefono, cedula, mora].join('\t');
+    });
+    const text = rows.join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast(`Lote ${loteId} ${canal} copiado (${clientes.length} contactos) — nombre, apellido, teléfono, cédula, mora`, 'success');
+    }).catch(err => showToast('Error al copiar: ' + err.message, 'error'));
+  };
+
+  const copiarLoteCorreos = (loteId, clientes) => {
+    const emails = clientes.map(c => {
+      let meta = {};
+      try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+      return meta['CORREO CLIENTE'] || meta['EMAIL'] || meta['CORREO'] || c.correo || '';
+    }).filter(Boolean);
+    navigator.clipboard.writeText(emails.join('\n')).then(() => {
+      showToast(`Lote ${loteId} correos copiados (${emails.length} emails)`, 'success');
     }).catch(err => showToast('Error al copiar: ' + err.message, 'error'));
   };
 
@@ -1401,8 +1524,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
         id: Date.now(),
         contacto_id: contactoSnapshot?.id || null,
         nombre_deudor: contactoSnapshot?.nombre_deudor || 'Desconocido',
+        cedula: contactoSnapshot?.cedula || '',
         telefono: contactoSnapshot?.telefono || '',
         resultado: tipificacion.descripcion,
+        tipificacion_codigo: tipificacion.codigo,
         hora_gestion: nowLocalISO(),
         agendamiento_hora: agendamiento ? `${agendamiento.hora}` : '-'
       };
@@ -1455,7 +1580,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         // Avanzar al siguiente contacto
         intentosContactoRef.current = 0;
         setContactoActual(null);
-        if (estadoActual?.id === 1 && campana) {
+        if (estadoActual?.id === 1 && campana && dialingMode === 'AUTOMATICA') {
           setTimeout(fetchNextContact, 1500);
         }
       }
@@ -1833,11 +1958,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   <button type="button"
                                     className="btn btn-outline btn-sm"
                                     style={{ padding: '2px 9px', fontSize: 12, height: 'auto' }}
-                                    onClick={() => { cargarContactoAgendado(entry.contacto_id); setActivePage('dashboard'); }}
+                                    onClick={() => setHistorialContactoPopup(entry)}
                                     disabled={!entry.contacto_id}
                                   >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 12, marginRight: 2 }}>phone_callback</span>
-                                    Gestionar
+                                    <span className="material-symbols-outlined" style={{ fontSize: 12, marginRight: 2 }}>info</span>
+                                    Ver info
                                   </button>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1899,11 +2024,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   <button type="button"
                                     className="btn btn-outline btn-sm"
                                     style={{ padding: '2px 9px', fontSize: 12, height: 'auto' }}
-                                    onClick={(e) => { e.stopPropagation(); cargarContactoAgendado(g.contacto_id); setActivePage('dashboard'); }}
+                                    onClick={(e) => { e.stopPropagation(); setHistorialContactoPopup(g); }}
                                     disabled={!g.contacto_id}
                                   >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 12, marginRight: 2 }}>phone_callback</span>
-                                    Gestionar
+                                    <span className="material-symbols-outlined" style={{ fontSize: 12, marginRight: 2 }}>info</span>
+                                    Ver info
                                   </button>
                                   <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.4, transition: 'transform 0.2s', transform: isOpen ? 'rotate(90deg)' : 'none' }}>
                                     chevron_right
@@ -2304,6 +2429,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Marcación automática por ADB (opcional)">Auto📱</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2320,10 +2446,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           const turno = turnoMap.get(c.id);
                           const esSiguiente = turno === 1;
                           return (
-                            <tr key={`crt-${c.id}`} style={{
-                              borderTop: '1px solid rgba(255,255,255,0.04)',
-                              background: esSiguiente ? 'rgba(0,230,118,0.06)' : undefined,
-                            }}>
+                            <tr key={`crt-${c.id}`}
+                              onClick={(e) => { if (e.target.closest('button, select')) return; setContactoInfoPopup(c); }}
+                              style={{
+                                borderTop: '1px solid rgba(255,255,255,0.04)',
+                                background: esSiguiente ? 'rgba(0,230,118,0.06)' : undefined,
+                                cursor: 'pointer',
+                              }}>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                 {turno ? (
                                   <span style={{
@@ -2473,12 +2602,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     }}
                                     style={{
                                       width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6,
-                                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)',
-                                      color: 'rgba(255,255,255,0.75)', cursor: 'pointer', outline: 'none',
-                                      appearance: 'none', textAlign: 'center',
+                                      background: c.ultima_tip_codigo ? 'rgba(0,230,118,0.08)' : 'rgba(255,255,255,0.06)',
+                                      border: c.ultima_tip_codigo ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.14)',
+                                      color: c.ultima_tip_codigo ? '#00e676' : 'rgba(255,255,255,0.75)',
+                                      cursor: 'pointer', outline: 'none', appearance: 'none', textAlign: 'center',
+                                      fontWeight: c.ultima_tip_codigo ? 700 : 400,
                                     }}
                                   >
-                                    <option value="" disabled style={{ background: '#1e1e1e' }}>⚡ Tipificar...</option>
+                                    <option value="" disabled style={{ background: '#1e1e1e' }}>
+                                      {c.ultima_tip_codigo ? `✓ ${c.ultima_tip_codigo}` : '⚡ Tipificar...'}
+                                    </option>
                                     <option value="cuelga" style={{ background: '#1e1e1e' }}>Cuelga</option>
                                     <option value="no_contesta" style={{ background: '#1e1e1e' }}>No contesta</option>
                                     <option value="referencia" style={{ background: '#1e1e1e' }}>Referencia</option>
@@ -2504,6 +2637,26 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     PROMESA DE PAGO
                                   </button>
                                 </div>
+                              </td>
+                              {/* ── Columna ADB opcional ── */}
+                              <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                                {isDeviceConnected ? (
+                                  <button
+                                    type="button"
+                                    title={`Marcar ${c.telefono} vía ADB`}
+                                    onClick={(e) => { e.stopPropagation(); handleDial(c, 0); }}
+                                    style={{
+                                      padding: '4px 10px', fontSize: 11, borderRadius: 6, fontWeight: 700,
+                                      background: 'rgba(100,181,246,0.1)', border: '1px solid rgba(100,181,246,0.3)',
+                                      color: '#64b5f6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>phone_forwarded</span>
+                                    Marcar
+                                  </button>
+                                ) : (
+                                  <span style={{ fontSize: 10, opacity: 0.25 }}>sin disp.</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -2647,7 +2800,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     onClick={() => {
                                       const skCopy = isWsp ? 'whatsapp_status' : isRcs ? 'rcs_status' : 'correo_status';
                                       const pendientes = lote.clients.filter(c => c[skCopy] !== 'ENVIADO');
-                                      copiarLoteTelefonos(lote.num, pendientes);
+                                      if (isRcs || isWsp) copiarLoteRCS(lote.num, pendientes, isWsp ? 'WhatsApp' : 'RCS');
+                                      else if (isCorreo) copiarLoteCorreos(lote.num, pendientes);
+                                      else copiarLoteTelefonos(lote.num, pendientes);
                                     }}
                                   >
                                     <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
@@ -2726,7 +2881,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               usuario={usuario}
               callApi={callApi}
               showToast={showToast}
-              onGestionar={(contactoId) => { cargarContactoAgendado(contactoId); setActivePage('dashboard'); }}
+              onGestionar={(contactoId) => { cargarContactoAgendado(contactoId, false, true); }}
               onCompromisoAction={fetchMetricasYEnviar}
             />
           ) : activePage === 'dashboard' ? (
@@ -2737,6 +2892,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     usuario={usuario}
                     callApi={callApi}
                     refreshTrigger={dashRefreshTrigger}
+                    totalClientesCampana={progresoCampana?.total || 0}
                   />
                 ) : (
                 <div className="widget-card customer-card">
@@ -3024,6 +3180,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   callApi={callApi}
                   onAltDialed={handleAltDialed}
                   onExternalDial={handleExternalDial}
+                  ultimaTipificacion={historialGestiones?.[0]?.tipificacion_codigo || null}
                   onAccionRapida={(canal) => {
                     if (canal === 'WSP')   setWspEnviados(prev => prev + 1);
                     if (canal === 'SMS')   setSmsEnviados(prev => prev + 1);
@@ -3310,6 +3467,80 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     </div>
                   </div>
 
+                  {/* ── Indicador de Ritmo ── */}
+                  {(() => {
+                    void ritmoTick; // fuerza re-render cada 60s
+                    const META_TOTAL = 30;
+                    const VENTANA_MAX_MIN = 40;
+                    // Ventana dinámica: usa tiempoEstado cuando está "En Gestión", capped en 40 min
+                    const enGestion = estadoActual?.id === 1;
+                    const minutosActivos = enGestion
+                      ? Math.max(1, Math.min(VENTANA_MAX_MIN, Math.floor(tiempoEstado / 60)))
+                      : VENTANA_MAX_MIN;
+                    const VENTANA_MS = minutosActivos * 60 * 1000;
+                    const META = enGestion && minutosActivos < VENTANA_MAX_MIN
+                      ? Math.max(1, Math.ceil(META_TOTAL * (minutosActivos / VENTANA_MAX_MIN)))
+                      : META_TOTAL;
+                    const ahora = Date.now();
+                    const enVentana = historialGestiones.filter(g => {
+                      const ts = g.hora_gestion || g.timestamp_inicio || g.creado_en;
+                      if (!ts) return false;
+                      try { return (ahora - new Date(String(ts).replace(' ', 'T')).getTime()) <= VENTANA_MS; } catch { return false; }
+                    });
+                    const cuenta = enVentana.length;
+                    const pct = Math.min(100, Math.round((cuenta / META) * 100));
+                    const color = cuenta >= META ? '#00e676' : cuenta >= Math.ceil(META * 0.6) ? '#ffb74d' : '#ff5252';
+                    const label = cuenta >= META ? 'En ritmo ✓' : cuenta >= Math.ceil(META * 0.6) ? 'Levemente lento' : 'Por debajo del ritmo';
+                    const proyeccion = minutosActivos > 0 ? Math.round((cuenta / minutosActivos) * 60) : 0;
+                    const deficit = Math.max(0, META - cuenta);
+                    const paraPonerseAlDia = deficit > 0 ? META_TOTAL + deficit : 0;
+                    return (
+                      <div style={{
+                        background: 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${color}30`,
+                        borderRadius: 16,
+                        overflow: 'hidden',
+                        marginTop: 10,
+                      }}>
+                        {/* Header */}
+                        <div style={{ padding: '10px 16px 8px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 15, color, opacity: 0.9 }}>speed</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.5 }}>
+                            Ritmo de Gestión
+                          </span>
+                        </div>
+                        {/* Cuerpo */}
+                        <div style={{ padding: '10px 14px 14px' }}>
+                          {/* Contador grande */}
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 6 }}>
+                            <span style={{ fontSize: 28, fontWeight: 800, fontFamily: 'monospace', color, lineHeight: 1 }}>{cuenta}</span>
+                            <span style={{ fontSize: 13, opacity: 0.45 }}>/ {META_TOTAL} gestiones · {minutosActivos} min</span>
+                          </div>
+                          {/* Barra de progreso */}
+                          <div style={{ height: 5, background: 'rgba(255,255,255,0.07)', borderRadius: 99, overflow: 'hidden', marginBottom: 8 }}>
+                            <div style={{
+                              height: '100%', width: `${pct}%`,
+                              background: color,
+                              boxShadow: `0 0 8px ${color}80`,
+                              borderRadius: 99,
+                              transition: 'width 0.6s ease',
+                            }} />
+                          </div>
+                          {/* Label + proyección */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: deficit > 0 ? 6 : 0 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color, opacity: 0.85 }}>{label}</span>
+                            <span style={{ fontSize: 11, opacity: 0.4, fontFamily: 'monospace' }}>{proyeccion}/hr proyectado</span>
+                          </div>
+                          {deficit > 0 && (
+                            <div style={{ background: 'rgba(255,82,82,0.08)', borderRadius: 8, padding: '5px 8px', fontSize: 11 }}>
+                              <span style={{ color: '#ff5252', fontWeight: 700 }}>▼ {deficit} clientes de atraso</span>
+                              <span style={{ opacity: 0.5, marginLeft: 6 }}>· necesitas {paraPonerseAlDia} en próximos 40 min</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                 </>)}
 
@@ -3427,6 +3658,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           callApi={callApi}
           onAltDialed={handleAltDialed}
           onExternalDial={handleExternalDial}
+          ultimaTipificacion={historialGestiones?.[0]?.tipificacion_codigo || null}
           onAccionRapida={(canal) => {
             let meta = {};
             try { meta = typeof contactoActual?.metadata === 'string' ? JSON.parse(contactoActual.metadata || '{}') : (contactoActual?.metadata || {}); } catch (_) {}
@@ -3440,6 +3672,139 @@ export default function AsesorPanel({ usuario, onLogout }) {
           }}
         />
       )}
+      {/* ── Popup Info Contacto Cartera ── */}
+      {contactoInfoPopup && (() => {
+        const c = contactoInfoPopup;
+        let meta = {};
+        try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+        const mora = meta['VALOR EN MORA'] || c.monto_deuda;
+        const ESTADO_LABEL = {
+          PENDIENTE: 'Pendiente', EN_INTENTOS: 'En intentos', AGENDADO: 'Agendado',
+          GESTIONADO: 'Gestionado', YA_PAGO: 'Ya pagó',
+        };
+        const ESTADO_COLOR = {
+          PENDIENTE: '#ffb74d', EN_INTENTOS: '#fbc02d', AGENDADO: '#64b5f6',
+          GESTIONADO: '#00e676', YA_PAGO: '#ce93d8',
+        };
+        const estColor = ESTADO_COLOR[c.estado_marcacion] || '#ccc';
+        return (
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => setContactoInfoPopup(null)}
+          >
+            <div
+              style={{ background: '#1a1a1f', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: '24px 28px', minWidth: 340, maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'rgba(0,230,118,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#00e676' }}>person</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>{c.nombre_deudor || '—'}</div>
+                    <div style={{ fontSize: 11, opacity: 0.45, marginTop: 1 }}>Información del cliente</div>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setContactoInfoPopup(null)}
+                  style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer', color: 'rgba(255,255,255,0.55)', display: 'flex', alignItems: 'center' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[
+                  { icon: 'badge', label: 'Cédula', value: c.cedula || '—' },
+                  { icon: 'call', label: 'Teléfono', value: c.telefono || '—' },
+                  { icon: 'payments', label: 'Monto deuda', value: mora ? `$${Number(mora).toFixed(2)}` : '—', color: '#ff5252' },
+                ].map(({ icon, label, value, color }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>{icon}</span>
+                    <span style={{ fontSize: 12, opacity: 0.5, width: 80, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: color || '#fff' }}>{value}</span>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>flag</span>
+                  <span style={{ fontSize: 12, opacity: 0.5, width: 80, flexShrink: 0 }}>Estado</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: estColor + '22', color: estColor }}>
+                    {ESTADO_LABEL[c.estado_marcacion] || c.estado_marcacion || '—'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>assignment_turned_in</span>
+                  <span style={{ fontSize: 12, opacity: 0.5, width: 80, flexShrink: 0 }}>Última tip.</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: c.ultima_tipificacion ? '#64b5f6' : 'rgba(255,255,255,0.3)' }}>
+                    {c.ultima_tipificacion ? `${c.ultima_tipificacion}${c.ultima_tip_codigo ? ` (${c.ultima_tip_codigo})` : ''}` : 'Sin gestiones'}
+                  </span>
+                </div>
+              </div>
+              <button type="button" onClick={() => setContactoInfoPopup(null)}
+                style={{ marginTop: 20, width: '100%', padding: '10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Popup info gestión del historial ── */}
+      {historialContactoPopup && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{ position: 'fixed', inset: 0, zIndex: 9500, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => setHistorialContactoPopup(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--color-surface, #1e2028)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, width: '100%', maxWidth: 420, padding: '24px 24px 20px', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 22, color: 'var(--color-primary)' }}>history</span>
+                <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: 0.3 }}>Detalle de gestión</span>
+              </div>
+              <button type="button" className="btn btn-ghost" style={{ padding: '4px 8px', fontSize: 13 }} onClick={() => setHistorialContactoPopup(null)}>
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px' }}>
+                <p style={{ margin: 0, fontSize: 11, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Nombre del deudor</p>
+                <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#fff' }}>{historialContactoPopup.nombre_deudor || historialContactoPopup.nombre || 'Desconocido'}</p>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px' }}>
+                  <p style={{ margin: 0, fontSize: 11, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Cédula</p>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{historialContactoPopup.cedula || '—'}</p>
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px' }}>
+                  <p style={{ margin: 0, fontSize: 11, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Teléfono</p>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{historialContactoPopup.telefono || '—'}</p>
+                </div>
+              </div>
+              <div style={{ background: 'rgba(0,230,118,0.06)', border: '1px solid rgba(0,230,118,0.15)', borderRadius: 8, padding: '10px 14px' }}>
+                <p style={{ margin: 0, fontSize: 11, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Resultado</p>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-primary)' }}>{historialContactoPopup.tipificacion_desc || historialContactoPopup.resultado || '—'}</p>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px' }}>
+                <p style={{ margin: 0, fontSize: 11, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Fecha / Hora</p>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{(() => { const ts = historialContactoPopup.hora_gestion || historialContactoPopup.timestamp_inicio || historialContactoPopup.creado_en; if (!ts) return '-'; try { const d = new Date(String(ts).replace(' ', 'T')); return isNaN(d) ? ts : d.toLocaleString('es-EC', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }); } catch { return ts; } })()}</p>
+              </div>
+              {historialContactoPopup.notas && (
+                <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 14px' }}>
+                  <p style={{ margin: 0, fontSize: 11, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Notas</p>
+                  <p style={{ margin: 0, fontSize: 13, opacity: 0.85, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{historialContactoPopup.notas}</p>
+                </div>
+              )}
+            </div>
+            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-primary" style={{ minWidth: 100 }} onClick={() => setHistorialContactoPopup(null)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal WiFi IP ── */}
       <Modal open={showWifiModal} onClose={() => setShowWifiModal(false)} title="Conectar por WiFi">
         <div style={{ padding: '1rem' }}>

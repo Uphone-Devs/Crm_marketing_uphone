@@ -166,7 +166,7 @@ const TIPIF_ICON = {
   };
 const LABEL_MONTO = { PMP:'Monto comprometido a pagar', PAGO_REAL:'Monto realmente pagado', AB_PARC:'Monto del abono parcial', PEND_COMP:'Monto pendiente de comprobar' };
 
-export default function TipificacionDialog({ open, tipifInicial, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida }) {
+export default function TipificacionDialog({ open, tipifInicial, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida, ultimaTipificacion = null }) {
   const [tipificaciones, setTipificaciones] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [notas, setNotas] = useState('');
@@ -711,7 +711,11 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
   const formContent = tipifInicial ? formContentCompacto : formContentCompleto;
 
   const isPmp = tipifInicial === 'PMP';
-  const titleText = isPmp ? "Programar Promesa de Pago" : "Tipificar Gestión";
+  const titleText = isPmp
+    ? "Programar Promesa de Pago"
+    : ultimaTipificacion
+      ? ultimaTipificacion
+      : "Tipificar Gestión";
   const subtitleText = isPmp ? "Define los detalles del compromiso y contacta al cliente" : "Selecciona el resultado de esta llamada para cerrar la gestión:";
 
   if (!open) return null;
