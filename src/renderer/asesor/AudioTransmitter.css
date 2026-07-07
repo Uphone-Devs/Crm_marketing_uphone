@@ -59,9 +59,7 @@
   appearance: none;
   height: 4px;
   background: var(--color-border);
-  border-radius: 2px;
-  outline: none;
-  cursor: pointer;
+  border-radius: 2px;  cursor: pointer;
 }
 .volumen-slider::-webkit-slider-thumb {
   -webkit-appearance: none;

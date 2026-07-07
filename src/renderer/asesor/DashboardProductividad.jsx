@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer, Cell,
@@ -45,7 +45,7 @@ const S = {
     gap: 4,
   },
   label: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: 700,
     letterSpacing: '0.08em',
     opacity: 0.45,
@@ -57,7 +57,7 @@ const S = {
     lineHeight: 1.1,
   },
   sectionTitle: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: 700,
     letterSpacing: '0.06em',
     opacity: 0.5,
@@ -73,6 +73,7 @@ const S = {
    COMPONENT
 ═══════════════════════════════════════════════ */
 export default function DashboardProductividad({ usuario, callApi, tiempoProductivoSeg, tiempoImproductivoSeg }) {
+  const todayLabel = useMemo(() => new Date().toLocaleDateString('es-MX', { weekday:'long', day:'numeric', month:'long' }), []);
   const [metricas,       setMetricas]       = useState(null);
   const [rankingGeneral, setRankingGeneral]  = useState([]);
   const [metaMensual,    setMetaMensual]     = useState(null);
@@ -186,9 +187,9 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
           <div style={{ fontSize:16, fontWeight:800, color:'var(--color-primary)', letterSpacing:'-0.01em' }}>
             Panel de Productividad
           </div>
-          <div style={{ fontSize:11, opacity:0.45, marginTop:1 }}>Rendimiento y Ranking — {new Date().toLocaleDateString('es-MX', { weekday:'long', day:'numeric', month:'long' })}</div>
+          <div style={{ fontSize: 12, opacity:0.45, marginTop:1 }}>Rendimiento y Ranking — {todayLabel}</div>
         </div>
-        <button className="btn btn-outline btn-sm" onClick={fetchAll} style={{ display:'flex', alignItems:'center', gap:5 }}>
+        <button type="button" className="btn btn-outline btn-sm" onClick={fetchAll} style={{ display:'flex', alignItems:'center', gap:5 }}>
           <span className="material-symbols-outlined" style={{ fontSize:13 }}>refresh</span>
           Actualizar
         </button>
@@ -203,14 +204,14 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
           <div style={{ height:4, background:'rgba(255,255,255,0.07)', borderRadius:4, marginTop:4 }}>
             <div style={{ width:`${efectividad}%`, height:'100%', background: efectividad >= 60 ? '#69f0ae' : '#ffb74d', borderRadius:4, transition:'width .4s' }} />
           </div>
-          <div style={{ fontSize:10, opacity:0.4, marginTop:2 }}>{metricas?.contactos_efectivos || 0} de {metricas?.total_marcaciones || 0} contactos</div>
+          <div style={{ fontSize: 12, opacity:0.4, marginTop:2 }}>{metricas?.contactos_efectivos || 0} de {metricas?.total_marcaciones || 0} contactos</div>
         </div>
 
         {/* Monto Comprometido */}
         <div style={S.kpiCard}>
           <div style={S.label}>💰 Monto Comprometido</div>
           <div style={{ ...S.value, color:'#00e676' }}>${monto.toLocaleString('es-MX')}</div>
-          <div style={{ fontSize:10, opacity:0.4, marginTop:6 }}>{metricas?.total_compromisos || 0} compromisos de pago</div>
+          <div style={{ fontSize: 12, opacity:0.4, marginTop:6 }}>{metricas?.total_compromisos || 0} compromisos de pago</div>
         </div>
 
         {/* Meta Mensual */}
@@ -220,14 +221,14 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
           <div style={{ height:4, background:'rgba(255,255,255,0.07)', borderRadius:4, marginTop:4 }}>
             <div style={{ width:`${Math.min(metaMensual?.pct_cumplimiento || 0, 100)}%`, height:'100%', background: '#29b6f6', borderRadius:4, transition:'width .4s' }} />
           </div>
-          <div style={{ fontSize:10, opacity:0.4, marginTop:2 }}>{metaMensual?.pct_cumplimiento || 0}% de avance</div>
+          <div style={{ fontSize: 12, opacity:0.4, marginTop:2 }}>{metaMensual?.pct_cumplimiento || 0}% de avance</div>
         </div>
 
         {/* Cartera Vencida Total */}
         <div style={S.kpiCard}>
           <div style={S.label}>📊 Vencimientos</div>
           <div style={{ ...S.value, color:'#ef5350' }}>${indicadoresGlob?.global?.valor_vencido?.toLocaleString('es-MX') || 0}</div>
-          <div style={{ fontSize:10, opacity:0.4, marginTop:6 }}>{indicadoresGlob?.global?.unidades_vencidas || 0} contratos vencidos</div>
+          <div style={{ fontSize: 12, opacity:0.4, marginTop:6 }}>{indicadoresGlob?.global?.unidades_vencidas || 0} contratos vencidos</div>
         </div>
       </div>
 
@@ -246,7 +247,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
             <span style={{ fontSize:32, fontWeight:900, color:'var(--color-primary)', lineHeight:1 }}>
               {metricas?.total_marcaciones || 0}
             </span>
-            <span style={{ fontSize:11, opacity:0.45, fontWeight:600 }}>gestiones totales</span>
+            <span style={{ fontSize: 12, opacity:0.45, fontWeight:600 }}>gestiones totales</span>
           </div>
 
           {/* Horizontal metric bars */}
@@ -283,14 +284,14 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
               gradient: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
               glow: 'rgba(245,158,11,0.4)',
             },
-          ].map((item, i) => {
+          ].map((item) => {
             const pct = Math.min(Math.round((item.value / item.max) * 100), 100);
             return (
-              <div key={i} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+              <div key={item.label} style={{ display:'flex', flexDirection:'column', gap:4 }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <div style={{ display:'flex', alignItems:'center', gap:5 }}>
                     <span className="material-symbols-outlined" style={{ fontSize:13, opacity:0.7 }}>{item.icon}</span>
-                    <span style={{ fontSize:11, fontWeight:600, opacity:0.75 }}>{item.label}</span>
+                    <span style={{ fontSize: 12, fontWeight:600, opacity:0.75 }}>{item.label}</span>
                   </div>
                   <span style={{ fontSize:13, fontWeight:800, letterSpacing:'-0.02em' }}>{item.value}</span>
                 </div>
@@ -301,7 +302,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
                     background: item.gradient,
                     borderRadius: 99,
                     boxShadow: pct > 0 ? `0 0 8px ${item.glow}` : 'none',
-                    transition: 'width 0.6s cubic-bezier(0.34,1.56,0.64,1)',
+                    transition: 'width 0.6s cubic-bezier(0.16,1,0.3,1)',
                   }} />
                 </div>
               </div>
@@ -323,7 +324,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
             {/* Canal tabs (Segmented Control style) */}
             <div style={{ display:'flex', background:'rgba(255,255,255,0.03)', padding:4, borderRadius:12, border: '1px solid rgba(255,255,255,0.05)', flex: 1, minWidth: 280, maxWidth: '100%' }}>
               {CANALES.map(c => (
-                <button
+                <button type="button"
                   key={c.id}
                   onClick={() => setActiveTab(c.id)}
                   style={{
@@ -333,7 +334,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
                     color:      activeTab === c.id ? '#00e676' : 'rgba(255,255,255,0.4)',
                     border:     activeTab === c.id ? '1px solid rgba(0,230,118,0.2)' : '1px solid transparent',
                     borderRadius:8, padding:'6px 8px',
-                    fontSize:11, fontWeight:700, cursor:'pointer', transition:'all .2s ease',
+                    fontSize: 12, fontWeight:700, cursor:'pointer', transition: 'background .2s ease, opacity .2s ease, border-color .2s ease, color .2s ease',
                   }}
                   onMouseEnter={e => { if (activeTab !== c.id) e.currentTarget.style.color = 'rgba(255,255,255,0.7)'; }}
                   onMouseLeave={e => { if (activeTab !== c.id) e.currentTarget.style.color = 'rgba(255,255,255,0.4)'; }}
@@ -348,7 +349,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
           {/* Segment pills */}
           <div style={{ display:'flex', gap:8 }}>
             {SEGMENTS.map(s => (
-              <button
+              <button type="button"
                 key={s.id}
                 onClick={() => setActiveSeg(s.id)}
                 style={{
@@ -356,9 +357,9 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
                   background: activeSeg === s.id ? `linear-gradient(135deg, ${s.color}25 0%, ${s.color}08 100%)` : 'rgba(255,255,255,0.02)',
                   border: `1px solid ${activeSeg === s.id ? `${s.color}50` : 'rgba(255,255,255,0.08)'}`,
                   borderRadius: 10, padding: '8px 0',
-                  fontSize:11, fontWeight:700, letterSpacing: 0.5,
+                  fontSize: 12, fontWeight:700, letterSpacing: 0.5,
                   color: activeSeg === s.id ? s.color : 'rgba(255,255,255,0.4)',
-                  cursor:'pointer', transition:'all .2s ease',
+                  cursor:'pointer', transition: 'background .2s ease, opacity .2s ease, border-color .2s ease, color .2s ease',
                   boxShadow: activeSeg === s.id ? `0 4px 12px ${s.color}15` : 'none',
                 }}
                 onMouseEnter={e => { if (activeSeg !== s.id) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
@@ -400,20 +401,20 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
                       {entry.name}{isMe ? ' (Tú)' : ''}
                     </div>
                     <div style={{ height:4, background:'rgba(255,255,255,0.06)', borderRadius:6, overflow:'hidden' }}>
-                      <div style={{ width:`${pct}%`, height:'100%', background: isMe ? 'var(--color-primary)' : segColor, borderRadius:6, transition:'width .8s cubic-bezier(0.34,1.56,0.64,1)', boxShadow: isMe ? '0 0 8px rgba(0,230,118,0.5)' : 'none' }} />
+                      <div style={{ width:`${pct}%`, height:'100%', background: isMe ? 'var(--color-primary)' : segColor, borderRadius:6, transition:'width .8s cubic-bezier(0.16,1,0.3,1)', boxShadow: isMe ? '0 0 8px rgba(0,230,118,0.5)' : 'none' }} />
                     </div>
-                    <div style={{ fontSize:10, opacity:0.4, marginTop:4, letterSpacing: 0.3 }}>{pct}% del líder</div>
+                    <div style={{ fontSize: 12, opacity:0.4, marginTop:4, letterSpacing: 0.3 }}>{pct}% del líder</div>
                   </div>
 
                   {/* Score */}
                   <div style={{ textAlign:'right' }}>
                     <div style={{ fontSize:17, fontWeight:800, color: isMe ? '#00e676' : isLeader ? '#ffca28' : '#fff', lineHeight:1 }}>{entry.score}</div>
-                    <div style={{ fontSize:9, opacity:0.35, marginTop:2 }}>gest.</div>
+                    <div style={{ fontSize: 12, opacity:0.35, marginTop:2 }}>gest.</div>
                   </div>
                 </div>
               );
             }) : (
-              <div style={{ padding:20, textAlign:'center', opacity:0.3, fontSize:11 }}>Sin datos para hoy en este segmento</div>
+              <div style={{ padding:20, textAlign:'center', opacity:0.3, fontSize: 12 }}>Sin datos para hoy en este segmento</div>
             )}
           </div>
 
@@ -423,13 +424,13 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
               background:'rgba(245,158,11,0.08)', border:'1px solid rgba(245,158,11,0.2)',
               borderRadius:10, padding:'10px 12px', display:'flex', flexDirection:'column', gap:6, marginTop:2,
             }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'#fbbf24', display:'flex', alignItems:'center', gap:5 }}>
+              <div style={{ fontSize: 12, fontWeight:700, color:'#fbbf24', display:'flex', alignItems:'center', gap:5 }}>
                 <span className="material-symbols-outlined" style={{ fontSize:14 }}>insights</span>
                 ¿Por qué estás más abajo?
               </div>
 
               {myScore < topScore && (
-                <div style={{ fontSize:11, color:'rgba(255,255,255,0.7)', lineHeight:1.6 }}>
+                <div style={{ fontSize: 12, color:'rgba(255,255,255,0.7)', lineHeight:1.6 }}>
                   📍 Posición <strong style={{ color:'#fbbf24' }}>#{myRank}</strong> · Al líder le faltan{' '}
                   <strong style={{ color:'#f87171' }}>−{gap} gestión{gap !== 1 ? 'es' : ''}</strong> ({gapPct}% menos).{' '}
                   Con <strong style={{ color:'#69f0ae' }}>{gap} más</strong> lo alcanzas.
@@ -437,7 +438,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
               )}
 
               {myScore < avgScore && (
-                <div style={{ fontSize:11, color:'rgba(255,255,255,0.55)', lineHeight:1.6 }}>
+                <div style={{ fontSize: 12, color:'rgba(255,255,255,0.55)', lineHeight:1.6 }}>
                   📊 Promedio del equipo: <strong style={{ color:'#fbbf24' }}>{avgScore.toFixed(1)}</strong> · Tu puntaje: <strong style={{ color:'#f87171' }}>{myScore}</strong>.{' '}
                   Necesitas <strong style={{ color:'#69f0ae' }}>{Math.ceil(avgScore - myScore)} más</strong> para nivelarte.
                 </div>
@@ -454,7 +455,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
           Ranking Completo del Equipo
         </div>
         <div style={{ overflowX:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:11 }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize: 12 }}>
             <thead>
               <tr>
                 {['#', 'Asesor', 'Seg 0', 'Seg 1', 'Seg 2', 'Global'].map((h, i) => (
@@ -489,7 +490,7 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
                   );
                 })}
               {rankingGeneral.length === 0 && (
-                <tr><td colSpan={6} style={{ padding:18, textAlign:'center', opacity:0.35, fontSize:11 }}>No hay datos de ranking para hoy</td></tr>
+                <tr><td colSpan={6} style={{ padding:18, textAlign:'center', opacity:0.35, fontSize: 12 }}>No hay datos de ranking para hoy</td></tr>
               )}
             </tbody>
           </table>

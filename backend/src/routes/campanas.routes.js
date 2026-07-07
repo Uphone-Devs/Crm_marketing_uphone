@@ -34,6 +34,25 @@ router.get('/dashboard', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/campanas/asesor/:asesorId — Campañas activas asignadas a un asesor
+// DEBE ir antes de /:id para evitar que 'asesor' sea tratado como id numérico
+router.get('/asesor/:asesorId', async (req, res, next) => {
+  try {
+    const asesorId = parseInt(req.params.asesorId);
+    const rows = await db.$queryRaw`
+      SELECT DISTINCT
+        c.id, c.nombre, c.descripcion, c.fecha_inicio,
+        COUNT(cont.id) FILTER (WHERE cont.estado_marcacion = 'PENDIENTE')::int AS pendientes,
+        COUNT(cont.id)::int AS total
+      FROM campanas c
+      INNER JOIN contactos cont ON cont.campana_id = c.id AND cont.asignado_a = ${asesorId}
+      GROUP BY c.id, c.nombre, c.descripcion, c.fecha_inicio
+      ORDER BY c.id DESC
+    `;
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 // GET /api/campanas — Listar campañas
 router.get('/', async (req, res, next) => {
   try {

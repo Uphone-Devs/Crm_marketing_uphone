@@ -1,5 +1,6 @@
 import React from 'react';
 import './AdvisorList.css';
+const _EMPTY_OBJ = {};
 
 /**
  * AdvisorList — Lista de asesores con estado en tiempo real.
@@ -108,12 +109,12 @@ export default function AdvisorList({
   onFiltroChange,
   busqueda,
   onBusquedaChange,
-  configsMarcacion = {},
+  configsMarcacion = _EMPTY_OBJ,
   onChangeMarcacion,
   onForceOffline,
   modoGlobal,
   intentosGlobal,
-  progresosFiltrados = {},
+  progresosFiltrados = _EMPTY_OBJ,
   hayFiltroProgreso = false,
 }) {
   const asesoresFiltrados = asesores.filter(a => {
@@ -133,7 +134,7 @@ export default function AdvisorList({
       <div className="adv-list__toolbar">
         <div className="adv-list__search">
           <span className="material-symbols-outlined adv-list__search-icon">search</span>
-          <input
+          <input aria-label="Campo"
             className="adv-list__search-input"
             type="text"
             placeholder="Buscar asesor..."
@@ -144,7 +145,7 @@ export default function AdvisorList({
 
         <div className="adv-list__filters">
           {['TODOS', 'ACTIVOS', 'INACTIVOS'].map(f => (
-            <button
+            <button type="button"
               key={f}
               className={`adv-list__filter-btn ${filtro === f ? 'adv-list__filter-btn--active' : ''}`}
               onClick={() => onFiltroChange(f)}

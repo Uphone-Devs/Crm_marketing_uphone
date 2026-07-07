@@ -18,7 +18,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "rebuild:electron": "npx @electron/rebuild -f -w better-sqlite3",
-    "rebuild:node": "npm rebuild better-sqlite3"
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@prisma/client": "^7.8.0",

@@ -132,6 +132,77 @@ router.get('/', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res
   } catch (err) { next(err); }
 });
 
+// GET /api/contactos/:id — Detalle de un contacto
+router.get('/:id', async (req, res, next) => {
+  try {
+    const contacto = await db.contacto.findUnique({
+      where: { id: parseInt(req.params.id) },
+      include: { campana: { select: { id: true, nombre: true } } },
+    });
+    if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado.' });
+    res.json(contacto);
+  } catch (err) { next(err); }
+});
+
+// GET /api/contactos/:id/cdrs — CDRs de un contacto
+router.get('/:id/cdrs', async (req, res, next) => {
+  try {
+    const cdrs = await db.cdr.findMany({
+      where: { contactoId: parseInt(req.params.id) },
+      include: { tipificacion: { select: { codigo: true, descripcion: true } } },
+      orderBy: { id: 'desc' },
+      take: 100,
+    });
+    res.json(cdrs.map(c => ({
+      ...c,
+      monto_acordado: c.montoAcordado !== null ? Number(c.montoAcordado) : null,
+      tipificacion_codigo: c.tipificacion?.codigo || null,
+      tipificacion_desc: c.tipificacion?.descripcion || null,
+    })));
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/contactos/:id/gestionar — Marcar contacto como gestionado
+router.patch('/:id/gestionar', async (req, res, next) => {
+  try {
+    await db.contacto.update({
+      where: { id: parseInt(req.params.id) },
+      data: { estadoMarcacion: 'GESTIONADO' },
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/contactos/:id/intentar — Incrementar intentos
+router.patch('/:id/intentar', async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { maxIntentos } = req.body;
+    const contacto = await db.contacto.findUnique({ where: { id }, select: { intentosRealizados: true } });
+    if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado.' });
+
+    const nuevoIntentos = (contacto.intentosRealizados || 0) + 1;
+    const nuevoEstado = maxIntentos && nuevoIntentos >= maxIntentos ? 'GESTIONADO' : 'EN_INTENTOS';
+
+    await db.contacto.update({
+      where: { id },
+      data: { intentosRealizados: nuevoIntentos, estadoMarcacion: nuevoEstado },
+    });
+    res.json({ ok: true, intentos: nuevoIntentos });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/contactos/:id/resetear-intentos — Reset intentos a 0
+router.patch('/:id/resetear-intentos', async (req, res, next) => {
+  try {
+    await db.contacto.update({
+      where: { id: parseInt(req.params.id) },
+      data: { intentosRealizados: 0, estadoMarcacion: 'PENDIENTE' },
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 // PUT /api/contactos/:id/estado — Actualizar estado_marcacion
 router.put('/:id/estado', async (req, res, next) => {
   try {

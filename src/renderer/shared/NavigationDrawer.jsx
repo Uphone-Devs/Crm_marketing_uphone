@@ -15,7 +15,7 @@ import './NavigationDrawer.css';
 
 const NAV_ITEMS_SUPERVISOR = [
   { id: 'dashboard_directivo', icon: 'dashboard',     label: 'Dashboard Directivo' },
-  { id: 'campanas',            icon: 'campaign',      label: 'Campañas' },
+  { id: 'campanas',            icon: 'folder_open',   label: 'Asignación de Cartera' },
   { id: 'carteras',    icon: 'folder_shared', label: 'Carteras' },
   { id: 'validacion',  icon: 'verified',      label: 'Validación Pagos' },
   { id: 'metricas',    icon: 'analytics',     label: 'Métricas' },
@@ -46,8 +46,9 @@ const NAV_ITEMS_ASESOR = [
 
 ];
 
-export default function NavigationDrawer({ role, activePage, onNavigate, usuario, onLogout, compactContent, collapsed = false, onToggleCollapse }) {
-  const items = role === 'supervisor' ? NAV_ITEMS_SUPERVISOR : NAV_ITEMS_ASESOR;
+export default function NavigationDrawer({ userRole, activePage, onNavigate, usuario, onLogout, compactContent, collapsed = false, onToggleCollapse }) {
+  const items = userRole === 'supervisor' ? NAV_ITEMS_SUPERVISOR : NAV_ITEMS_ASESOR;
+  const [profileOpen, setProfileOpen] = useState(false);
   const [expanded, setExpanded] = useState(
     () => {
       const campaignIds = ['campanas_wsp', 'campanas_rcs', 'campanas_correo'];
@@ -81,10 +82,10 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
     <aside className={`nav-drawer${collapsed ? ' nav-drawer--collapsed' : ''}`}>
       {/* Brand */}
       <div className="nav-drawer__brand">
-        {role === 'asesor' ? (
+        {userRole === 'asesor' ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: 6 }}>
             {onToggleCollapse && (
-              <button className="nav-drawer__toggle" onClick={onToggleCollapse} title={collapsed ? 'Expandir menú' : 'Colapsar menú'}>
+              <button type="button" className="nav-drawer__toggle" onClick={onToggleCollapse} title={collapsed ? 'Expandir menú' : 'Colapsar menú'}>
                 <span className="material-symbols-outlined">
                   {collapsed ? 'menu' : 'menu_open'}
                 </span>
@@ -110,18 +111,18 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
       </div>
 
       {/* Profile Card (solo asesor) */}
-      {role === 'asesor' && usuario && (
+      {userRole === 'asesor' && usuario && (
         <div className="nav-drawer__profile">
           <div className="nav-drawer__avatar">{inicial}</div>
           <div className="nav-drawer__user-info">
             <span className="nav-drawer__user-name">{usuario.nombre}</span>
             <span className="nav-drawer__user-role">Asesor de Cobranza</span>
             <span className="nav-drawer__user-status">
-              <span style={{ color: 'var(--color-primary)', fontSize: 8 }}>●</span> En linea
+              <span style={{ color: 'var(--color-primary)', fontSize: 12 }}>●</span> En linea
             </span>
           </div>
           {onLogout && (
-            <button className="nav-drawer__logout-btn" onClick={onLogout} title="Cerrar Sesión">
+            <button type="button" className="nav-drawer__logout-btn" onClick={onLogout} title="Cerrar Sesión">
               <span className="material-symbols-outlined">logout</span>
             </button>
           )}
@@ -132,7 +133,7 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
       <nav className="nav-drawer__nav" style={{ position: 'relative' }}>
         {items.map(item => (
           <div key={item.id} style={{ position: 'relative' }}>
-            <button
+            <button type="button"
               className={`nav-drawer__item ${
                 (!item.subItems && activePage === item.id) || isSubActive(item)
                   ? 'nav-drawer__item--active'
@@ -175,7 +176,7 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
               {item.subItems && collapsed && (
                 <span
                   className="material-symbols-outlined"
-                  style={{ fontSize: 10, position: 'absolute', right: 2, bottom: 4, opacity: 0.5 }}
+                  style={{ fontSize: 12, position: 'absolute', right: 2, bottom: 4, opacity: 0.5 }}
                 >
                   chevron_right
                 </span>
@@ -186,7 +187,7 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
             {item.subItems && expanded === item.id && !collapsed && (
               <div className="nav-drawer__subitems">
                 {item.subItems.map(sub => (
-                  <button
+                  <button type="button"
                     key={sub.id}
                     className={`nav-drawer__subitem ${activePage === sub.id ? 'nav-drawer__subitem--active' : ''}`}
                     onClick={() => onNavigate(sub.id)}
@@ -222,11 +223,11 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
                 minWidth: 170,
               }}
             >
-              <div style={{ padding: '4px 14px 8px', fontSize: 10, opacity: 0.4, letterSpacing: 1, textTransform: 'uppercase' }}>
+              <div style={{ padding: '4px 14px 8px', fontSize: 12, opacity: 0.4, letterSpacing: 1, textTransform: 'uppercase' }}>
                 {item.label}
               </div>
               {item.subItems.map(sub => (
-                <button
+                <button type="button"
                   key={sub.id}
                   onClick={() => { onNavigate(sub.id); setFlyout(null); }}
                   style={{
@@ -255,6 +256,71 @@ export default function NavigationDrawer({ role, activePage, onNavigate, usuario
       {compactContent && (
         <div className="nav-drawer__compact">
           {compactContent}
+        </div>
+      )}
+
+      {/* Supervisor: perfil + logout dropdown */}
+      {userRole === 'supervisor' && (
+        <div style={{ padding: '0 8px 12px', position: 'relative' }}>
+          <button type="button"
+            onClick={() => setProfileOpen(p => !p)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 12px', borderRadius: 12,
+              background: profileOpen ? 'rgba(0,230,118,0.08)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${profileOpen ? 'rgba(0,230,118,0.25)' : 'rgba(255,255,255,0.08)'}`,
+              cursor: 'pointer', transition: 'background 0.18s, opacity 0.18s, border-color 0.18s, color 0.18s',
+            }}
+          >
+            <div style={{
+              width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+              background: 'linear-gradient(135deg,#00e676,#00bfa5)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 13, fontWeight: 800, color: '#000',
+            }}>
+              {usuario?.nombre ? usuario.nombre.charAt(0).toUpperCase() : 'J'}
+            </div>
+            {!collapsed && (
+              <>
+                <div style={{ flex: 1, textAlign: 'left', overflow: 'hidden' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {usuario?.nombre || 'Jefe de Área'}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.45, marginTop: 1 }}>Jefe de Área</div>
+                </div>
+                <span className="material-symbols-outlined" style={{ fontSize: 16, opacity: 0.5, color: '#fff' }}>
+                  {profileOpen ? 'expand_less' : 'expand_more'}
+                </span>
+              </>
+            )}
+          </button>
+
+          {profileOpen && (
+            <div style={{
+              marginTop: 6, borderRadius: 10,
+              background: 'rgba(18,18,28,0.97)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              overflow: 'hidden',
+            }}>
+              {onLogout && (
+                <button type="button"
+                  onClick={() => { setProfileOpen(false); onLogout(); }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '11px 14px', background: 'transparent',
+                    border: 'none', cursor: 'pointer', color: '#ef5350',
+                    fontSize: 13, fontWeight: 600, textAlign: 'left',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,83,80,0.1)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>logout</span>
+                  Cerrar Sesión
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

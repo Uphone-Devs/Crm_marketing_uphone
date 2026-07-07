@@ -121,7 +121,7 @@ function createSupervisorWindow() {
       nodeIntegration: false
     },
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
-    title: 'Terminal de Cobranza — Supervisor',
+    title: 'Terminal de Cobranza — Jefe de Área',
     backgroundColor: '#131313'
   });
 

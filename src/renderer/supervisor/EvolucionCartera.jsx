@@ -23,18 +23,18 @@ const fmt$ = (n) => {
 };
 
 const inputStyle = {
-  padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+  padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
   background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 6, color: 'inherit', outline: 'none',
+  borderRadius: 6, color: 'inherit',
 };
 
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
-const td = { padding: '8px 10px', verticalAlign: 'middle', fontSize: 11 };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
+const td = { padding: '8px 10px', verticalAlign: 'middle', fontSize: 12 };
 
 function AccordionPanel({ title, icon, open, onToggle, children }) {
   return (
     <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 4 }}>
-      <button
+      <button type="button"
         onClick={onToggle}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 8,
@@ -97,7 +97,7 @@ function GestionTable({ data, loading, showPago = false }) {
             <tr key={r.gestion} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
               <td style={td}>
                 <span style={{
-                  fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
+                  fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
                   background: r.gestion === 'REALIZADA' ? 'rgba(0,230,118,0.15)' : 'rgba(255,152,0,0.15)',
                   color: r.gestion === 'REALIZADA' ? 'var(--color-primary)' : '#ffcc02',
                 }}>
@@ -120,7 +120,7 @@ function GestionTable({ data, loading, showPago = false }) {
         </tbody>
         <tfoot>
           <tr style={{ borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)' }}>
-            <td style={{ ...td, fontWeight: 800, fontSize: 10, opacity: 0.7 }}>TOTAL</td>
+            <td style={{ ...td, fontWeight: 800, fontSize: 12, opacity: 0.7 }}>TOTAL</td>
             <td style={{ ...td, textAlign: 'right', fontWeight: 800 }}>{totalClientes.toLocaleString()}</td>
             <td style={{ ...td, textAlign: 'right', fontWeight: 800, color: 'var(--color-primary)' }}>{fmt$(totalCobrar)}</td>
             {showPago && <td style={{ ...td, textAlign: 'right', fontWeight: 800, color: '#64b5f6' }}>{fmt$(totalPago)}</td>}
@@ -161,14 +161,14 @@ function RefinanciadaPanel({ data, loading }) {
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, margin: '10px 0' }}>
-        {kpis.map((k, i) => (
-          <div key={i} style={{
+        {kpis.map((k) => (
+          <div key={k.label} style={{
             background: 'rgba(255,255,255,0.03)', borderRadius: 8,
             border: '1px solid rgba(255,255,255,0.06)', padding: '10px 12px', textAlign: 'center',
           }}>
             <span className="material-symbols-outlined" style={{ fontSize: 18, color: k.color, display: 'block', marginBottom: 4 }}>{k.icon}</span>
             <div style={{ fontSize: 16, fontWeight: 800, color: k.color }}>{k.value}</div>
-            <div style={{ fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 2 }}>{k.label}</div>
+            <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 2 }}>{k.label}</div>
           </div>
         ))}
       </div>
@@ -193,7 +193,7 @@ function RefinanciadaPanel({ data, loading }) {
                   <td style={{ ...td, fontWeight: 600, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.nombre_deudor || '—'}
                   </td>
-                  <td style={{ ...td, fontFamily: 'monospace', fontSize: 11 }}>{r.cedula || '—'}</td>
+                  <td style={{ ...td, fontFamily: 'monospace', fontSize: 12 }}>{r.cedula || '—'}</td>
                   <td style={{ ...td, opacity: 0.7, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.empresa || '—'}
                   </td>
@@ -208,7 +208,7 @@ function RefinanciadaPanel({ data, loading }) {
                   </td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <span style={{
-                      fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
+                      fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
                       background: r.gestionado ? 'rgba(0,230,118,0.15)' : 'rgba(255,152,0,0.15)',
                       color: r.gestionado ? '#00E676' : '#ffcc02',
                     }}>
@@ -240,7 +240,7 @@ function CampanaSelect({ campanaId, setCampanaId, campanas, reloadCampanas }) {
         <option value="">Todas las campañas</option>
         {campanas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
       </select>
-      <button
+      <button type="button"
         onClick={reloadCampanas}
         title="Actualizar lista de campañas"
         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: 'inherit', opacity: 0.4 }}
@@ -306,7 +306,7 @@ export function AnalisisCartera({ filtroFechaDesde, filtroFechaHasta }) {
       {children}
     </div>
   );
-  const filterLabel = (text) => <span style={{ fontSize: 10, opacity: 0.5 }}>{text}</span>;
+  const filterLabel = (text) => <span style={{ fontSize: 12, opacity: 0.5 }}>{text}</span>;
 
   return (
     <div className="widget-card" style={{ marginBottom: 16 }}>
@@ -314,7 +314,7 @@ export function AnalisisCartera({ filtroFechaDesde, filtroFechaHasta }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--color-primary)' }}>analytics</span>
           <div>
-            <span className="text-label" style={{ opacity: 0.5 }}>SUPERVISOR · ANÁLISIS</span>
+            <span className="text-label" style={{ opacity: 0.5 }}>JEFE DE ÁREA · ANÁLISIS</span>
             <h3 className="widget-title" style={{ marginTop: 2 }}>Análisis de Cartera</h3>
           </div>
         </div>
@@ -325,7 +325,7 @@ export function AnalisisCartera({ filtroFechaDesde, filtroFechaHasta }) {
       <AccordionPanel title="Composición de Cartera" icon="pie_chart" open={openPanels.composicion} onToggle={() => toggle('composicion')}>
         {filterRow(<>
           {filterLabel('Fecha apertura')}
-          <input type="date" value={p1Fecha} onChange={e => setP1Fecha(e.target.value)} style={inputStyle} />
+          <input aria-label="Fecha" type="date" value={p1Fecha} onChange={e => setP1Fecha(e.target.value)} style={inputStyle} />
           {filterLabel('Días impago desde')}
           <input type="number" min="0" value={p1Desde} onChange={e => setP1Desde(Number(e.target.value))} style={{ ...inputStyle, width: 70 }} />
           {filterLabel('hasta')}
@@ -343,7 +343,7 @@ export function AnalisisCartera({ filtroFechaDesde, filtroFechaHasta }) {
             {campanas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
           {filterLabel('Fecha apertura')}
-          <input type="date" value={p3Fecha} onChange={e => setP3Fecha(e.target.value)} style={inputStyle} />
+          <input aria-label="Fecha" type="date" value={p3Fecha} onChange={e => setP3Fecha(e.target.value)} style={inputStyle} />
         </>)}
         <RefinanciadaPanel data={p3Data} loading={p3Load} />
       </AccordionPanel>
@@ -424,7 +424,7 @@ export function CumplimientoMetas({ filtroFechaDesde, filtroFechaHasta }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--color-primary)' }}>flag</span>
           <div>
-            <span className="text-label" style={{ opacity: 0.5 }}>SUPERVISOR · MÉTRICAS</span>
+            <span className="text-label" style={{ opacity: 0.5 }}>JEFE DE ÁREA · MÉTRICAS</span>
             <h3 className="widget-title" style={{ marginTop: 2 }}>Cumplimiento de Metas</h3>
           </div>
         </div>
@@ -452,9 +452,9 @@ export function CumplimientoMetas({ filtroFechaDesde, filtroFechaHasta }) {
               <div key={r.asesor_id} style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 700, fontSize: 12, flex: 1 }}>{r.nombre}</span>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>{(r.gestiones || 0)} gestiones</span>
-                  <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 8 }}>Recaudado</span>
-                  <input
+                  <span style={{ fontSize: 12, opacity: 0.5 }}>{(r.gestiones || 0)} gestiones</span>
+                  <span style={{ fontSize: 12, opacity: 0.5, marginLeft: 8 }}>Recaudado</span>
+                  <input aria-label="Recaudado"
                     type="number" min="0" step="0.01"
                     value={getEditVal(r.asesor_id, 'valor_recaudado', r.valor_recaudado)}
                     onChange={e => handleMetaChange(r.asesor_id, 'valor_recaudado', e.target.value)}
@@ -468,7 +468,7 @@ export function CumplimientoMetas({ filtroFechaDesde, filtroFechaHasta }) {
                       const superada = restante <= 0;
                       return (
                         <tr key={key} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                          <td style={{ ...td, width: 80, opacity: 0.55, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</td>
+                          <td style={{ ...td, width: 80, opacity: 0.55, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</td>
                           <td style={td}>
                             <input
                               type="number" min="0" step="0.01"
@@ -492,8 +492,8 @@ export function CumplimientoMetas({ filtroFechaDesde, filtroFechaHasta }) {
 
           <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden', background: 'rgba(255,255,255,0.02)', marginTop: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 800, fontSize: 11, opacity: 0.6, flex: 1, letterSpacing: 0.5 }}>TOTAL EQUIPO</span>
-              <span style={{ fontSize: 10, opacity: 0.5 }}>Recaudado</span>
+              <span style={{ fontWeight: 800, fontSize: 12, opacity: 0.6, flex: 1, letterSpacing: 0.5 }}>TOTAL EQUIPO</span>
+              <span style={{ fontSize: 12, opacity: 0.5 }}>Recaudado</span>
               <span style={{ fontWeight: 800, color: 'var(--color-primary)', minWidth: 110, textAlign: 'right' }}>{fmt$(totalRecaudado)}</span>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -504,7 +504,7 @@ export function CumplimientoMetas({ filtroFechaDesde, filtroFechaHasta }) {
                   { label: 'Mensual', total: totalMensual, restante: totalMensual - totalRecaudado },
                 ].map(({ label, total, restante }) => (
                   <tr key={label} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ ...td, width: 80, opacity: 0.55, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</td>
+                    <td style={{ ...td, width: 80, opacity: 0.55, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</td>
                     <td style={{ ...td, fontWeight: 700 }}>{fmt$(total)}</td>
                     <td style={{ ...td, textAlign: 'right', fontWeight: 800, color: restante <= 0 ? '#00E676' : '#ff5252' }}>
                       {restante <= 0 ? `+${fmt$(Math.abs(restante))}` : `-${fmt$(restante)}`}

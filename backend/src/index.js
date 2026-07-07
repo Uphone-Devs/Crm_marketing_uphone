@@ -22,7 +22,8 @@ const io = new Server(server, {
 // ── Middleware global ─────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // ── Servir archivos de grabaciones (mock S3) ──────────────────
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
@@ -54,6 +55,21 @@ app.use((err, req, res, next) => {
     error: err.message || 'Internal Server Error',
   });
 });
+
+// ── Crear tablas auxiliares que no están en el schema Prisma ─
+db.$executeRaw`
+  CREATE TABLE IF NOT EXISTS sub_gestiones (
+    id          SERIAL PRIMARY KEY,
+    contacto_id INTEGER REFERENCES contactos(id) ON DELETE CASCADE,
+    asesor_id   INTEGER REFERENCES usuarios(id)  ON DELETE SET NULL,
+    cdr_id      INTEGER REFERENCES cdrs(id)      ON DELETE SET NULL,
+    telefono    TEXT,
+    notas       TEXT,
+    nombre_ref  TEXT,
+    parentesco  TEXT,
+    creado_en   TIMESTAMP DEFAULT NOW()
+  )
+`.catch(e => console.warn('[INIT] sub_gestiones create warning:', e.message));
 
 // ── Server startup ────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;

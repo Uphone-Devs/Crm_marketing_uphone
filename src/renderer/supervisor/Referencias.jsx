@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ExcelJS from 'exceljs';
 import { showToast } from '../shared/Toast';
+const _EMPTY_ARR = [];
+const _EMPTY_OBJ = {};
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
   if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
-async function vmFetch(apiBase, token, path, options = {}) {
+async function vmFetch(apiBase, token, path, options = _EMPTY_OBJ) {
   const res = await fetch(`${apiBase}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
@@ -39,14 +41,14 @@ const todayISO = () => {
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 };
 
-export default function Referencias({ asesores = [] }) {
+export default function Referencias({ asesores = _EMPTY_ARR }) {
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
   const authToken = localStorage.getItem('auth_token');
   // ── Filtros tabla general ──
   const [filtroAsesor,     setFiltroAsesor]     = useState('');
   const [filtroParentesco, setFiltroParentesco] = useState('');
-  const [filtroFecha,      setFiltroFecha]      = useState(todayISO());
+  const [filtroFecha,      setFiltroFecha]      = useState(() => todayISO());
   const [filtroBusqueda,   setFiltroBusqueda]   = useState('');
 
   const [refs,     setRefs]     = useState([]);
@@ -176,10 +178,10 @@ export default function Referencias({ asesores = [] }) {
           { icon: 'contacts',   label: 'Total referencias', value: refs.length.toLocaleString() },
           { icon: 'badge',      label: 'Con nombre',        value: `${totalConRef} (${pctConRef}%)` },
           ...topParentesco.map(([p, n]) => ({ icon: 'family_restroom', label: p, value: n })),
-        ].map((k, i) => (
-          <div key={i} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: bdr, display: 'flex', alignItems: 'center', gap: 8 }}>
+        ].map((k) => (
+          <div key={k.label} style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: bdr, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, opacity: 0.5 }}>{k.icon}</span>
-            <span style={{ fontSize: 11, opacity: 0.55 }}>{k.label}</span>
+            <span style={{ fontSize: 12, opacity: 0.55 }}>{k.label}</span>
             <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-primary)' }}>{k.value}</span>
           </div>
         ))}
@@ -196,7 +198,7 @@ export default function Referencias({ asesores = [] }) {
 
           {/* Filtros */}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
+            <input aria-label="Campo"
               type="date"
               className="input"
               value={filtroFecha}
@@ -221,7 +223,7 @@ export default function Referencias({ asesores = [] }) {
               <option value="">Todos los parentescos</option>
               {PARENTESCOS.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
-            <input
+            <input aria-label="Todos los parentescos"
               type="text"
               className="input"
               value={filtroBusqueda}
@@ -229,7 +231,7 @@ export default function Referencias({ asesores = [] }) {
               placeholder="Buscar..."
               style={{ padding: '4px 8px', fontSize: 12, height: 'auto', width: 130 }}
             />
-            <button
+            <button type="button"
               className="btn btn-sm btn-outline"
               onClick={cargar}
               disabled={cargando}
@@ -237,7 +239,7 @@ export default function Referencias({ asesores = [] }) {
             >
               <span className="material-symbols-outlined" style={{ fontSize: 16, animation: cargando ? 'spin 1s linear infinite' : 'none' }}>refresh</span>
             </button>
-            <button
+            <button type="button"
               className="btn btn-sm btn-primary"
               onClick={handleDescargar}
               disabled={descargando || refsFiltradas.length === 0}
@@ -279,7 +281,7 @@ export default function Referencias({ asesores = [] }) {
                     <td style={{ padding: '8px 12px', fontWeight: 600 }}>{r.nombre_ref || <span style={{ opacity: 0.3 }}>—</span>}</td>
                     <td style={{ padding: '8px 12px' }}>
                       {r.parentesco
-                        ? <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.parentesco}</span>
+                        ? <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600, whiteSpace: 'nowrap' }}>{r.parentesco}</span>
                         : <span style={{ opacity: 0.3 }}>—</span>}
                     </td>
                     <td style={{ padding: '8px 12px', opacity: 0.65, maxWidth: 200 }}>{r.notas || <span style={{ opacity: 0.3 }}>—</span>}</td>
@@ -291,7 +293,7 @@ export default function Referencias({ asesores = [] }) {
         </div>
 
         {refsFiltradas.length > 0 && (
-          <div style={{ padding: '8px 20px', borderTop: bdr, fontSize: 11, opacity: 0.45 }}>
+          <div style={{ padding: '8px 20px', borderTop: bdr, fontSize: 12, opacity: 0.45 }}>
             {refsFiltradas.length} referencia{refsFiltradas.length !== 1 ? 's' : ''} mostrada{refsFiltradas.length !== 1 ? 's' : ''}
           </div>
         )}
@@ -310,7 +312,7 @@ export default function Referencias({ asesores = [] }) {
         </div>
 
         <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-          <input
+          <input aria-label="Campo"
             type="text"
             className="input"
             value={refCedula}
@@ -319,7 +321,7 @@ export default function Referencias({ asesores = [] }) {
             placeholder="Número de cédula / CI del cliente"
             style={{ flex: 1 }}
           />
-          <button className="btn btn-primary" onClick={handleBuscarRefs} disabled={refCargando || !refCedula.trim()}>
+          <button type="button" className="btn btn-primary" onClick={handleBuscarRefs} disabled={refCargando || !refCedula.trim()}>
             {refCargando
               ? <span className="material-symbols-outlined" style={{ fontSize: 18, animation: 'spin 1s linear infinite' }}>sync</span>
               : <span className="material-symbols-outlined" style={{ fontSize: 18 }}>search</span>}
@@ -340,7 +342,7 @@ export default function Referencias({ asesores = [] }) {
               <span style={{ fontWeight: 700, fontSize: 14 }}>{refContacto.nombre_deudor}</span>
               <span style={{ opacity: 0.5, fontSize: 12 }}>CI: {refContacto.cedula}</span>
               <span style={{
-                marginLeft: 'auto', fontSize: 11, padding: '2px 8px', borderRadius: 20,
+                marginLeft: 'auto', fontSize: 12, padding: '2px 8px', borderRadius: 20,
                 background: refResultados.length > 0 ? 'rgba(0,255,170,0.12)' : 'rgba(255,255,255,0.06)',
                 color: refResultados.length > 0 ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
                 fontWeight: 700,
@@ -359,7 +361,7 @@ export default function Referencias({ asesores = [] }) {
                   <thead>
                     <tr style={{ background: 'rgba(255,255,255,0.04)' }}>
                       {['Fecha', 'Asesor', 'Teléfono', 'Nombre Ref.', 'Parentesco', 'Observación'].map(h => (
-                        <th key={h} style={{ padding: '9px 12px', textAlign: 'left', opacity: 0.55, fontWeight: 600, fontSize: 11 }}>{h}</th>
+                        <th key={h} style={{ padding: '9px 12px', textAlign: 'left', opacity: 0.55, fontWeight: 600, fontSize: 12 }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
@@ -372,7 +374,7 @@ export default function Referencias({ asesores = [] }) {
                         <td style={{ padding: '9px 12px', fontWeight: 600 }}>{r.nombre_ref || <span style={{ opacity: 0.3 }}>—</span>}</td>
                         <td style={{ padding: '9px 12px' }}>
                           {r.parentesco
-                            ? <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>{r.parentesco}</span>
+                            ? <span style={{ fontSize: 12, padding: '2px 7px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>{r.parentesco}</span>
                             : <span style={{ opacity: 0.3 }}>—</span>}
                         </td>
                         <td style={{ padding: '9px 12px', opacity: 0.65 }}>{r.notas || <span style={{ opacity: 0.3 }}>—</span>}</td>

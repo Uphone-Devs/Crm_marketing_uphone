@@ -44,7 +44,7 @@
   border: 1.5px solid;
   border-radius: 8px;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: background var(--transition), opacity var(--transition), border-color var(--transition), color var(--transition);
   text-align: left;
 }
 .estado-btn:hover {

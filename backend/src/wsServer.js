@@ -49,7 +49,7 @@ function setupWsServer(httpServer) {
 
                         } else if (msg.rol === 'SUPERVISOR') {
                             supervisores.add(ws);
-                            console.log(`[WS] Supervisor conectado: ${clientInfo.nombre}`);
+                            console.log(`[WS] Jefe de Área conectado: ${clientInfo.nombre}`);
 
                             // Enviar snapshot inicial al supervisor
                             ws.send(JSON.stringify({
@@ -124,7 +124,7 @@ function setupWsServer(httpServer) {
         ws.on('close', () => {
             if (clientInfo.rol === 'SUPERVISOR') {
                 supervisores.delete(ws);
-                console.log(`[WS] Supervisor desconectado: ${clientInfo.nombre}`);
+                console.log(`[WS] Jefe de Área desconectado: ${clientInfo.nombre}`);
             } else if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
                 delete estadosAsesores[clientInfo.id];
                 console.log(`[WS] Asesor desconectado: ${clientInfo.nombre}`);

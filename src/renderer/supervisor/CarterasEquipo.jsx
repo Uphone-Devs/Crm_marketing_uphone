@@ -193,17 +193,17 @@ export default function CarterasEquipo({ callApi }) {
     <div className="widget-card" style={{ maxWidth: 1300, margin: '0 auto' }}>
       <div className="widget-header" style={{ marginBottom: 12 }}>
         <div>
-          <span className="text-label" style={{ opacity: 0.5 }}>SUPERVISOR · CARTERAS</span>
+          <span className="text-label" style={{ opacity: 0.5 }}>JEFE DE ÁREA · CARTERAS</span>
           <h3 className="widget-title" style={{ marginTop: 4 }}>Carteras del Equipo</h3>
-          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 11 }}>
+          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
             Clientes asignados a cada asesor con estado de gestión consolidado.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
+          <button type="button"
             onClick={() => setAgrupar(v => !v)}
             className="btn btn-outline btn-sm"
-            style={{ padding: '4px 10px', fontSize: 11, height: 'auto' }}
+            style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
             title={agrupar ? 'Mostrar tabla plana' : 'Agrupar por asesor'}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
@@ -211,7 +211,7 @@ export default function CarterasEquipo({ callApi }) {
             </span>
             {agrupar ? 'Plana' : 'Agrupar'}
           </button>
-          <button onClick={cargar} className="btn btn-outline btn-sm" style={{ padding: '4px 10px', fontSize: 11, height: 'auto' }}>
+          <button type="button" onClick={cargar} className="btn btn-outline btn-sm" style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>refresh</span>
             Recargar
           </button>
@@ -242,7 +242,7 @@ export default function CarterasEquipo({ callApi }) {
             position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
             fontSize: 14, opacity: 0.4, pointerEvents: 'none',
           }}>search</span>
-          <input
+          <input aria-label="Campo"
             type="text"
             value={filtroTexto}
             onChange={(e) => setFiltroTexto(e.target.value)}
@@ -250,19 +250,19 @@ export default function CarterasEquipo({ callApi }) {
             style={{
               width: '100%', padding: '6px 10px 6px 28px', fontSize: 12,
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Asesor</span>
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Asesor</span>
           <select
             value={filtroAsesor}
             onChange={(e) => setFiltroAsesor(e.target.value)}
             style={{
-              padding: '5px 8px', fontSize: 11,
+              padding: '5px 8px', fontSize: 12,
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           >
             <option value="">Todos</option>
@@ -270,14 +270,14 @@ export default function CarterasEquipo({ callApi }) {
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Estado</span>
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Estado</span>
           <select
             value={filtroEstado}
             onChange={(e) => setFiltroEstado(e.target.value)}
             style={{
-              padding: '5px 8px', fontSize: 11,
+              padding: '5px 8px', fontSize: 12,
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           >
             <option value="TODOS">Todos</option>
@@ -289,36 +289,36 @@ export default function CarterasEquipo({ callApi }) {
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Desde</span>
-          <input
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Desde</span>
+          <input aria-label="Ya pagó"
             type="date"
             value={filtroDesde}
             onChange={(e) => setFiltroDesde(e.target.value)}
             style={{
-              padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+              padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Hasta</span>
-          <input
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Hasta</span>
+          <input aria-label="Hasta"
             type="date"
             value={filtroHasta}
             onChange={(e) => setFiltroHasta(e.target.value)}
             style={{
-              padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+              padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           />
         </div>
         {(filtroTexto || filtroAsesor || filtroEstado !== 'TODOS' || filtroDesde || filtroHasta) && (
-          <button
+          <button type="button"
             onClick={() => { setFiltroTexto(''); setFiltroAsesor(''); setFiltroEstado('TODOS'); setFiltroDesde(''); setFiltroHasta(''); }}
             style={{
-              padding: '5px 10px', fontSize: 10, background: 'rgba(255,80,80,0.1)',
+              padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
               border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
               borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
             }}
@@ -362,9 +362,9 @@ export default function CarterasEquipo({ callApi }) {
                     <span className="material-symbols-outlined" style={{ fontSize: 16, transition: 'transform 0.2s', transform: isCol ? 'none' : 'rotate(90deg)' }}>chevron_right</span>
                     <span className="material-symbols-outlined" style={{ fontSize: 16, opacity: 0.6 }}>person</span>
                     <span style={{ fontSize: 13, fontWeight: 700 }}>{g.nombre}</span>
-                    <span style={{ fontSize: 10, opacity: 0.5 }}>{g.items.length} clientes</span>
+                    <span style={{ fontSize: 12, opacity: 0.5 }}>{g.items.length} clientes</span>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, fontSize: 9 }}>
+                  <div style={{ display: 'flex', gap: 6, fontSize: 12 }}>
                     {cntEst('PENDIENTE') > 0 && <Chip n={cntEst('PENDIENTE')} c="#ffb74d" l="P" t="Pendientes" />}
                     {cntEst('EN_INTENTOS') > 0 && <Chip n={cntEst('EN_INTENTOS')} c="#fbc02d" l="I" t="En intentos" />}
                     {cntEst('AGENDADO') > 0 && <Chip n={cntEst('AGENDADO')} c="#64b5f6" l="A" t="Agendados" />}
@@ -395,7 +395,7 @@ function Kpi({ label, value, color }) {
       flex: '1 1 120px', minWidth: 100, padding: '8px 12px', borderRadius: 8,
       background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
     }}>
-      <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2, color: color || 'inherit' }}>{value}</div>
     </div>
   );
@@ -405,7 +405,7 @@ function Chip({ n, c, l, t }) {
   return (
     <span title={t} style={{
       padding: '2px 7px', borderRadius: 99, fontWeight: 700,
-      background: `${c}22`, color: c, fontSize: 9,
+      background: `${c}22`, color: c, fontSize: 12,
     }}>
       {l}: {n}
     </span>
@@ -425,6 +425,33 @@ const parseMontoNum = (v) => {
   const n = parseFloat(norm);
   return isNaN(n) ? 0 : n;
 };
+
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
+const td = { padding: '8px 10px', verticalAlign: 'middle' };
+
+function SortHeader({ k, label, align = 'left', sortKey, sortDir, sortable, onSort }) {
+  const active = sortKey === k;
+  return (
+    <th
+      style={{ ...th, textAlign: align, cursor: sortable ? 'pointer' : 'default', userSelect: 'none' }}
+      onClick={sortable ? () => onSort(k) : undefined}
+      title={sortable ? `Ordenar por ${label}` : ''}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        {label}
+        {sortable && (
+          <span className="material-symbols-outlined" style={{
+            fontSize: 13,
+            opacity: active ? 0.95 : 0.25,
+            color: active ? 'var(--color-primary)' : 'inherit',
+          }}>
+            {active ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+          </span>
+        )}
+      </span>
+    </th>
+  );
+}
 
 function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
   // Modelo PREVIEW + COMMIT:
@@ -452,14 +479,15 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
     setDiasPopOpen(true);
   };
 
-  // Cuando el parent recarga (items cambia) → resetear estado local
-  React.useEffect(() => {
+  const [prevItems, setPrevItems] = React.useState(items);
+  if (items !== prevItems) {
+    setPrevItems(items);
     setSortKey(null);
     setSortDir('asc');
     setDragOrder(null);
     setDiasFiltro(new Set());
     setDiasPopOpen(false);
-  }, [items]);
+  }
 
   // (sin listener global — backdrop overlay maneja el outside-click)
 
@@ -523,8 +551,9 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
     if (dragOrder) {
       // Drag override: reordenar enriquecidosFiltrados según dragOrder, conservando filas no presentes al final
       const byId = new Map(enriquecidosFiltrados.map(r => [r.id, r]));
+      const dragSet = new Set(dragOrder);
       arr = dragOrder.map(id => byId.get(id)).filter(Boolean);
-      enriquecidosFiltrados.forEach(r => { if (!dragOrder.includes(r.id)) arr.push(r); });
+      enriquecidosFiltrados.forEach(r => { if (!dragSet.has(r.id)) arr.push(r); });
       return arr;
     }
     if (!sortKey) return enriquecidosFiltrados;
@@ -620,35 +649,13 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
   const limpiarFiltroDias = () => { setDiasFiltro(new Set()); setDragOrder(null); };
   const todosDiasFiltro = () => { setDiasFiltro(new Set(diasUnicos)); setDragOrder(null); };
 
-  const SortHeader = ({ k, label, align = 'left' }) => {
-    const active = sortKey === k;
-    return (
-      <th
-        style={{ ...th, textAlign: align, cursor: sortable ? 'pointer' : 'default', userSelect: 'none' }}
-        onClick={sortable ? () => handleHeaderClick(k) : undefined}
-        title={sortable ? `Ordenar por ${label}` : ''}
-      >
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-          {label}
-          {sortable && (
-            <span className="material-symbols-outlined" style={{
-              fontSize: 13,
-              opacity: active ? 0.95 : 0.25,
-              color: active ? 'var(--color-primary)' : 'inherit',
-            }}>
-              {active ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
-            </span>
-          )}
-        </span>
-      </th>
-    );
-  };
+  const headerProps = { sortKey, sortDir, sortable, onSort: handleHeaderClick };
 
   return (
     <div style={{ overflow: 'hidden' }}>
       {onReorder && (
         <div style={{
-          padding: '8px 12px', fontSize: 10, display: 'flex',
+          padding: '8px 12px', fontSize: 12, display: 'flex',
           alignItems: 'center', gap: 10, flexWrap: 'wrap',
           background: ordenSucio ? 'rgba(255,193,7,0.08)' : 'rgba(0,230,118,0.04)',
           borderBottom: '1px solid rgba(255,255,255,0.04)',
@@ -664,11 +671,11 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
           </span>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             {ordenSucio && (
-              <button
+              <button type="button"
                 onClick={restablecer}
                 disabled={aplicando}
                 style={{
-                  padding: '3px 9px', fontSize: 10, fontWeight: 700,
+                  padding: '3px 9px', fontSize: 12, fontWeight: 700,
                   background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
                   color: 'inherit', borderRadius: 5, cursor: aplicando ? 'wait' : 'pointer',
                   display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -678,14 +685,14 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                 Restablecer vista
               </button>
             )}
-            <button
+            <button type="button"
               onClick={aplicarOrden}
               disabled={!ordenSucio || aplicando || filasOrdenadas.length === 0}
               title={ordenSucio
                 ? 'Persiste el orden visible como cola de marcación de este asesor'
                 : 'Reordena por header o arrastrando filas para habilitar este botón'}
               style={{
-                padding: '3px 11px', fontSize: 10, fontWeight: 800, letterSpacing: 0.3,
+                padding: '3px 11px', fontSize: 12, fontWeight: 800, letterSpacing: 0.3,
                 background: ordenSucio ? 'rgba(0,230,118,0.18)' : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${ordenSucio ? 'rgba(0,230,118,0.45)' : 'rgba(255,255,255,0.10)'}`,
                 color: ordenSucio ? 'var(--color-primary)' : 'rgba(255,255,255,0.35)',
@@ -701,16 +708,16 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
           </div>
         </div>
       )}
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left' }}>
             {onReorder && <th style={{ ...th, textAlign: 'center', width: 60 }} title="Turno de marcación">Turno</th>}
-            <SortHeader k="estado" label="Estado" />
-            {mostrarAsesor && <SortHeader k="asesor" label="Asesor" />}
-            <SortHeader k="cliente" label="Cliente" />
-            <SortHeader k="cedula" label="Cédula" />
-            <SortHeader k="telefono" label="Teléfono" />
-            <SortHeader k="mora" label="Mora" align="right" />
+            <SortHeader k="estado" label="Estado" {...headerProps} />
+            {mostrarAsesor && <SortHeader k="asesor" label="Asesor" {...headerProps} />}
+            <SortHeader k="cliente" label="Cliente" {...headerProps} />
+            <SortHeader k="cedula" label="Cédula" {...headerProps} />
+            <SortHeader k="telefono" label="Teléfono" {...headerProps} />
+            <SortHeader k="mora" label="Mora" align="right" {...headerProps} />
             <th style={{ ...th, textAlign: 'center' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <span
@@ -739,7 +746,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                     border: `1px solid ${diasFiltro.size > 0 ? 'rgba(0,230,118,0.45)' : 'rgba(255,255,255,0.10)'}`,
                     color: diasFiltro.size > 0 ? 'var(--color-primary)' : 'rgba(255,255,255,0.55)',
                     padding: '2px 5px', borderRadius: 4, cursor: 'pointer',
-                    display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 9, fontWeight: 700,
+                    display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 12, fontWeight: 700,
                   }}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 12 }}>filter_alt</span>
@@ -747,14 +754,14 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                 </button>
               </span>
             </th>
-            <SortHeader k="gestiones" label="Gestiones" align="center" />
-            <SortHeader k="ultima_tip" label="Última tipif." />
-            <SortHeader k="asignado" label="Asignado" />
-            <SortHeader k="campana" label="Campaña" />
+            <SortHeader k="gestiones" label="Gestiones" align="center" {...headerProps} />
+            <SortHeader k="ultima_tip" label="Última tipif." {...headerProps} />
+            <SortHeader k="asignado" label="Asignado" {...headerProps} />
+            <SortHeader k="campana" label="Campaña" {...headerProps} />
           </tr>
         </thead>
         <tbody>
-          {filasOrdenadas.map(r => {
+          {filasOrdenadas.map((r, _i) => {
             const esYaPagoDeclarado = r.estado_marcacion === 'YA_PAGO' && r.validado_pago !== 1;
             const est = esYaPagoDeclarado
               ? ESTADO_STYLE_YA_PAGO_DECL
@@ -770,7 +777,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                         : undefined;
             return (
               <tr
-                key={`it-${r.id}`}
+                key={`it-${r.id ?? _i}`}
                 draggable={dragEnabled}
                 onDragStart={() => dragEnabled && setDragId(r.id)}
                 onDragOver={(e) => { if (dragEnabled && dragId != null) { e.preventDefault(); setOverId(r.id); } }}
@@ -796,21 +803,21 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                         border: esSiguiente ? '1px solid rgba(0,230,118,0.45)' : '1px solid rgba(255,255,255,0.08)',
                         display: 'inline-flex', alignItems: 'center', gap: 3,
                       }} title={esSiguiente ? 'Próximo cliente a marcar' : `Turno #${turno}`}>
-                        {dragEnabled && <span className="material-symbols-outlined" style={{ fontSize: 11, opacity: 0.6 }}>drag_indicator</span>}
+                        {dragEnabled && <span className="material-symbols-outlined" style={{ fontSize: 12, opacity: 0.6 }}>drag_indicator</span>}
                         {turno}
                       </span>
                     ) : (
-                      <span style={{ opacity: 0.3, fontSize: 11 }}>—</span>
+                      <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
                     )}
                   </td>
                 )}
                 <td style={td}>
                   <span style={{
-                    fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                    fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                     background: est.bg, color: est.fg, whiteSpace: 'nowrap',
                     display: 'inline-flex', alignItems: 'center', gap: 2,
                   }}>
-                    {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 10 }}>check_circle</span>}
+                    {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>}
                     {est.label}
                   </span>
                 </td>
@@ -826,18 +833,18 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                 </td>
                 <td style={{ ...td, textAlign: 'center' }}>
                   <span style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                    fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                     background: r.gestiones_count > 0 ? 'rgba(0,230,118,0.15)' : 'rgba(255,255,255,0.05)',
                     color: r.gestiones_count > 0 ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
                   }}>
                     {r.gestiones_count || 0}
                   </span>
                 </td>
-                <td style={{ ...td, fontSize: 10, opacity: 0.75 }}>
+                <td style={{ ...td, fontSize: 12, opacity: 0.75 }}>
                   {r.ultima_tipificacion || <span style={{ opacity: 0.3, fontStyle: 'italic' }}>sin gestiones</span>}
                 </td>
-                <td style={{ ...td, fontSize: 10 }}><span className="text-mono">{fmtFecha(r.fecha_asignacion)}</span></td>
-                <td style={{ ...td, fontSize: 10, opacity: 0.6 }}>{r.campana_nombre || '—'}</td>
+                <td style={{ ...td, fontSize: 12 }}><span className="text-mono">{fmtFecha(r.fecha_asignacion)}</span></td>
+                <td style={{ ...td, fontSize: 12, opacity: 0.6 }}>{r.campana_nombre || '—'}</td>
               </tr>
             );
           })}
@@ -866,7 +873,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
               padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4,
             }}>
-              <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.85 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
                 Promover tramo · {diasUnicos.length} valores
               </span>
               <div style={{ display: 'flex', gap: 3 }}>
@@ -874,7 +881,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                   type="button"
                   onClick={todosDiasFiltro}
                   style={{
-                    fontSize: 9, padding: '2px 6px', fontWeight: 700,
+                    fontSize: 12, padding: '2px 6px', fontWeight: 700,
                     background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
                     color: 'inherit', borderRadius: 4, cursor: 'pointer',
                   }}
@@ -884,7 +891,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                   onClick={limpiarFiltroDias}
                   disabled={diasFiltro.size === 0}
                   style={{
-                    fontSize: 9, padding: '2px 6px', fontWeight: 700,
+                    fontSize: 12, padding: '2px 6px', fontWeight: 700,
                     background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.2)',
                     color: '#ff8080', borderRadius: 4,
                     cursor: diasFiltro.size === 0 ? 'not-allowed' : 'pointer',
@@ -895,7 +902,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
             </div>
             <div style={{ overflowY: 'auto', flex: 1, padding: '4px 0' }}>
               {diasUnicos.length === 0 ? (
-                <div style={{ padding: '14px 12px', fontSize: 10, opacity: 0.5, textAlign: 'center' }}>
+                <div style={{ padding: '14px 12px', fontSize: 12, opacity: 0.5, textAlign: 'center' }}>
                   Sin datos
                 </div>
               ) : (
@@ -909,7 +916,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                       onClick={() => toggleDiaFiltro(d)}
                       style={{
                         display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '5px 10px', cursor: 'pointer', fontSize: 11,
+                        padding: '5px 10px', cursor: 'pointer', fontSize: 12,
                         background: checked ? 'rgba(0,230,118,0.08)' : 'transparent',
                         border: 'none', width: '100%', textAlign: 'left',
                         color: 'inherit', fontFamily: 'inherit',
@@ -922,7 +929,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         flexShrink: 0,
                       }}>
-                        {checked && <span className="material-symbols-outlined" style={{ fontSize: 11, color: '#000' }}>check</span>}
+                        {checked && <span className="material-symbols-outlined" style={{ fontSize: 12, color: '#000' }}>check</span>}
                       </span>
                       <span style={{
                         flex: 1, fontWeight: d > 0 ? 700 : 500,
@@ -930,7 +937,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
                       }}>
                         {d > 0 ? `${d} ${d === 1 ? 'día' : 'días'}` : 'Sin mora'}
                       </span>
-                      <span style={{ fontSize: 9, opacity: 0.5 }}>{cnt}</span>
+                      <span style={{ fontSize: 12, opacity: 0.5 }}>{cnt}</span>
                     </button>
                   );
                 })
@@ -942,6 +949,3 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
     </div>
   );
 }
-
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
-const td = { padding: '8px 10px', verticalAlign: 'middle' };

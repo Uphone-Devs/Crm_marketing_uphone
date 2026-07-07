@@ -21,7 +21,8 @@ export default function EstadoSelector({ asesorId, ws, onEstadoCambiado }) {
   const [estadoActual, setEstadoActual] = useState(ESTADOS[0]);
   const [segundos, setSegundos] = useState(0);
   const timerRef = useRef(null);
-  const startTimeRef = useRef(Date.now());
+  const startTimeRef = useRef(null);
+  if (startTimeRef.current === null) startTimeRef.current = Date.now();
 
   useEffect(() => {
     // Timer
@@ -84,7 +85,7 @@ export default function EstadoSelector({ asesorId, ws, onEstadoCambiado }) {
       {/* Grid de estados */}
       <div className="estado-grid">
         {ESTADOS.map(est => (
-          <button
+          <button type="button"
             key={est.id}
             id={`btn-estado-${est.id}`}
             className={`estado-btn ${estadoActual.id === est.id ? 'activo' : ''}`}

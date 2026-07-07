@@ -1,9 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { showToast } from '../shared/Toast';
 
+function safeArithmetic(expr) {
+  const s = expr.replace(/\s/g, '');
+  if (!/^[0-9+\-*/.()]+$/.test(s)) throw new Error('Invalid expr');
+  let i = 0;
+
+  function parseE() {
+    let v = parseT();
+    while (i < s.length && (s[i] === '+' || s[i] === '-')) {
+      const op = s[i++];
+      v = op === '+' ? v + parseT() : v - parseT();
+    }
+    return v;
+  }
+
+  function parseT() {
+    let v = parseF();
+    while (i < s.length && (s[i] === '*' || s[i] === '/')) {
+      const op = s[i++];
+      v = op === '*' ? v * parseF() : v / parseF();
+    }
+    return v;
+  }
+
+  function parseF() {
+    if (s[i] === '(') { i++; const v = parseE(); i++; return v; }
+    if (s[i] === '-') { i++; return -parseF(); }
+    const start = i;
+    while (i < s.length && /[0-9.]/.test(s[i])) i++;
+    return parseFloat(s.slice(start, i));
+  }
+
+  return parseE();
+}
+
 export default function IndicadoresPanel({ callApi, usuario }) {
-  const [mes, setMes] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
-  const [anio, setAnio] = useState(new Date().getFullYear().toString());
+  const [mes, setMes] = useState(() => (new Date().getMonth() + 1).toString().padStart(2, '0'));
+  const [anio, setAnio] = useState(() => new Date().getFullYear().toString());
   const [data, setData] = useState({ '0': {}, '1': {}, '2': {} });
   const [config, setConfig] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -86,11 +120,10 @@ export default function IndicadoresPanel({ callApi, usuario }) {
     try {
       let evalExpr = expression;
       config.forEach(c => {
-        const val = rowData[c.id] || 0;
+        const val = Number(rowData[c.id]) || 0;
         evalExpr = evalExpr.replaceAll(`{${c.id}}`, val);
       });
-      // eslint-disable-next-line no-new-func
-      const result = new Function('return ' + evalExpr)();
+      const result = safeArithmetic(evalExpr);
       if (!isFinite(result) || isNaN(result)) return '0.00';
       return result.toFixed(2);
     } catch (e) {
@@ -124,7 +157,7 @@ export default function IndicadoresPanel({ callApi, usuario }) {
           const val = rowData[col.id] || '';
           return (
             <td key={col.id} style={{ padding: '4px 4px' }}>
-              <input 
+              <input aria-label="Campo" 
                 type="number" 
                 className="input no-spinners" 
                 style={{ 
@@ -136,7 +169,6 @@ export default function IndicadoresPanel({ callApi, usuario }) {
                   color: 'white', 
                   border: '1px solid rgba(255,255,255,0.1)',
                   borderRadius: '5px',
-                  outline: 'none',
                   fontSize: '12px',
                   fontWeight: '500',
                   MozAppearance: 'textfield'
@@ -178,7 +210,7 @@ export default function IndicadoresPanel({ callApi, usuario }) {
           background: i % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent',
           transition: 'background .1s',
         }}>
-          <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 11, color: 'rgba(255,255,255,0.6)', whiteSpace:'nowrap' }}>
+          <td style={{ padding: '8px 12px', fontWeight: 600, fontSize: 12, color: 'rgba(255,255,255,0.6)', whiteSpace:'nowrap' }}>
             {`${String(i).padStart(2, '0')}/${mes}/${anio}`}
           </td>
           {tds}
@@ -203,23 +235,23 @@ export default function IndicadoresPanel({ callApi, usuario }) {
         {/* Segment header */}
         <div style={{ padding: '10px 16px', background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', gap:8 }}>
           <span className="material-symbols-outlined" style={{ fontSize:14, color:'var(--color-primary)' }}>table_chart</span>
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase' }}>
             {segmentName}
           </span>
         </div>
 
         {/* Scrollable area — vertical only, no horizontal bar per card */}
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed' }}>
             <thead>
               <tr style={{
                 position: 'sticky', top: 0, zIndex: 3,
                 background: 'rgba(12,12,20,1)',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
               }}>
-                <th style={{ padding: '8px 8px', textAlign:'left', fontSize: 9, fontWeight: 700, letterSpacing:'0.07em', color:'rgba(255,255,255,0.4)', textTransform:'uppercase', borderBottom:'1px solid rgba(255,255,255,0.08)', whiteSpace:'nowrap', width: 80 }}>Fecha</th>
+                <th style={{ padding: '8px 8px', textAlign:'left', fontSize: 12, fontWeight: 700, letterSpacing:'0.07em', color:'rgba(255,255,255,0.4)', textTransform:'uppercase', borderBottom:'1px solid rgba(255,255,255,0.08)', whiteSpace:'nowrap', width: 80 }}>Fecha</th>
                 {config.map(c => (
-                  <th key={c.id} style={{ padding: '8px 6px', textAlign: c.type === 'input' ? 'center' : 'center', fontSize: 9, fontWeight: 700, letterSpacing:'0.07em', color:'rgba(255,255,255,0.4)', textTransform:'uppercase', borderBottom:'1px solid rgba(255,255,255,0.08)', whiteSpace:'nowrap' }}>
+                  <th key={c.id} style={{ padding: '8px 6px', textAlign: c.type === 'input' ? 'center' : 'center', fontSize: 12, fontWeight: 700, letterSpacing:'0.07em', color:'rgba(255,255,255,0.4)', textTransform:'uppercase', borderBottom:'1px solid rgba(255,255,255,0.08)', whiteSpace:'nowrap' }}>
                     {c.name}
                   </th>
                 ))}
@@ -236,7 +268,7 @@ export default function IndicadoresPanel({ callApi, usuario }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <tbody>
               <tr>
-                <td style={{ padding: '10px 12px', fontWeight: 800, fontSize: 10, letterSpacing:'0.1em', color:'var(--color-primary)', textTransform:'uppercase', whiteSpace:'nowrap', textAlign:'left' }}>
+                <td style={{ padding: '10px 12px', fontWeight: 800, fontSize: 12, letterSpacing:'0.1em', color:'var(--color-primary)', textTransform:'uppercase', whiteSpace:'nowrap', textAlign:'left' }}>
                   TOTALES
                 </td>
                 {totalTds}
@@ -281,7 +313,7 @@ export default function IndicadoresPanel({ callApi, usuario }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingRight: 24, borderRight: '1px solid rgba(255,255,255,0.1)' }}>
           <span className="material-symbols-outlined" style={{ color: 'var(--color-primary)', fontSize: 28 }}>public</span>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Todos los Segmentos</div>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Todos los Segmentos</div>
             <div style={{ color: 'var(--color-primary)', fontSize: 14, fontWeight: 800, textTransform: 'uppercase' }}>Resumen Global</div>
           </div>
         </div>
@@ -297,7 +329,7 @@ export default function IndicadoresPanel({ callApi, usuario }) {
             }
             return (
               <div key={col.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 700, letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{col.name.toUpperCase()}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 700, letterSpacing: '0.08em', whiteSpace: 'nowrap' }}>{col.name.toUpperCase()}</div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: isFormula ? 'var(--color-primary)' : 'white', whiteSpace: 'nowrap' }}>
                   {val}
                 </div>
@@ -316,7 +348,7 @@ export default function IndicadoresPanel({ callApi, usuario }) {
       <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', gap: 12 }}>
         <div>
           <h2 className="text-headline-sm" style={{ margin: 0, color: 'var(--color-primary)', fontSize: 15 }}>Mis Indicadores</h2>
-          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 11, opacity: 0.6 }}>Ingresa tus métricas diarias de gestión y recaudo</p>
+          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12, opacity: 0.6 }}>Ingresa tus métricas diarias de gestión y recaudo</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           <select className="input" value={mes} onChange={e => setMes(e.target.value)} style={{ width: 120, fontSize: 12 }}>
@@ -338,10 +370,10 @@ export default function IndicadoresPanel({ callApi, usuario }) {
             <option value="2026">2026</option>
             <option value="2027">2027</option>
           </select>
-          <button className="btn btn-icon" onClick={loadConfigAndData} title="Actualizar datos" disabled={loading}>
+          <button type="button" className="btn btn-icon" onClick={loadConfigAndData} title="Actualizar datos" disabled={loading}>
             <span className={`material-symbols-outlined ${loading ? 'spin' : ''}`}>refresh</span>
           </button>
-          <button className="btn btn-primary" onClick={saveAll} disabled={saving} style={{ padding: '0 16px', fontSize: 12 }}>
+          <button type="button" className="btn btn-primary" onClick={saveAll} disabled={saving} style={{ padding: '0 16px', fontSize: 12 }}>
             <span className="material-symbols-outlined" style={{ marginRight: 6, fontSize: 16 }}>save</span>
             {saving ? 'Guardando...' : 'Guardar'}
           </button>

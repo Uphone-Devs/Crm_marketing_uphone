@@ -14,7 +14,8 @@
 require('dotenv').config();
 
 const { app, BrowserWindow } = require('electron');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
+const path = require('path');
 const { initDatabase, closeDb } = require('./database/db');
 const { registerIpcHandlers } = require('./ipcHandlers');
 const { initApiServer, stopApiServer } = require('./apiServer');
@@ -29,6 +30,39 @@ const { createLoginWindow } = require('./windowManager');
  * puedan conectarse a esta PC cuando actúa como Supervisor.
  * Best-effort: si no hay privilegios de admin, falla silenciosamente.
  */
+// ── Backend PostgreSQL auto-start ────────────────────────────────
+let backendProcess = null;
+
+function startBackend() {
+  const backendDir   = path.join(__dirname, '../../backend');
+  const backendEntry = path.join(backendDir, 'src/index.js');
+
+  backendProcess = spawn('node', [backendEntry], {
+    cwd: backendDir,
+    env: { ...process.env },
+    stdio: 'inherit',
+  });
+
+  backendProcess.on('error', (err) => {
+    console.error('[BACKEND] Error al iniciar proceso:', err.message);
+  });
+
+  backendProcess.on('close', (code) => {
+    console.log(`[BACKEND] Proceso terminado (código ${code})`);
+    backendProcess = null;
+  });
+
+  console.log('[BACKEND] Iniciado — PID:', backendProcess.pid);
+}
+
+function stopBackend() {
+  if (backendProcess) {
+    backendProcess.kill('SIGTERM');
+    backendProcess = null;
+    console.log('[BACKEND] Proceso detenido');
+  }
+}
+
 function ensureFirewallRule() {
   if (process.platform !== 'win32') return;
   const ruleName = 'Terminal UPHONE Puerto 3001';
@@ -76,10 +110,13 @@ app.whenReady().then(() => {
   registerIpcHandlers();
   console.log('[APP] [OK] IPC handlers registrados');
 
-  // ── 3. Servidor SQLite LOCAL deshabilitado — todo va a PostgreSQL backend ──
-  // initApiServer(3001) comentado: el backend PostgreSQL (backend/) ocupa el puerto 3001.
-  // Para arrancar el backend: cd backend && npm run dev
-  console.log('[APP] [INFO] Modo PostgreSQL: servidor SQLite local deshabilitado.');
+  // ── 3. Backend PostgreSQL — arranca automáticamente ──────────
+  try {
+    startBackend();
+    console.log('[APP] [OK] Backend PostgreSQL arrancando...');
+  } catch (err) {
+    console.error('[APP] [WARN] No se pudo iniciar backend:', err.message);
+  }
 
   // ── 4. Ventana de inicio (Login) ─────────────────────
   createLoginWindow();
@@ -94,6 +131,7 @@ app.whenReady().then(() => {
 // ── Limpieza al cerrar ────────────────────────────────────
 app.on('will-quit', () => {
   console.log('[APP] Cerrando — limpiando procesos...');
+  stopBackend();
   stopScheduler();
   stopAdbProcesses();
   stopWebSocketServer();

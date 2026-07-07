@@ -258,6 +258,42 @@ function initDatabase() {
     console.warn('[DB] M-007 Error:', err.message);
   }
 
+  // M-008: Tabla segmentos_config y defaults
+  try {
+    const hasSegmentos = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='segmentos_config'").get();
+    if (!hasSegmentos) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS segmentos_config (
+          id        INTEGER PRIMARY KEY AUTOINCREMENT,
+          clave     TEXT UNIQUE NOT NULL,
+          etiqueta  TEXT NOT NULL,
+          color     TEXT NOT NULL,
+          icono     TEXT DEFAULT 'label',
+          creado_en TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+      `);
+      console.log('[DB] Tabla segmentos_config creada');
+    }
+    
+    // Seed
+    const countSeg = db.prepare("SELECT COUNT(*) as c FROM segmentos_config").get().c;
+    if (countSeg === 0) {
+      db.exec(`
+        INSERT INTO segmentos_config (clave, etiqueta, color, icono) VALUES 
+        ('TODOS', 'Todos los asesores', '#00e676', 'groups'),
+        ('MENSUALES', 'Campaña Mensual', '#29b6f6', 'calendar_month'),
+        ('QUINCENALES', 'Campaña Quincenal', '#ce93d8', 'event_repeat'),
+        ('TRAMO_0', 'Tramo 0 · 0 días', '#90a4ae', 'circle'),
+        ('TRAMO_1', 'Tramo 1 · 1-30 días', '#ffd54f', 'trending_up'),
+        ('TRAMO_2', 'Tramo 2 · 31-60 días', '#ffb74d', 'warning'),
+        ('PLAZO', 'Plazo · +60 días', '#ef5350', 'priority_high');
+      `);
+      console.log('[DB] Seed de segmentos_config completado');
+    }
+  } catch (err) {
+    console.warn('[DB] Error en segmentos_config:', err.message);
+  }
+
   // M-008: Actualización de tipificaciones requeridas (Limpieza y sincronización)
   try {
     const tipificacionesAceptadas = [
@@ -516,9 +552,10 @@ function initDatabase() {
       ['snapshot_telefono', 'TEXT'],
       ['snapshot_empresa',  'TEXT'],
     ];
+    const colsCdrSet = new Set(colsCdr);
     let added = false;
     for (const [col, type] of snapshots) {
-      if (!colsCdr.includes(col)) {
+      if (!colsCdrSet.has(col)) {
         db.prepare(`ALTER TABLE cdrs ADD COLUMN ${col} ${type}`).run();
         added = true;
       }
@@ -1150,6 +1187,37 @@ function initDatabase() {
     }
   } catch (err) {
     console.warn('[DB] M-041 Error:', err.message);
+  }
+
+  // MIGRACIÓN: Columna activo en mensajes_broadcast (soft-delete de mensajes)
+  try {
+    const colsMB = db.prepare("PRAGMA table_info(mensajes_broadcast)").all().map(c => c.name);
+    if (!colsMB.includes('activo')) {
+      db.prepare("ALTER TABLE mensajes_broadcast ADD COLUMN activo INTEGER NOT NULL DEFAULT 1").run();
+      console.log('[DB] Migración: columna activo añadida a mensajes_broadcast');
+    }
+  } catch (err) {
+    console.warn('[DB] Migración mensajes_broadcast.activo:', err.message);
+  }
+
+  // MIGRACIÓN: Tabla segmentos_config (tramos dinámicos de mensajes)
+  try {
+    const tblSeg = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='segmentos_config'").get();
+    if (!tblSeg) {
+      db.exec(`
+        CREATE TABLE segmentos_config (
+          id        INTEGER PRIMARY KEY AUTOINCREMENT,
+          clave     TEXT UNIQUE NOT NULL,
+          etiqueta  TEXT NOT NULL,
+          color     TEXT NOT NULL,
+          icono     TEXT DEFAULT 'label',
+          creado_en TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+      `);
+      console.log('[DB] Migración: tabla segmentos_config creada');
+    }
+  } catch (err) {
+    console.warn('[DB] Migración segmentos_config:', err.message);
   }
 
   // Seed si la tabla usuarios está vacía
