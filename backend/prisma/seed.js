@@ -34,14 +34,26 @@ async function main() {
 
   // ── 2. Tipificaciones base ────────────────────────────────
   const tipificaciones = [
-    { codigo: 'CON_PAGO',    descripcion: 'Contactado - Promesa de pago',           requiereAgd: true },
+    { codigo: 'CON_PAGO',    descripcion: 'Contactado - Promesa de pago',           requiereAgd: true  },
     { codigo: 'CON_SIN',     descripcion: 'Contactado - Sin compromiso',            requiereAgd: false },
     { codigo: 'NO_CON',      descripcion: 'No contactado - No contesta',            requiereAgd: false },
     { codigo: 'NO_CON_OCU',  descripcion: 'No contactado - Ocupado',                requiereAgd: false },
     { codigo: 'INCORRECTO',  descripcion: 'Número incorrecto o fuera de servicio',  requiereAgd: false },
     { codigo: 'BUZON',       descripcion: 'Ingresó a buzón de voz',                 requiereAgd: false },
     { codigo: 'COLGADO',     descripcion: 'Llamada colgada antes de contacto',      requiereAgd: false },
-    { codigo: 'NEGOCIACION', descripcion: 'En negociación activa',                  requiereAgd: true },
+    { codigo: 'NEGOCIACION', descripcion: 'En negociación activa',                  requiereAgd: true  },
+    { codigo: 'PMP',         descripcion: 'Promesa de Pago',                        requiereAgd: true  },
+    { codigo: 'CUE',         descripcion: 'Cuenta inexistente',                     requiereAgd: false },
+    { codigo: 'NC',          descripcion: 'No contactado',                          requiereAgd: false },
+    { codigo: 'REF',         descripcion: 'Refutación',                             requiereAgd: false },
+    { codigo: 'EQ',          descripcion: 'Equivocado',                             requiereAgd: false },
+    { codigo: 'SUS',         descripcion: 'Suspendido',                             requiereAgd: false },
+    { codigo: 'NEG',         descripcion: 'Negativa total',                         requiereAgd: false },
+    { codigo: 'TER',         descripcion: 'Tercero',                                requiereAgd: false },
+    { codigo: 'VOL_CALL',    descripcion: 'Voluntad de llamar',                     requiereAgd: true  },
+    { codigo: 'PAGO_REAL',   descripcion: 'Pago real confirmado',                   requiereAgd: false },
+    { codigo: 'AB_PARC',     descripcion: 'Abono parcial',                          requiereAgd: false },
+    { codigo: 'PEND_COMP',   descripcion: 'Compromiso pendiente',                   requiereAgd: false },
   ];
 
   await Promise.all(tipificaciones.map(tipData =>
