@@ -34,11 +34,13 @@ function formatTimer(seg) {
 function Kpi({ label, value, color }) {
   return (
     <div style={{
-      flex: '1 1 130px', minWidth: 110, padding: '8px 12px', borderRadius: 8,
-      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+      display: 'flex', alignItems: 'center', gap: 6,
+      padding: '4px 10px', borderRadius: 20,
+      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)',
+      whiteSpace: 'nowrap',
     }}>
-      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2, color: color || 'inherit' }}>{value}</div>
+      <span style={{ fontSize: 10, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 800, color: color || 'inherit' }}>{value}</span>
     </div>
   );
 }
@@ -203,6 +205,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraDesde, setCarteraDesde] = useState('');
   const [carteraHasta, setCarteraHasta] = useState('');
   const [contactoInfoPopup, setContactoInfoPopup] = useState(null);
+  const [carteraLlamada, setCarteraLlamada] = useState(null);
+  const [tipifMarcaLlamada, setTipifMarcaLlamada] = useState(false);
 
   // ── Refs para estabilidad de red (Backbone de Comunicación) ──
   const wsRef = useRef(null);
@@ -603,21 +607,47 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario.id, contactoActual, cdrId, grabando, enLlamada, dialingMode, intentosConfig, enviarMetricasWS, callApi]);
 
-  const handleAdbMarcar = useCallback(async (telefono) => {
+  const handleAdbMarcar = useCallback(async (contacto) => {
+    const telefono = typeof contacto === 'string' ? contacto : contacto?.telefono;
     if (!telefono) return;
     let tel = telefono;
     if (!tel.startsWith('0')) tel = '0' + tel;
     try {
       const res = await window.api.invoke('adb:dial', tel);
       if (res.success) {
-        showToast(`Marcando ${tel} vía ADB...`, 'success');
+        setMarcaciones(prev => prev + 1);
+        let cdrIdLocal = null;
+        if (typeof contacto === 'object' && contacto?.id) {
+          try {
+            const r = await callApi('db:insertCdr', {
+              contactoId: contacto.id,
+              usuarioId: usuario.id,
+              timestamp_inicio: nowLocalISO(),
+            });
+            cdrIdLocal = r?.id ?? null;
+          } catch { /* no bloquea */ }
+        }
+        setCarteraLlamada({ contacto: typeof contacto === 'object' ? contacto : { telefono }, cdrId: cdrIdLocal });
+        showToast(`Marcando ${tel}...`, 'success');
+        enviarMetricasWS();
       } else {
         showToast('Sin conexión ADB — verifica depuración USB', 'warning');
       }
     } catch {
       showToast('Error ADB — verifica depuración USB', 'error');
     }
-  }, [showToast]);
+  }, [showToast, callApi, usuario.id, enviarMetricasWS]);
+
+  const handleCarteraHangup = useCallback(async () => {
+    try { await window.api.invoke('adb:hangup'); } catch { /* ignorar */ }
+    if (carteraLlamada) {
+      setContactoActual(carteraLlamada.contacto);
+      setCdrId(carteraLlamada.cdrId);
+      setCarteraLlamada(null);
+      setTipifMarcaLlamada(false); // marcación ya fue contada al marcar
+      setShowTipificacion(true);
+    }
+  }, [carteraLlamada]);
 
   async function handleHangup() {
     try {
@@ -1453,9 +1483,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }
 
-  async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado, _contacto }) {
+  async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado, _contacto, _marcacion = false }) {
     // _contacto override evita race condition cuando se llama sin abrir diálogo
     const contactoSnapshot = _contacto || contactoActual;
+    if (_marcacion) setMarcaciones(prev => prev + 1);
 
     try {
       // Resolver CDR activo. Si no existe (fallo silencioso en insertCdr durante el dial
@@ -2142,14 +2173,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
               })()}
             </div>
           ) : activePage === 'cartera' ? (
-            <div className="widget-card" style={{ maxWidth: 1100, margin: '0 auto' }}>
-              <div className="widget-header" style={{ marginBottom: 12 }}>
+            <div className="widget-card" style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 144px)', overflow: 'hidden' }}>
+              <div style={{ flexShrink: 0, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 6 }}>
+              <div className="widget-header" style={{ marginBottom: 8 }}>
                 <div>
-                  <span className="text-label" style={{ opacity: 0.5 }}>ASESOR · CARTERA</span>
-                  <h3 className="widget-title" style={{ marginTop: 4 }}>Cartera Asignada</h3>
-                  <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
-                    Clientes asignados por el Jefe de Area. Selecciona uno para gestionarlo.
-                  </p>
+                  <h3 className="widget-title">Cartera Asignada</h3>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span className="text-label-sm" style={{ color: 'var(--color-primary)' }}>
@@ -2183,7 +2211,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const agendados = cnt('AGENDADO');
                 const yaPago = cnt('YA_PAGO');
                 return (
-                  <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
                     <Kpi label="Total" value={total} color="var(--color-primary)" />
                     <Kpi label="Pendientes" value={pendientes} color="#ffb74d" />
                     <Kpi label="En intentos" value={enIntentos} color="#fbc02d" />
@@ -2210,7 +2238,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   { key: 'gestionados', label: `Gestionados ${gestionados}`, isGestionado: true }
                 ];
                 return (
-                  <div className="cartera-filters" style={{ marginBottom: 12, gap: 8 }}>
+                  <div className="cartera-filters" style={{ marginBottom: 8, gap: 6 }}>
                     {chips.map(f => (
                       <button type="button" 
                         key={f.key} 
@@ -2228,7 +2256,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               {/* ── Filtros ── */}
               <div style={{
                 display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
-                padding: '10px 12px', marginBottom: 12, borderRadius: 8,
+                padding: '7px 10px', marginBottom: 0, borderRadius: 8,
                 background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
               }}>
                 <div style={{ flex: '1 1 220px', position: 'relative' }}>
@@ -2357,8 +2385,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   </button>
                 </div>
               </div>
+              </div>
 
               {/* ── Tabla ── */}
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
               {(() => {
                 const ESTADO_STYLE = {
                   PENDIENTE:   { bg: 'rgba(255,152,0,0.15)',  fg: '#ffb74d', label: 'Pendiente'   },
@@ -2429,10 +2459,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   if (enCola) turnoMap.set(c.id, ++__t);
                 });
                 return (
-                  <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                  <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'clip' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                      <thead>
-                        <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
+                        <tr style={{ background: 'var(--color-surface-container)', textAlign: 'left' }}>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Turno de marcación">Turno</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Estado</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cliente</th>
@@ -2602,9 +2632,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       };
                                       const code = codeMap[val] || val;
                                       if (code === 'PMP') {
-                                        // PMP: abre diálogo para fecha/monto/notas
+                                        // PMP: abre diálogo — marcación se contará al guardar
                                         setContactoActual(c);
                                         setTipifInicial('PMP');
+                                        setTipifMarcaLlamada(true);
                                         setShowTipificacion(true);
                                       } else {
                                         // Resto: guardar directo sin diálogo
@@ -2613,6 +2644,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                           // Código no en cache — abrir diálogo como fallback
                                           setContactoActual(c);
                                           setTipifInicial(code);
+                                          setTipifMarcaLlamada(true);
                                           setShowTipificacion(true);
                                           return;
                                         }
@@ -2623,6 +2655,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                           agendamiento: null,
                                           montoAcordado: null,
                                           _contacto: c,
+                                          _marcacion: true,
                                         });
                                       }
                                     }}
@@ -2649,7 +2682,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   </select>
                                   {/* Botón PMP */}
                                   <button type="button"
-                                    onClick={() => { setContactoActual(c); setTipifInicial('PMP'); setShowTipificacion(true); }}
+                                    onClick={() => { setContactoActual(c); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true); }}
                                     style={{
                                       width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6, fontWeight: 700,
                                       background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
@@ -2668,7 +2701,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   <button
                                     type="button"
                                     title={`Marcar ${c.telefono} vía ADB${isDeviceConnected ? '' : ' (verificar depuración USB)'}`}
-                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c.telefono); }}
+                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c); }}
                                     style={{
                                       width: 32, height: 32, borderRadius: 8,
                                       border: '1px solid rgba(100,181,246,0.35)',
@@ -2697,6 +2730,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   </div>
                 );
               })()}
+              </div>
             </div>) : activePage === 'campanas_wsp' || activePage === 'campanas_rcs' || activePage === 'campanas_correo' ? (
               <div style={{ padding: '24px', maxWidth: 1100, margin: '0 auto' }}>
                 {(() => {
@@ -3681,8 +3715,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
           open={showTipificacion}
           mode="modal"
           tipifInicial={tipifInicial}
-          onSave={handleSaveTipificacion}
-          onCancel={() => { setShowTipificacion(false); setTipifInicial(null); }}
+          onSave={(data) => {
+            handleSaveTipificacion({ ...data, _marcacion: tipifMarcaLlamada });
+            setTipifMarcaLlamada(false);
+          }}
+          onCancel={() => { setShowTipificacion(false); setTipifInicial(null); setTipifMarcaLlamada(false); }}
           contacto={contactoActual}
           asesorNombre={usuario.nombre}
           asesorId={usuario.id}
@@ -3833,6 +3870,48 @@ export default function AsesorPanel({ usuario, onLogout }) {
               <button type="button" className="btn btn-primary" style={{ minWidth: 100 }} onClick={() => setHistorialContactoPopup(null)}>Cerrar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Panel flotante "En llamada" ADB desde cartera ── */}
+      {carteraLlamada && (
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 6000,
+          background: 'var(--color-surface-container)',
+          border: '1px solid rgba(0,230,118,0.35)',
+          borderRadius: 14, padding: '14px 18px',
+          minWidth: 260, maxWidth: 320,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: '50%', background: '#00e676',
+              boxShadow: '0 0 6px #00e676', animation: 'pulse 1.2s ease-in-out infinite',
+            }} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#00e676', letterSpacing: '0.08em' }}>EN LLAMADA</span>
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+              {carteraLlamada.contacto?.nombre_deudor || 'Cliente'}
+            </div>
+            <div style={{ fontSize: 11, opacity: 0.5, fontFamily: 'monospace', marginTop: 2 }}>
+              {carteraLlamada.contacto?.telefono}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCarteraHangup}
+            style={{
+              padding: '8px 0', borderRadius: 8, border: 'none',
+              background: '#f44336', color: '#fff',
+              fontWeight: 700, fontSize: 12, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>call_end</span>
+            COLGAR Y TIPIFICAR
+          </button>
         </div>
       )}
 
