@@ -98,7 +98,7 @@ export default function HistoryPage() {
           </div>
           <div className="filter-group">
             <label className="text-label-sm">Fecha</label>
-            <input 
+            <input aria-label="Fecha" 
               type="date" 
               name="fecha" 
               className="input-sm" 
@@ -106,7 +106,7 @@ export default function HistoryPage() {
               onChange={handleFiltroChange} 
             />
           </div>
-          <button className="btn btn-outline btn-sm" onClick={fetchHistory} title="Refrescar">
+          <button type="button" className="btn btn-outline btn-sm" onClick={fetchHistory} title="Refrescar">
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
           </button>
         </div>

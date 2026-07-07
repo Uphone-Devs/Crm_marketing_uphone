@@ -9,6 +9,49 @@ const { authMiddleware, requireRole } = require('../middleware/auth.middleware')
 const router = Router();
 router.use(authMiddleware);
 
+// POST /api/cdrs — Crear CDR (al iniciar gestión)
+router.post('/', async (req, res, next) => {
+  try {
+    const body = req.body;
+    const contactoId = body.contactoId || body.contacto_id;
+    const usuarioId  = body.usuarioId  || body.usuario_id || req.user.id;
+    const tsInicio   = body.timestampInicio || body.timestamp_inicio || new Date().toISOString();
+
+    const cdr = await db.cdr.create({
+      data: {
+        contactoId:     parseInt(contactoId),
+        usuarioId:      parseInt(usuarioId),
+        timestampInicio: new Date(tsInicio),
+        canal:          'llamada',
+      },
+    });
+    res.json({ id: cdr.id, ...cdr });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/cdrs/:id — Actualizar CDR con tipificación y resultado
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const body = req.body;
+    const data = {};
+    if (body.tipificacionId != null) data.tipificacionId = parseInt(body.tipificacionId);
+    if (body.notas         != null) data.notas          = body.notas;
+    if (body.resultado     != null) data.resultado      = body.resultado;
+    if (body.urlGrabacion  != null) data.urlGrabacion   = body.urlGrabacion;
+    if (body.montoAcordado != null) data.montoAcordado  = Number(body.montoAcordado);
+    if (body.timestampFin  || body.timestamp_fin)
+      data.timestampFin = new Date(body.timestampFin || body.timestamp_fin);
+    if (body.duracionSeg   != null) data.duracionSeg    = parseInt(body.duracionSeg);
+    if (body.snapshotNombre != null) data.snapshotNombre = body.snapshotNombre;
+    if (body.snapshotCedula != null) data.snapshotCedula = body.snapshotCedula;
+    if (body.snapshotTelefono != null) data.snapshotTelefono = body.snapshotTelefono;
+    if (body.snapshotEmpresa != null) data.snapshotEmpresa = body.snapshotEmpresa;
+
+    const updated = await db.cdr.update({ where: { id: parseInt(req.params.id) }, data });
+    res.json(updated);
+  } catch (err) { next(err); }
+});
+
 // GET /api/cdrs — Listar CDRs con filtros
 router.get('/', async (req, res, next) => {
   try {

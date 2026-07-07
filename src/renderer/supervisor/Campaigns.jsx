@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { showToast } from '../shared/Toast';
 import ExcelJS from 'exceljs';
+const _EMPTY_ARR = [];
+const _EMPTY_OBJ = {};
 
 const SIN_GESTOR = '__SIN_GESTOR__';
 
@@ -12,7 +14,7 @@ function buildApiBase() {
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 
-async function vmFetch(apiBase, token, path, options = {}) {
+async function vmFetch(apiBase, token, path, options = _EMPTY_OBJ) {
   const res = await fetch(`${apiBase}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) }
@@ -22,7 +24,126 @@ async function vmFetch(apiBase, token, path, options = {}) {
   return data;
 }
 
-export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS = {} }) {
+async function parsearXLSX(f) {
+  const buffer = await f.arrayBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const ws = workbook.worksheets[0];
+  const row1 = ws.getRow(1);
+  if (!row1?.values) throw new Error('El archivo no tiene datos en la fila 1 (cabecera).');
+
+  const rawHeaders = Array.isArray(row1.values) ? row1.values : Object.values(row1.values);
+  const headers = rawHeaders.map(h => (h?.toString() || '').trim().toUpperCase());
+
+  const findIdx = (patterns) =>
+    headers.findIndex(h => h && patterns.some(p => h.includes(p)));
+  const findIdxExact = (patterns) =>
+    headers.findIndex(h => h && patterns.some(p => h === p));
+
+  const telIdx    = findIdx(['TELEFONO', 'CELULAR', 'MOVIL', 'CONTACTO']);
+  const nomIdx    = findIdx(['NOMBRE', 'NOMBRES', 'CLIENTE']);
+  const apeIdx    = findIdx(['APELLIDO', 'APELLIDOS']);
+  const cedIdx    = findIdx(['CEDULA', 'IDENTIFICACION', 'DNI', 'CÉDULA']);
+  const montoIdx  = (() => {
+    const idx = findIdx(['VALOR EN MORA', 'MONTO POR COBRAR', 'DEUDA TOTAL', 'MONTO', 'VALOR', 'DEUDA', 'SALDO', 'TOTAL']);
+    return idx !== -1 ? idx : findIdxExact(['MORA']);
+  })();
+  const prodIdx   = findIdx(['PRODUCTO', 'GRUPO', 'CARTERA', 'CAMPAÑA', 'LOT']);
+  const gestorIdx = findIdx(['GESTOR', 'AGENTE', 'COBRADOR']);
+
+  const contactos = [];
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const getVal = (idx) => {
+      if (idx <= 0) return '';
+      const cell = row.getCell(idx);
+      const v = cell.value;
+      if (v == null) return '';
+      if (typeof v === 'object' && 'result' in v) return String(v.result ?? '').trim();
+      if (typeof v === 'object' && 'richText' in v) return v.richText.map(x => x.text).join('').trim();
+      return String(v).trim();
+    };
+    const telefono = getVal(telIdx).replace(/\D/g, '');
+    if (!telefono) return;
+
+    const metadata = {};
+    headers.forEach((header, index) => {
+      if (header && index > 0) metadata[header] = getVal(index);
+    });
+
+    contactos.push({
+      telefono,
+      cedula:   getVal(cedIdx),
+      nombre:   `${getVal(nomIdx)} ${getVal(apeIdx)}`.trim() || 'Cliente Sin Nombre',
+      monto:    parseFloat(getVal(montoIdx).replace(/[^0-9.]/g, '')) || 0,
+      producto: getVal(prodIdx) || 'General',
+      gestor:   gestorIdx > 0 ? getVal(gestorIdx) : '',
+      metadata,
+    });
+  });
+
+  return { contactos, hayGestor: gestorIdx > 0 };
+}
+
+async function parsearCSV(texto) {
+  const lineas = texto.split('\n').filter(l => l.trim());
+  if (lineas.length < 2) return { contactos: [], hayGestor: false };
+
+  const headers = lineas[0].split(',').map(h => h.trim().toUpperCase());
+  const findIdx = (patterns) =>
+    headers.findIndex(h => patterns.some(p => h.includes(p)));
+
+  const telIdx    = findIdx(['TELEFONO', 'CELULAR']);
+  const nomIdx    = findIdx(['NOMBRE']);
+  const apeIdx    = findIdx(['APELLIDO']);
+  const cedIdx    = findIdx(['CEDULA']);
+  const montoIdx  = findIdx(['VALOR EN MORA', 'MONTO POR COBRAR', 'DEUDA TOTAL', 'MONTO', 'VALOR']);
+  const prodIdx   = findIdx(['PRODUCTO', 'GRUPO']);
+  const gestorIdx = findIdx(['GESTOR', 'AGENTE', 'COBRADOR']);
+
+  const contactos = lineas.slice(1).reduce((acc, linea) => {
+    const cols = linea.split(',');
+    const telefono = (cols[telIdx] || '').replace(/"/g, '').replace(/\D/g, '').trim();
+    if (!telefono) return acc;
+
+    const metadata = {};
+    headers.forEach((h, i) => {
+      if (h) metadata[h] = (cols[i] || '').replace(/"/g, '').trim();
+    });
+
+    acc.push({
+      telefono,
+      cedula:   (cols[cedIdx]   || '').replace(/"/g, '').trim(),
+      nombre:   `${cols[nomIdx] || ''} ${cols[apeIdx] || ''}`.replace(/"/g, '').trim() || 'Cliente CSV',
+      monto:    parseFloat((cols[montoIdx] || '').replace(/[^0-9.]/g, '')) || 0,
+      producto: prodIdx !== -1 ? (cols[prodIdx] || '').replace(/"/g, '').trim() : 'Base CSV',
+      gestor:   gestorIdx !== -1 ? (cols[gestorIdx] || '').replace(/"/g, '').trim() : '',
+      metadata,
+    });
+    return acc;
+  }, []);
+
+  return { contactos, hayGestor: gestorIdx !== -1 };
+}
+
+function agruparPorGestor(contactos) {
+  const map = new Map();
+  for (const c of contactos) {
+    const key = c.gestor?.trim() || SIN_GESTOR;
+    if (!map.has(key)) map.set(key, { contactos: [], monto: 0 });
+    const g = map.get(key);
+    g.contactos.push(c);
+    g.monto += c.monto;
+  }
+  const sorted = new Map([...map.entries()].sort((a, b) => {
+    if (a[0] === SIN_GESTOR) return 1;
+    if (b[0] === SIN_GESTOR) return -1;
+    return a[0].localeCompare(b[0]);
+  }));
+  return sorted;
+}
+
+export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS = _EMPTY_OBJ }) {
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
   const authToken = localStorage.getItem('auth_token');
@@ -176,125 +297,10 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     }
   };
 
-  const parsearXLSX = async (f) => {
-    const buffer = await f.arrayBuffer();
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(buffer);
-    const ws = workbook.worksheets[0];
-    const row1 = ws.getRow(1);
-    if (!row1?.values) throw new Error('El archivo no tiene datos en la fila 1 (cabecera).');
-
-    const rawHeaders = Array.isArray(row1.values) ? row1.values : Object.values(row1.values);
-    const headers = rawHeaders.map(h => (h?.toString() || '').trim().toUpperCase());
-
-    const findIdx = (patterns) =>
-      headers.findIndex(h => h && patterns.some(p => h.includes(p)));
-
-    const telIdx    = findIdx(['TELEFONO', 'CELULAR', 'MOVIL', 'CONTACTO']);
-    const nomIdx    = findIdx(['NOMBRE', 'NOMBRES', 'CLIENTE']);
-    const apeIdx    = findIdx(['APELLIDO', 'APELLIDOS']);
-    const cedIdx    = findIdx(['CEDULA', 'IDENTIFICACION', 'DNI', 'CÉDULA']);
-    const montoIdx  = findIdx(['VALOR EN MORA', 'MONTO POR COBRAR', 'DEUDA TOTAL', 'MONTO', 'VALOR', 'DEUDA', 'SALDO', 'TOTAL']);
-    const prodIdx   = findIdx(['PRODUCTO', 'GRUPO', 'CARTERA', 'CAMPAÑA', 'LOT']);
-    const gestorIdx = findIdx(['GESTOR', 'AGENTE', 'COBRADOR']);
-
-    const contactos = [];
-    ws.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return;
-      const getVal = (idx) => {
-        if (idx <= 0) return '';
-        const cell = row.getCell(idx);
-        const v = cell.value;
-        if (v == null) return '';
-        // Celda de fórmula: {formula, result} → usar result
-        if (typeof v === 'object' && 'result' in v) return String(v.result ?? '').trim();
-        // Celda de texto enriquecido
-        if (typeof v === 'object' && 'richText' in v) return v.richText.map(x => x.text).join('').trim();
-        return String(v).trim();
-      };
-      const telefono = getVal(telIdx).replace(/\D/g, '');
-      if (!telefono) return;
-
-      const metadata = {};
-      headers.forEach((header, index) => {
-        if (header && index > 0) metadata[header] = getVal(index);
-      });
-
-      contactos.push({
-        telefono,
-        cedula:   getVal(cedIdx),
-        nombre:   `${getVal(nomIdx)} ${getVal(apeIdx)}`.trim() || 'Cliente Sin Nombre',
-        monto:    parseFloat(getVal(montoIdx).replace(/[^0-9.]/g, '')) || 0,
-        producto: getVal(prodIdx) || 'General',
-        gestor:   gestorIdx > 0 ? getVal(gestorIdx) : '',
-        metadata,
-      });
-    });
-
-    return { contactos, hayGestor: gestorIdx > 0 };
-  };
-
-  const parsearCSV = async (texto) => {
-    const lineas = texto.split('\n').filter(l => l.trim());
-    if (lineas.length < 2) return { contactos: [], hayGestor: false };
-
-    const headers = lineas[0].split(',').map(h => h.trim().toUpperCase());
-    const findIdx = (patterns) =>
-      headers.findIndex(h => patterns.some(p => h.includes(p)));
-
-    const telIdx    = findIdx(['TELEFONO', 'CELULAR']);
-    const nomIdx    = findIdx(['NOMBRE']);
-    const apeIdx    = findIdx(['APELLIDO']);
-    const cedIdx    = findIdx(['CEDULA']);
-    const montoIdx  = findIdx(['VALOR EN MORA', 'MONTO POR COBRAR', 'DEUDA TOTAL', 'MONTO', 'VALOR']);
-    const prodIdx   = findIdx(['PRODUCTO', 'GRUPO']);
-    const gestorIdx = findIdx(['GESTOR', 'AGENTE', 'COBRADOR']);
-
-    const contactos = lineas.slice(1).reduce((acc, linea) => {
-      const cols = linea.split(',');
-      const telefono = (cols[telIdx] || '').replace(/"/g, '').replace(/\D/g, '').trim();
-      if (!telefono) return acc;
-
-      const metadata = {};
-      headers.forEach((h, i) => {
-        if (h) metadata[h] = (cols[i] || '').replace(/"/g, '').trim();
-      });
-
-      acc.push({
-        telefono,
-        cedula:   (cols[cedIdx]   || '').replace(/"/g, '').trim(),
-        nombre:   `${cols[nomIdx] || ''} ${cols[apeIdx] || ''}`.replace(/"/g, '').trim() || 'Cliente CSV',
-        monto:    parseFloat((cols[montoIdx] || '').replace(/[^0-9.]/g, '')) || 0,
-        producto: prodIdx !== -1 ? (cols[prodIdx] || '').replace(/"/g, '').trim() : 'Base CSV',
-        gestor:   gestorIdx !== -1 ? (cols[gestorIdx] || '').replace(/"/g, '').trim() : '',
-        metadata,
-      });
-      return acc;
-    }, []);
-
-    return { contactos, hayGestor: gestorIdx !== -1 };
-  };
 
   // ════════════════════════════════════════════════
   // Grouping + auto-match
   // ════════════════════════════════════════════════
-  const agruparPorGestor = (contactos) => {
-    const map = new Map();
-    for (const c of contactos) {
-      const key = c.gestor?.trim() || SIN_GESTOR;
-      if (!map.has(key)) map.set(key, { contactos: [], monto: 0 });
-      const g = map.get(key);
-      g.contactos.push(c);
-      g.monto += c.monto;
-    }
-    // Ordenar: gestores con nombre primero, SIN_GESTOR al final
-    const sorted = new Map([...map.entries()].sort((a, b) => {
-      if (a[0] === SIN_GESTOR) return 1;
-      if (b[0] === SIN_GESTOR) return -1;
-      return a[0].localeCompare(b[0]);
-    }));
-    return sorted;
-  };
 
   const initMapeo = (gruposMap) => {
     const m = {};
@@ -324,7 +330,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     }
 
     // 1. Aplanar todos los contactos de todos los grupos en un solo array
-    const todosContactos = [];
+    const todosContactos = _EMPTY_ARR;
     for (const [, data] of grupos.entries()) {
       for (const c of data.contactos) {
         todosContactos.push({ ...c, _monto: c.monto || 0 });
@@ -339,14 +345,14 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     }
 
     // 3. Contadores por asesor activo { id -> { monto, count } }
-    const acumulado = {};
+    const acumulado = _EMPTY_OBJ;
     for (const a of asesoresActivos) {
       acumulado[String(a.id)] = { monto: 0, count: 0 };
     }
 
     // 4. Asignar cada contacto al asesor activo con menor monto acumulado (greedy)
-    const asignacion = {}; 
-    const buckets = {}; 
+    const asignacion = _EMPTY_OBJ; 
+    const buckets = _EMPTY_OBJ; 
     for (const a of asesoresActivos) buckets[String(a.id)] = [];
 
     for (const c of todosContactos) {
@@ -370,7 +376,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
 
     // 5. Reconstruir grupos sintéticos — un grupo por asesor
     const nuevosGrupos = new Map();
-    const nuevoMapeo = {};
+    const nuevoMapeo = _EMPTY_OBJ;
     for (const a of asesoresActivos) {
       const aid = String(a.id);
       const contactosAsesor = buckets[aid];
@@ -431,13 +437,18 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
       if (!resC.success) throw new Error('No se pudo crear la campaña.');
 
       let totalInsertados = 0;
-      const desglose = [];
+      const desglose = _EMPTY_ARR;
 
-      for (const [gestor, { contactos }] of gruposActivos) {
-        const asesorId = Number(mapeo[gestor]);
-        const res = isRemote
-          ? await vmFetch(apiBase, authToken, `/campanas/${resC.id}/contactos`, { method: 'POST', body: JSON.stringify({ asesorId, contactos }) })
-          : await window.api.invoke('db:insertContactos', resC.id, asesorId, contactos);
+      const resultadosInsercion = await Promise.all(
+        [...gruposActivos].map(async ([gestor, { contactos }]) => {
+          const asesorId = Number(mapeo[gestor]);
+          const res = isRemote
+            ? await vmFetch(apiBase, authToken, `/campanas/${resC.id}/contactos`, { method: 'POST', body: JSON.stringify({ asesorId, contactos }) })
+            : await window.api.invoke('db:insertContactos', resC.id, asesorId, contactos);
+          return { gestor, contactos, asesorId, res };
+        })
+      );
+      for (const { gestor, contactos, asesorId, res } of resultadosInsercion) {
         if (res.success) {
           totalInsertados += res.count;
           const asesor = asesores.find(a => a.id === asesorId);
@@ -540,7 +551,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
               <strong style={{ fontSize: 13, color: '#f44336' }}>Error al conectar con la VM</strong>
             </div>
             <p style={{ fontSize: 12, opacity: 0.8, margin: '0 0 12px' }}>{asesoresVmError}</p>
-            <button className="btn btn-sm btn-ghost" onClick={() => {
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => {
               setAsesoresVmLoading(true); setAsesoresVmError(null);
               vmFetch(apiBase, authToken, '/asesores')
                 .then(data => { setAsesoresVm(Array.isArray(data) ? data : []); setAsesoresVmLoading(false); })
@@ -559,7 +570,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
               textAlign: 'center',
               marginTop: 24,
               backgroundColor: isDragging ? 'rgba(0,255,170,0.05)' : 'transparent',
-              transition: 'all 0.2s ease',
+              transition: 'background 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease',
             }}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -581,14 +592,14 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                 <p className="text-body-sm" style={{ opacity: 0.5, marginBottom: 16 }}>
                   El archivo debe incluir columna <strong>GESTOR</strong> para distribución automática
                 </p>
-                <input
+                <input aria-label="GESTOR"
                   type="file"
                   ref={fileInputRef}
                   style={{ display: 'none' }}
                   accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                   onChange={handleFileChange}
                 />
-                <button className="btn btn-outline" onClick={() => fileInputRef.current.click()}>
+                <button type="button" className="btn btn-outline" onClick={() => fileInputRef.current.click()}>
                   <span className="material-symbols-outlined">search</span>
                   Buscar Archivo
                 </button>
@@ -607,7 +618,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                 <span className="material-symbols-outlined" style={{ color: 'var(--color-primary)', fontSize: 20 }}>description</span>
                 <div>
                   <p className="text-body-sm" style={{ fontWeight: 600, margin: 0 }}>{file?.name}</p>
-                  <p style={{ fontSize: 11, opacity: 0.5, margin: 0 }}>
+                  <p style={{ fontSize: 12, opacity: 0.5, margin: 0 }}>
                     {totalActivos.toLocaleString()} contactos listos para asignar
                     {tieneColumnaGestor && autoMatchCount > 0 && (
                       <span style={{ color: 'var(--color-primary)', marginLeft: 8 }}>
@@ -622,7 +633,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                   </p>
                 </div>
               </div>
-              <button className="btn btn-sm btn-ghost" onClick={resetUpload} style={{ padding: '4px 10px' }}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={resetUpload} style={{ padding: '4px 10px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
                 Cambiar
               </button>
@@ -631,7 +642,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             {/* Nombre de campaña */}
             <div style={{ marginBottom: 20 }}>
               <label className="reporte-form__label">Nombre del Lote / Campaña</label>
-              <input
+              <input aria-label="Nombre del Lote / Campaña"
                 type="text"
                 className="input"
                 placeholder="Ej: Cartera Vencida Mayo 2026"
@@ -646,7 +657,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
               display: 'flex', alignItems: 'center', gap: 12,
               marginBottom: 16, flexWrap: 'wrap',
             }}>
-              <button
+              <button type="button"
                 className="btn"
                 onClick={handleAutoDistribuir}
                 disabled={procesando || !grupos || asesores.length === 0}
@@ -662,7 +673,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                   cursor: (procesando || !grupos || asesores.length === 0) ? 'not-allowed' : 'pointer',
                   opacity: (procesando || !grupos || asesores.length === 0) ? 0.5 : 1,
                   boxShadow: '0 4px 15px rgba(0,230,118,0.1)',
-                  transition: 'all 0.2s ease',
+                  transition: 'background 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease',
                   textTransform: 'uppercase',
                   letterSpacing: '0.5px'
                 }}
@@ -673,7 +684,21 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                     e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,230,118,0.2)';
                   }
                 }}
+                onFocus={(e) => {
+                  if (!(procesando || !grupos || asesores.length === 0)) {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,230,118,0.25) 0%, rgba(0,180,100,0.15) 100%)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,230,118,0.2)';
+                  }
+                }}
                 onMouseOut={(e) => {
+                  if (!(procesando || !grupos || asesores.length === 0)) {
+                    e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,230,118,0.15) 0%, rgba(0,180,100,0.05) 100%)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,230,118,0.1)';
+                  }
+                }}
+                onBlur={(e) => {
                   if (!(procesando || !grupos || asesores.length === 0)) {
                     e.currentTarget.style.background = 'linear-gradient(135deg, rgba(0,230,118,0.15) 0%, rgba(0,180,100,0.05) 100%)';
                     e.currentTarget.style.transform = 'translateY(0)';
@@ -689,7 +714,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                   <span style={{ fontSize: 13, opacity: 0.8, fontWeight: 500 }}>
                     {[...grupos.values()].reduce((s, d) => s + d.contactos.length, 0).toLocaleString()} contactos totales
                   </span>
-                  <span style={{ fontSize: 11, color: '#00e676', opacity: 0.8 }}>
+                  <span style={{ fontSize: 12, color: '#00e676', opacity: 0.8 }}>
                     Se distribuirá entre los {asesores.filter(a => estadosWS && estadosWS[a.id]).length} asesor(es) conectados actualmente.
                   </span>
                 </div>
@@ -736,7 +761,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                               {esSinGestor ? 'Sin gestor asignado' : gestor}
                             </span>
                             {autoMatch && (
-                              <span style={{ fontSize: 10, background: 'rgba(0,255,170,0.12)', color: 'var(--color-primary)', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
+                              <span style={{ fontSize: 12, background: 'rgba(0,255,170,0.12)', color: 'var(--color-primary)', padding: '2px 7px', borderRadius: 99, fontWeight: 700 }}>
                                 AUTO
                               </span>
                             )}
@@ -793,7 +818,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
 
             {/* Botón distribuir */}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button
+              <button type="button"
                 className="btn btn-primary"
                 onClick={handleDistribuir}
                 disabled={procesando}
@@ -859,8 +884,8 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                       </tr>
                     </thead>
                     <tbody>
-                      {lastSummary.desglose.map((d, i) => (
-                        <tr key={i}>
+                      {lastSummary.desglose.map((d) => (
+                        <tr key={d.gestor}>
                           <td style={{ ...tdStyle, opacity: 0.8 }}>{d.gestor}</td>
                           <td style={{ ...tdStyle, color: 'var(--color-primary)', fontWeight: 600 }}>
                             <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>person</span>
@@ -876,7 +901,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                     </tbody>
                     <tfoot>
                       <tr style={{ background: 'rgba(255,255,255,0.04)', borderTop: '2px solid rgba(255,255,255,0.1)' }}>
-                        <td style={{ padding: '9px 12px', fontWeight: 700, opacity: 0.6, fontSize: 11 }}>TOTALES</td>
+                        <td style={{ padding: '9px 12px', fontWeight: 700, opacity: 0.6, fontSize: 12 }}>TOTALES</td>
                         <td />
                         <td style={{ padding: '9px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--color-primary)' }}>{totalCount.toLocaleString()}</td>
                         <td style={{ padding: '9px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--color-danger)' }}>{fmt(totalMora)}</td>
@@ -890,7 +915,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             })()}
 
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-sm btn-ghost" onClick={() => setLastSummary(null)}>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLastSummary(null)}>
                 Cerrar Resumen
               </button>
             </div>
@@ -906,7 +931,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             <p className="text-body-sm" style={{ opacity: 0.6 }}>Historial de lotes cargados y asignados.</p>
           </div>
           <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
-            <button className="btn btn-sm btn-outline" onClick={fetchCampaigns} disabled={loadingDashboard}>
+            <button type="button" className="btn btn-sm btn-outline" onClick={fetchCampaigns} disabled={loadingDashboard}>
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
                 {loadingDashboard ? 'sync' : 'refresh'}
               </span>
@@ -937,7 +962,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
           )}
           {!loadingDashboard && !errorStatus && existingCampaigns.length > 0 && (() => {
             // Agrupar filas por campaña para rowSpan
-            const grupos = [];
+            const grupos = _EMPTY_ARR;
             let prev = null;
             for (const row of existingCampaigns) {
               if (!prev || prev.id !== row.id) {
@@ -958,7 +983,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                   <tr style={{ background: 'rgba(255,255,255,0.05)', borderBottom: '2px solid rgba(255,255,255,0.1)' }}>
                     <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Nombre del Lote</th>
                     <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Subida</th>
-                    {usuario?.id === 1 && <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Supervisor</th>}
+                    {usuario?.id === 1 && <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Jefe de Area</th>}
                     <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Asesor</th>
                     <th style={{ padding: '12px', textAlign: 'center', border: bdr }}>Contactos</th>
                     <th style={{ padding: '12px', textAlign: 'right', border: bdr }}>Valor en Mora</th>
@@ -1006,7 +1031,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                             {fmt(fila.monto_mora)}
                           </td>
                           <td style={{ padding: '10px 12px', border: bdr, textAlign: 'center' }}>
-                            <button
+                            <button type="button"
                               className="btn btn-sm btn-ghost"
                               style={{ padding: 4, minHeight: 'auto' }}
                               title={`Eliminar contactos de ${fila.asesor_nombre}`}

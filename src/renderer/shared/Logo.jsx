@@ -1,11 +1,12 @@
 import React from 'react';
+const _EMPTY_OBJ = {};
 
 /**
  * UPHONE Logo Component
  * Renders the official logo matching the requested design (Green U, Checkmark in O).
  * Utilizes absolute X coordinates for text to ensure the checkmark alignment is mathematically perfect across all systems.
  */
-export default function Logo({ width = '180px', className = '', style = {}, ...props }) {
+export default function Logo({ width = '180px', className = '', style = _EMPTY_OBJ, ...props }) {
   return (
     <svg 
       viewBox="0 0 350 80" 

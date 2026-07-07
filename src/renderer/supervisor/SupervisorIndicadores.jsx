@@ -1,6 +1,40 @@
 import React, { useState, useEffect } from 'react';
 import { showToast } from '../shared/Toast';
 
+function safeArithmetic(expr) {
+  const s = expr.replace(/\s/g, '');
+  if (!/^[0-9+\-*/.()]+$/.test(s)) throw new Error('Invalid expr');
+  let i = 0;
+
+  function parseE() {
+    let v = parseT();
+    while (i < s.length && (s[i] === '+' || s[i] === '-')) {
+      const op = s[i++];
+      v = op === '+' ? v + parseT() : v - parseT();
+    }
+    return v;
+  }
+
+  function parseT() {
+    let v = parseF();
+    while (i < s.length && (s[i] === '*' || s[i] === '/')) {
+      const op = s[i++];
+      v = op === '*' ? v * parseF() : v / parseF();
+    }
+    return v;
+  }
+
+  function parseF() {
+    if (s[i] === '(') { i++; const v = parseE(); i++; return v; }
+    if (s[i] === '-') { i++; return -parseF(); }
+    const start = i;
+    while (i < s.length && /[0-9.]/.test(s[i])) i++;
+    return parseFloat(s.slice(start, i));
+  }
+
+  return parseE();
+}
+
 export default function SupervisorIndicadores({ callApi }) {
   const [tab, setTab] = useState('config'); // 'config' | 'monitoreo'
   const [config, setConfig] = useState([]);
@@ -9,8 +43,8 @@ export default function SupervisorIndicadores({ callApi }) {
   // Monitoreo State
   const [asesores, setAsesores] = useState([]);
   const [selectedAsesor, setSelectedAsesor] = useState('');
-  const [mes, setMes] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
-  const [anio, setAnio] = useState(new Date().getFullYear().toString());
+  const [mes, setMes] = useState(() => (new Date().getMonth() + 1).toString().padStart(2, '0'));
+  const [anio, setAnio] = useState(() => new Date().getFullYear().toString());
   const [datosAsesor, setDatosAsesor] = useState({});
 
   useEffect(() => {
@@ -45,8 +79,18 @@ export default function SupervisorIndicadores({ callApi }) {
 
   const loadAsesores = async () => {
     try {
-      const res = await callApi('db:getAsesores');
-      setAsesores(res || []);
+      const wsIp = localStorage.getItem('uphone_ws_ip');
+      const isVm = wsIp && wsIp !== '127.0.0.1' && wsIp !== 'localhost';
+      if (isVm) {
+        const token = localStorage.getItem('auth_token');
+        const base  = wsIp.startsWith('http') ? wsIp.replace(/\/$/, '') : `http://${wsIp}:3001`;
+        const res   = await fetch(`${base}/api/admin/users`, { headers: { Authorization: `Bearer ${token}` } });
+        const data  = await res.json();
+        setAsesores(Array.isArray(data) ? data : []);
+      } else {
+        const res = await callApi('db:getAsesores');
+        setAsesores(res || []);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -96,8 +140,7 @@ export default function SupervisorIndicadores({ callApi }) {
         const val = rowData[c.id] || 0;
         evalExpr = evalExpr.replaceAll(`{${c.id}}`, val);
       });
-      // eslint-disable-next-line no-new-func
-      const result = new Function('return ' + evalExpr)();
+      const result = safeArithmetic(evalExpr);
       if (!isFinite(result) || isNaN(result)) return '0.00';
       return result.toFixed(2);
     } catch (e) {
@@ -193,7 +236,7 @@ export default function SupervisorIndicadores({ callApi }) {
                   padding: '11px 12px',
                   textAlign: 'center',
                   fontWeight: 800,
-                  fontSize: 10,
+                  fontSize: 12,
                   letterSpacing: '0.1em',
                   color: 'var(--color-primary)',
                   textTransform: 'uppercase',
@@ -263,7 +306,7 @@ export default function SupervisorIndicadores({ callApi }) {
       
       {/* HEADER TABS */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <button
+        <button type="button"
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
             padding: '10px 16px',
@@ -275,14 +318,14 @@ export default function SupervisorIndicadores({ callApi }) {
             color: tab === 'config' ? '#fff' : 'rgba(255,255,255,0.45)',
             fontSize: 12, fontWeight: tab === 'config' ? 700 : 500,
             letterSpacing: '0.05em', textTransform: 'uppercase',
-            transition: 'all .15s',
+            transition: 'background .15s, opacity .15s, border-color .15s, color .15s',
           }}
           onClick={() => setTab('config')}
         >
           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>settings</span>
           Constructor de Fórmulas
         </button>
-        <button
+        <button type="button"
           style={{
             display: 'flex', alignItems: 'center', gap: 7,
             padding: '10px 16px',
@@ -294,7 +337,7 @@ export default function SupervisorIndicadores({ callApi }) {
             color: tab === 'monitoreo' ? '#fff' : 'rgba(255,255,255,0.45)',
             fontSize: 12, fontWeight: tab === 'monitoreo' ? 700 : 500,
             letterSpacing: '0.05em', textTransform: 'uppercase',
-            transition: 'all .15s',
+            transition: 'background .15s, opacity .15s, border-color .15s, color .15s',
           }}
           onClick={() => setTab('monitoreo')}
         >
@@ -312,8 +355,8 @@ export default function SupervisorIndicadores({ callApi }) {
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 14 }}>Define las columnas que los asesores deben llenar y las fórmulas que se calcularán automáticamente.</p>
             </div>
             <div style={{ display: 'flex', gap: 12 }}>
-              <button className="btn" onClick={addColumn}>+ Añadir Columna</button>
-              <button className="btn btn-primary" onClick={saveConfig}>Guardar Configuración</button>
+              <button type="button" className="btn" onClick={addColumn}>+ Añadir Columna</button>
+              <button type="button" className="btn btn-primary" onClick={saveConfig}>Guardar Configuración</button>
             </div>
           </div>
 
@@ -350,7 +393,7 @@ export default function SupervisorIndicadores({ callApi }) {
                     </td>
                     <td style={{ padding: '12px' }}>
                       {col.type === 'formula' ? (
-                        <input 
+                        <input aria-label="Campo" 
                           className="input" 
                           style={{ width: '100%', fontFamily: 'monospace' }}
                           value={col.expression} 
@@ -360,7 +403,7 @@ export default function SupervisorIndicadores({ callApi }) {
                       ) : <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>N/A</span>}
                     </td>
                     <td style={{ padding: '12px' }}>
-                      <button className="btn btn-icon" onClick={() => deleteColumn(idx)} style={{ color: 'var(--color-danger)' }}>
+                      <button type="button" className="btn btn-icon" onClick={() => deleteColumn(idx)} style={{ color: 'var(--color-danger)' }}>
                         <span className="material-symbols-outlined">delete</span>
                       </button>
                     </td>
@@ -389,7 +432,7 @@ export default function SupervisorIndicadores({ callApi }) {
               <label className="text-muted" style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>Seleccionar Asesor</label>
               <select className="input" style={{ width: '100%' }} value={selectedAsesor} onChange={e => setSelectedAsesor(e.target.value)}>
                 <option value="">-- Elige un asesor --</option>
-                {asesores.filter(a => a.rol === 'asesor').map(a => (
+                {asesores.filter(a => a.rol === 'asesor' && a.estado === 'activo').map(a => (
                   <option key={a.id} value={a.id}>{a.nombre}</option>
                 ))}
               </select>

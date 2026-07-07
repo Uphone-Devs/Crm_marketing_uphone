@@ -56,13 +56,15 @@ export default function AudioPlayer({ audioPath, onStatusChange }) {
   return (
     <div className="audio-player">
       {blobUrl ? (
-        <audio 
-          ref={audioRef} 
-          controls 
-          src={blobUrl} 
+        <audio
+          ref={audioRef}
+          controls
+          src={blobUrl}
           className="custom-audio-controls"
           style={{ height: 32, borderRadius: 16 }}
-        />
+        >
+          <track kind="captions" />
+        </audio>
       ) : (
         <span className="text-label-sm" style={{ opacity: 0.5 }}>Sin audio</span>
       )}

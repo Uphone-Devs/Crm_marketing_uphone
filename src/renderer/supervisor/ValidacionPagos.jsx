@@ -105,6 +105,81 @@ async function parsePagosExcel(file, empresaKey) {
   return pagos;
 }
 
+function TablaRegistros({ rows, histFiltro, onRevertir }) {
+  const filtrados = rows.filter(r => {
+    if (!histFiltro) return true;
+    const q = histFiltro.toLowerCase();
+    return (r.contrato || '').toLowerCase().includes(q)
+      || (r.nombre_deudor || '').toLowerCase().includes(q)
+      || (r.empresa || '').toLowerCase().includes(q);
+  });
+  if (!filtrados.length) return <p style={{ padding: '16px', opacity: 0.3, fontSize: 12, textAlign: 'center' }}>Sin resultados</p>;
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed', minWidth: 750 }}>
+        <colgroup>
+          <col style={{ width: 75 }} /><col style={{ width: 140 }} /><col style={{ width: 105 }} />
+          <col style={{ width: 100 }} /><col style={{ width: 88 }} /><col style={{ width: 88 }} />
+          <col style={{ width: 110 }} /><col style={{ width: 44 }} />
+        </colgroup>
+        <thead>
+          <tr style={{ background: 'rgba(0,0,0,0.4)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            {['Contrato','Cliente','Empresa / Campaña','Tipo de Pago','En Mora','Pagado','Confirmado',''].map(h => (
+              <th key={h} style={{ padding: '7px 8px', textAlign: 'left', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.55 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filtrados.map((r, i) => {
+            let ep2 = r.estado_pago;
+            if (!ep2 && r.valor_en_mora > 0) {
+              const d = r.monto_pagado - r.valor_en_mora;
+              ep2 = d > 0.01 ? 'PAGO_EXCEDENTE' : d >= -0.01 ? 'PAGADO_COMPLETO' : 'ABONO_PARCIAL';
+            }
+            const cfg = ESTADO_CFG[ep2] || ESTADO_CFG.SIN_MORA;
+            const esTEC = (r.empresa || '').toUpperCase().includes('TEC');
+            return (
+              <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontWeight: 700, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.contrato}</td>
+                <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 12 }}>{r.nombre_deudor}</div>
+                  <div style={{ fontSize: 12, opacity: 0.4, marginTop: 1 }}>{r.cedula}</div>
+                </td>
+                <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '1px 5px', borderRadius: 20, display: 'inline-block', background: esTEC ? 'rgba(126,184,255,0.1)' : 'rgba(0,255,127,0.08)', color: esTEC ? '#7eb8ff' : 'var(--color-primary)', border: `1px solid ${esTEC ? 'rgba(126,184,255,0.3)' : 'rgba(0,255,127,0.25)'}`, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.empresa || '—'}</span>
+                  <div style={{ fontSize: 12, opacity: 0.45, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.campana_nombre}</div>
+                </td>
+                <td style={{ padding: '6px 8px' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.color}55`, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{cfg.icon}</span>{cfg.label}
+                  </span>
+                </td>
+                <td style={{ padding: '6px 8px', fontSize: 12, opacity: 0.75 }}>{r.valor_en_mora > 0 ? fmt$(r.valor_en_mora) : <span style={{ opacity: 0.3 }}>—</span>}</td>
+                <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--color-primary)', fontSize: 12 }}>{fmt$(r.monto_pagado)}</td>
+                <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
+                  <div style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{(r.validado_en || '').slice(0, 16).replace('T', ' ')}</div>
+                  <div style={{ fontSize: 12, opacity: 0.4, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.validado_por_nombre || '—'}</div>
+                </td>
+                <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                  <button type="button" title="Revertir" onClick={() => onRevertir(r)} style={{ background: 'transparent', border: '1px solid rgba(255,82,82,0.3)', borderRadius: 6, padding: '4px 5px', cursor: 'pointer', color: '#ff5252', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>undo</span>
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function esElegible(m) {
+  return m.estadoPago === 'PAGADO_COMPLETO' ||
+    m.estadoPago === 'PAGO_EXCEDENTE'  ||
+    m.estadoPago === 'ABONO_PARCIAL';
+}
+
 export default function ValidacionPagos({ usuario }) {
   // slots[key] = { file, pagos } | null
   const [slots, setSlots] = useState({ SCC: null, TEC_SAS: null });
@@ -340,10 +415,6 @@ export default function ValidacionPagos({ usuario }) {
   }
 
   // ABONO_PARCIAL es seleccionable pero solo se registra (no excluye del marcador)
-  const esElegible = (m) =>
-    m.estadoPago === 'PAGADO_COMPLETO' ||
-    m.estadoPago === 'PAGO_EXCEDENTE'  ||
-    m.estadoPago === 'ABONO_PARCIAL';
 
   const matchesFiltrados = (resultado?.matches ?? []).filter(m => {
     if (filtroEstado !== 'TODOS' && m.estadoPago !== filtroEstado) return false;
@@ -378,7 +449,7 @@ export default function ValidacionPagos({ usuario }) {
         <span className="material-symbols-outlined" style={{ fontSize: 22, color: 'var(--color-primary)' }}>verified</span>
         <div>
           <h2 style={{ fontSize: 18, fontWeight: 900, color: 'var(--color-on-surface)', margin: 0 }}>Validación de Pagos</h2>
-          <p style={{ fontSize: 11, opacity: 0.5, margin: 0 }}>Carga los reportes de cuotas por empresa para excluir clientes ya solventes del marcador.</p>
+          <p style={{ fontSize: 12, opacity: 0.5, margin: 0 }}>Carga los reportes de cuotas por empresa para excluir clientes ya solventes del marcador.</p>
         </div>
       </div>
 
@@ -404,12 +475,12 @@ export default function ValidacionPagos({ usuario }) {
                     <span className="material-symbols-outlined" style={{ fontSize: 20, color: emp.color }}>table_view</span>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700 }}>{slot.pagos.length.toLocaleString()} registros cargados</div>
-                      <div style={{ fontSize: 10, opacity: 0.5 }}>{slot.name}</div>
+                      <div style={{ fontSize: 12, opacity: 0.5 }}>{slot.name}</div>
                     </div>
                   </div>
-                  <button
+                  <button type="button"
                     className="btn btn-outline"
-                    style={{ fontSize: 11, padding: '5px 10px', color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
+                    style={{ fontSize: 12, padding: '5px 10px', color: 'var(--color-danger)', borderColor: 'var(--color-danger)' }}
                     onClick={() => clearSlot(emp.key)}
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>delete</span>
@@ -428,10 +499,10 @@ export default function ValidacionPagos({ usuario }) {
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 32, color: emp.color, opacity: 0.6, display: 'block', marginBottom: 8 }}>upload_file</span>
                   <p style={{ fontSize: 12, opacity: 0.55, margin: 0 }}>Arrastra o haz clic</p>
-                  <p style={{ fontSize: 10, opacity: 0.35, margin: '4px 0 0' }}>ReportUphone_ReporteCuotas_*.xlsx</p>
+                  <p style={{ fontSize: 12, opacity: 0.35, margin: '4px 0 0' }}>ReportUphone_ReporteCuotas_*.xlsx</p>
                 </div>
               )}
-              <input
+              <input aria-label="Arrastra o haz clic"
                 ref={fileRefs[emp.key]}
                 type="file" accept=".xlsx,.xls" hidden
                 onChange={e => handleSlotFile(emp.key, e)}
@@ -466,7 +537,7 @@ export default function ValidacionPagos({ usuario }) {
           {/* Fecha asignación */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 17, color: 'var(--color-primary)', opacity: 0.7 }}>calendar_today</span>
-            <input
+            <input aria-label="Campo"
               type="date"
               value={corrFecha}
               onChange={e => setCorrFecha(e.target.value)}
@@ -498,7 +569,7 @@ export default function ValidacionPagos({ usuario }) {
           </div>
 
           {/* Botón */}
-          <button
+          <button type="button"
             className="btn btn-primary"
             style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '10px 20px' }}
             onClick={handleCorrelacionar}
@@ -521,14 +592,14 @@ export default function ValidacionPagos({ usuario }) {
             { label: 'Abonos parciales',  value: (statsByEstado.ABONO_PARCIAL?.length || 0).toString(), color: '#ff9800', icon: 'timelapse' },
             { label: 'Seleccionados',     value: seleccionados.size.toString(), color: '#ffc107', icon: 'done_all' },
             { label: 'Monto a validar',   value: fmt$(totalSelMonto), color: 'var(--color-danger)', icon: 'payments' },
-          ].map((s, i) => (
-            <div key={i} style={{
+          ].map((s) => (
+            <div key={s.label} style={{
               background: 'linear-gradient(145deg, #151515, #080808)',
               border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, padding: '10px 14px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 14, color: s.color }}>{s.icon}</span>
-                <span style={{ fontSize: 9, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</span>
+                <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 900, color: s.color }}>{s.value}</div>
             </div>
@@ -544,10 +615,10 @@ export default function ValidacionPagos({ usuario }) {
             {/* Filtro estado */}
             <div style={{ display: 'flex', gap: 5 }}>
               {['TODOS', ...Object.keys(ESTADO_CFG)].map(k => (
-                <button
+                <button type="button"
                   key={k}
                   className={`btn ${filtroEstado === k ? 'btn-primary' : 'btn-outline'}`}
-                  style={{ fontSize: 10, padding: '4px 10px' }}
+                  style={{ fontSize: 12, padding: '4px 10px' }}
                   onClick={() => setFiltroEstado(k)}
                 >
                   {k === 'TODOS' ? 'Todos' : ESTADO_CFG[k].label}
@@ -560,10 +631,10 @@ export default function ValidacionPagos({ usuario }) {
             {/* Filtro empresa */}
             <div style={{ display: 'flex', gap: 5 }}>
               {['TODAS', ...EMPRESAS.map(e => e.key)].map(k => (
-                <button
+                <button type="button"
                   key={k}
                   className={`btn ${filtroEmpresa === k ? 'btn-primary' : 'btn-outline'}`}
-                  style={{ fontSize: 10, padding: '4px 10px' }}
+                  style={{ fontSize: 12, padding: '4px 10px' }}
                   onClick={() => setFiltroEmpresa(k)}
                 >
                   {k === 'TODAS' ? 'Todas empresas' : EMPRESAS.find(e => e.key === k)?.label}
@@ -571,9 +642,9 @@ export default function ValidacionPagos({ usuario }) {
               ))}
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-              <button
+              <button type="button"
                 className="btn btn-outline"
-                style={{ fontSize: 11, padding: '5px 10px' }}
+                style={{ fontSize: 12, padding: '5px 10px' }}
                 onClick={() => {
                   const elegibles = matchesFiltrados.filter(
                     m => !m.yaPago && (m.estadoPago === 'PAGADO_COMPLETO' || m.estadoPago === 'PAGO_EXCEDENTE')
@@ -583,9 +654,9 @@ export default function ValidacionPagos({ usuario }) {
               >
                 Sel. pagos completos
               </button>
-              <button
+              <button type="button"
                 className="btn btn-outline"
-                style={{ fontSize: 11, padding: '5px 10px' }}
+                style={{ fontSize: 12, padding: '5px 10px' }}
                 onClick={() => {
                   const abonos = matchesFiltrados.filter(m => m.estadoPago === 'ABONO_PARCIAL');
                   setSeleccionados(prev => {
@@ -597,14 +668,14 @@ export default function ValidacionPagos({ usuario }) {
               >
                 Sel. abonos
               </button>
-              <button
+              <button type="button"
                 className="btn btn-outline"
-                style={{ fontSize: 11, padding: '5px 10px' }}
+                style={{ fontSize: 12, padding: '5px 10px' }}
                 onClick={() => setSeleccionados(new Set())}
               >
                 Limpiar
               </button>
-              <button
+              <button type="button"
                 className="btn btn-primary"
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                 onClick={handleConfirmar}
@@ -617,7 +688,7 @@ export default function ValidacionPagos({ usuario }) {
           </div>
 
           <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid rgba(255,255,255,0.06)', width: '100%' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: 999 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, tableLayout: 'fixed', minWidth: 999 }}>
               <colgroup>
                 <col style={{ width: 34 }} />   {/* checkbox */}
                 <col style={{ width: 88 }} />   {/* contrato */}
@@ -661,7 +732,7 @@ export default function ValidacionPagos({ usuario }) {
                   </th>
                   {['Contrato','Cliente / Cédula','Empresa','Campaña','Gestor','En Mora','Pagado','Diferencia','Últ. Pago','Estado'].map(h => (
                     <th key={h} style={{
-                      padding: '8px 8px', textAlign: 'left', fontWeight: 800, fontSize: 9,
+                      padding: '8px 8px', textAlign: 'left', fontWeight: 800, fontSize: 12,
                       textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.65, whiteSpace: 'nowrap',
                     }}>{h}</th>
                   ))}
@@ -696,17 +767,17 @@ export default function ValidacionPagos({ usuario }) {
                         {m.yaPago
                           ? <span className="material-symbols-outlined" style={{ fontSize: 14, color: 'var(--color-primary)' }}>check_circle</span>
                           : elegible
-                            ? <input type="checkbox" checked={sel} onChange={() => {}} style={{ accentColor: 'var(--color-primary)' }} />
+                            ? <input aria-label="Campo" type="checkbox" checked={sel} onChange={() => {}} style={{ accentColor: 'var(--color-primary)' }} />
                             : <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#ff9800', opacity: 0.6 }}>block</span>
                         }
                       </td>
-                      <td style={{ padding: '6px 8px', fontWeight: 700, fontFamily: 'monospace', fontSize: 11 }}>{m.contrato}</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 700, fontFamily: 'monospace', fontSize: 12 }}>{m.contrato}</td>
                       <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
-                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{m.nombreDeudor}</div>
-                        <div style={{ fontSize: 9, opacity: 0.55, marginTop: 1 }}>{m.cedula}</div>
+                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{m.nombreDeudor}</div>
+                        <div style={{ fontSize: 12, opacity: 0.55, marginTop: 1 }}>{m.cedula}</div>
                       </td>
                       <td style={{ padding: '6px 8px' }}>
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 20,
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 20,
                           background: m.empresa?.toUpperCase().includes('TEC') ? 'rgba(126,184,255,0.1)' : 'rgba(0,255,127,0.08)',
                           color: m.empresa?.toUpperCase().includes('TEC') ? '#7eb8ff' : 'var(--color-primary)',
                           border: `1px solid ${m.empresa?.toUpperCase().includes('TEC') ? 'rgba(126,184,255,0.3)' : 'rgba(0,255,127,0.25)'}`,
@@ -715,25 +786,25 @@ export default function ValidacionPagos({ usuario }) {
                           {m.empresa || '—'}
                         </span>
                       </td>
-                      <td style={{ padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.75, fontSize: 10 }}>{m.campanaNombre}</td>
-                      <td style={{ padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, opacity: 0.85 }}>{m.asesorNombre || '—'}</td>
-                      <td style={{ padding: '6px 8px', opacity: 0.8, fontSize: 11 }}>{fmt$(m.valorEnMora)}</td>
-                      <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--color-primary)', fontSize: 11 }}>{fmt$(m.montoPagado)}</td>
-                      <td style={{ padding: '6px 8px', fontWeight: 700, fontSize: 11,
+                      <td style={{ padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.75, fontSize: 12 }}>{m.campanaNombre}</td>
+                      <td style={{ padding: '6px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, opacity: 0.85 }}>{m.asesorNombre || '—'}</td>
+                      <td style={{ padding: '6px 8px', opacity: 0.8, fontSize: 12 }}>{fmt$(m.valorEnMora)}</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--color-primary)', fontSize: 12 }}>{fmt$(m.montoPagado)}</td>
+                      <td style={{ padding: '6px 8px', fontWeight: 700, fontSize: 12,
                         color: m.diferencia > 0.01 ? '#ffc107' : m.diferencia < -0.01 ? '#ff9800' : 'var(--color-primary)',
                       }}>
                         {m.diferencia > 0.01 ? '+' : ''}{fmt$(m.diferencia)}
                       </td>
-                      <td style={{ padding: '6px 8px', opacity: 0.65, whiteSpace: 'nowrap', fontSize: 10 }}>{m.ultimaFecha?.slice(0,10) || '—'}</td>
+                      <td style={{ padding: '6px 8px', opacity: 0.65, whiteSpace: 'nowrap', fontSize: 12 }}>{m.ultimaFecha?.slice(0,10) || '—'}</td>
                       <td style={{ padding: '7px 10px' }}>
                         <span style={{
-                          fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                          fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
                           background: m.yaPago ? 'rgba(0,255,127,0.1)' : cfg.bg,
                           color: m.yaPago ? 'var(--color-primary)' : cfg.color,
                           border: `1px solid ${m.yaPago ? 'rgba(0,255,127,0.3)' : cfg.color + '55'}`,
                           display: 'inline-flex', alignItems: 'center', gap: 4,
                         }}>
-                          <span className="material-symbols-outlined" style={{ fontSize: 11 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>
                             {m.yaPago ? 'verified' : cfg.icon}
                           </span>
                           {m.yaPago ? 'CONFIRMADO' : cfg.label}
@@ -746,7 +817,7 @@ export default function ValidacionPagos({ usuario }) {
             </table>
           </div>
 
-          <p style={{ fontSize: 10, opacity: 0.35, marginTop: 8 }}>
+          <p style={{ fontSize: 12, opacity: 0.35, marginTop: 8 }}>
             {matchesFiltrados.length} filas · Solo pagos completos y excedentes pueden confirmarse · Abonos parciales quedan en gestión activa
           </p>
         </>
@@ -778,74 +849,6 @@ export default function ValidacionPagos({ usuario }) {
           return acc;
         }, { total: 0, montoTotal: 0, porEstado: {}, porEmpresa: {} });
 
-        const TablaRegistros = ({ rows }) => {
-          const filtrados = rows.filter(r => {
-            if (!histFiltro) return true;
-            const q = histFiltro.toLowerCase();
-            return (r.contrato || '').toLowerCase().includes(q)
-              || (r.nombre_deudor || '').toLowerCase().includes(q)
-              || (r.empresa || '').toLowerCase().includes(q);
-          });
-          if (!filtrados.length) return <p style={{ padding: '16px', opacity: 0.3, fontSize: 11, textAlign: 'center' }}>Sin resultados</p>;
-          return (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, tableLayout: 'fixed', minWidth: 750 }}>
-                <colgroup>
-                  <col style={{ width: 75 }} /><col style={{ width: 140 }} /><col style={{ width: 105 }} />
-                  <col style={{ width: 100 }} /><col style={{ width: 88 }} /><col style={{ width: 88 }} />
-                  <col style={{ width: 110 }} /><col style={{ width: 44 }} />
-                </colgroup>
-                <thead>
-                  <tr style={{ background: 'rgba(0,0,0,0.4)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                    {['Contrato','Cliente','Empresa / Campaña','Tipo de Pago','En Mora','Pagado','Confirmado',''].map(h => (
-                      <th key={h} style={{ padding: '7px 8px', textAlign: 'left', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.55 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtrados.map((r, i) => {
-                    let ep2 = r.estado_pago;
-                    if (!ep2 && r.valor_en_mora > 0) {
-                      const d = r.monto_pagado - r.valor_en_mora;
-                      ep2 = d > 0.01 ? 'PAGO_EXCEDENTE' : d >= -0.01 ? 'PAGADO_COMPLETO' : 'ABONO_PARCIAL';
-                    }
-                    const cfg = ESTADO_CFG[ep2] || ESTADO_CFG.SIN_MORA;
-                    const esTEC = (r.empresa || '').toUpperCase().includes('TEC');
-                    return (
-                      <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                        <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontWeight: 700, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.contrato}</td>
-                        <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, fontSize: 11 }}>{r.nombre_deudor}</div>
-                          <div style={{ fontSize: 9, opacity: 0.4, marginTop: 1 }}>{r.cedula}</div>
-                        </td>
-                        <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 20, display: 'inline-block', background: esTEC ? 'rgba(126,184,255,0.1)' : 'rgba(0,255,127,0.08)', color: esTEC ? '#7eb8ff' : 'var(--color-primary)', border: `1px solid ${esTEC ? 'rgba(126,184,255,0.3)' : 'rgba(0,255,127,0.25)'}`, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.empresa || '—'}</span>
-                          <div style={{ fontSize: 9, opacity: 0.45, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.campana_nombre}</div>
-                        </td>
-                        <td style={{ padding: '6px 8px' }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 20, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.color}55`, display: 'inline-flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 10 }}>{cfg.icon}</span>{cfg.label}
-                          </span>
-                        </td>
-                        <td style={{ padding: '6px 8px', fontSize: 11, opacity: 0.75 }}>{r.valor_en_mora > 0 ? fmt$(r.valor_en_mora) : <span style={{ opacity: 0.3 }}>—</span>}</td>
-                        <td style={{ padding: '6px 8px', fontWeight: 700, color: 'var(--color-primary)', fontSize: 11 }}>{fmt$(r.monto_pagado)}</td>
-                        <td style={{ padding: '6px 8px', overflow: 'hidden' }}>
-                          <div style={{ fontSize: 10, whiteSpace: 'nowrap' }}>{(r.validado_en || '').slice(0, 16).replace('T', ' ')}</div>
-                          <div style={{ fontSize: 9, opacity: 0.4, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.validado_por_nombre || '—'}</div>
-                        </td>
-                        <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                          <button title="Revertir" onClick={() => handleRevertir(r)} style={{ background: 'transparent', border: '1px solid rgba(255,82,82,0.3)', borderRadius: 6, padding: '4px 5px', cursor: 'pointer', color: '#ff5252', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>undo</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          );
-        };
 
         return (
         <div style={{ marginTop: 28 }}>
@@ -854,10 +857,10 @@ export default function ValidacionPagos({ usuario }) {
           <div style={{ background: 'linear-gradient(145deg, #151515, #080808)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: consolidado.total > 0 ? 14 : 0 }}>
               <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-primary)', opacity: 0.8 }}>history</span>
-              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.6 }}>Historial de Validaciones Confirmadas</span>
+              <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.6 }}>Historial de Validaciones Confirmadas</span>
               <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
-              {historial.length > 0 && <span style={{ fontSize: 10, opacity: 0.45 }}>{historial.length} registros · {sesiones.length} sesiones</span>}
-              <button className="btn btn-outline" style={{ fontSize: 11, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={descargarHistorialExcel} disabled={!historial.length}>
+              {historial.length > 0 && <span style={{ fontSize: 12, opacity: 0.45 }}>{historial.length} registros · {sesiones.length} sesiones</span>}
+              <button type="button" className="btn btn-outline" style={{ fontSize: 12, padding: '5px 12px', display: 'flex', alignItems: 'center', gap: 6 }} onClick={descargarHistorialExcel} disabled={!historial.length}>
                 <span className="material-symbols-outlined" style={{ fontSize: 15 }}>download</span>Exportar
               </button>
             </div>
@@ -865,9 +868,9 @@ export default function ValidacionPagos({ usuario }) {
             {consolidado.total > 0 && (
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <div style={{ background: 'rgba(0,255,127,0.06)', border: '1px solid rgba(0,255,127,0.15)', borderRadius: 10, padding: '10px 16px', minWidth: 130 }}>
-                  <div style={{ fontSize: 9, opacity: 0.55, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Total Validado</div>
+                  <div style={{ fontSize: 12, opacity: 0.55, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Total Validado</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--color-primary)', lineHeight: 1 }}>{consolidado.total}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-primary)', opacity: 0.75, marginTop: 3 }}>{fmt$(consolidado.montoTotal)}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-primary)', opacity: 0.75, marginTop: 3 }}>{fmt$(consolidado.montoTotal)}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: 1 }}>
                   {Object.entries(ESTADO_CFG).filter(([k]) => k !== 'SIN_MORA').map(([k, cfg]) => {
@@ -876,10 +879,10 @@ export default function ValidacionPagos({ usuario }) {
                       <div key={k} style={{ background: cfg.bg, border: `1px solid ${cfg.color}33`, borderRadius: 10, padding: '10px 14px', minWidth: 110, opacity: data.count === 0 ? 0.45 : 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                           <span className="material-symbols-outlined" style={{ fontSize: 12, color: cfg.color }}>{cfg.icon}</span>
-                          <span style={{ fontSize: 9, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{cfg.label}</span>
+                          <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{cfg.label}</span>
                         </div>
                         <div style={{ fontSize: 20, fontWeight: 900, color: cfg.color, lineHeight: 1 }}>{data.count}</div>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: cfg.color, opacity: 0.7, marginTop: 3 }}>{data.monto > 0 ? fmt$(data.monto) : '—'}</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: cfg.color, opacity: 0.7, marginTop: 3 }}>{data.monto > 0 ? fmt$(data.monto) : '—'}</div>
                       </div>
                     );
                   })}
@@ -890,9 +893,9 @@ export default function ValidacionPagos({ usuario }) {
                     return (
                       <div key={emp.key} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '6px 12px', opacity: data.count === 0 ? 0.45 : 1 }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: emp.color, flexShrink: 0 }} />
-                        <span style={{ fontSize: 10, color: emp.color, fontWeight: 700, minWidth: 100 }}>{emp.label}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700 }}>{data.count}</span>
-                        <span style={{ fontSize: 10, opacity: 0.55 }}>{data.monto > 0 ? fmt$(data.monto) : '—'}</span>
+                        <span style={{ fontSize: 12, color: emp.color, fontWeight: 700, minWidth: 100 }}>{emp.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{data.count}</span>
+                        <span style={{ fontSize: 12, opacity: 0.55 }}>{data.monto > 0 ? fmt$(data.monto) : '—'}</span>
                       </div>
                     );
                   })}
@@ -917,28 +920,28 @@ export default function ValidacionPagos({ usuario }) {
                 <div onClick={() => setSesionAbierta(abierta ? null : ses.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', background: abierta ? 'rgba(0,255,127,0.04)' : 'rgba(255,255,255,0.02)', userSelect: 'none' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)', opacity: 0.7 }}>receipt_long</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>{label}</div>
-                    <div style={{ fontSize: 9, opacity: 0.4 }}>{ses.supervisor_nombre || 'Sin supervisor'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>{label}</div>
+                    <div style={{ fontSize: 12, opacity: 0.4 }}>{ses.supervisor_nombre || 'Sin Jefe de Area'}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {ses.n_pagado > 0 && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(0,255,127,0.1)', color: '#00ff7f', border: '1px solid rgba(0,255,127,0.25)' }}>✓ {ses.n_pagado} pagados</span>}
-                    {ses.n_excedente > 0 && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(255,193,7,0.1)', color: '#ffc107', border: '1px solid rgba(255,193,7,0.25)' }}>↑ {ses.n_excedente} excedentes</span>}
-                    {ses.n_abono > 0 && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(255,152,0,0.1)', color: '#ff9800', border: '1px solid rgba(255,152,0,0.25)' }}>~ {ses.n_abono} abonos · {fmt$(ses.monto_abono)}</span>}
+                    {ses.n_pagado > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(0,255,127,0.1)', color: '#00ff7f', border: '1px solid rgba(0,255,127,0.25)' }}>✓ {ses.n_pagado} pagados</span>}
+                    {ses.n_excedente > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(255,193,7,0.1)', color: '#ffc107', border: '1px solid rgba(255,193,7,0.25)' }}>↑ {ses.n_excedente} excedentes</span>}
+                    {ses.n_abono > 0 && <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'rgba(255,152,0,0.1)', color: '#ff9800', border: '1px solid rgba(255,152,0,0.25)' }}>~ {ses.n_abono} abonos · {fmt$(ses.monto_abono)}</span>}
                   </div>
                   <div style={{ textAlign: 'right', minWidth: 90 }}>
                     <div style={{ fontSize: 13, fontWeight: 900, color: 'var(--color-primary)' }}>{fmt$(ses.monto_real)}</div>
-                    <div style={{ fontSize: 9, opacity: 0.4 }}>{ses.registros} contratos</div>
+                    <div style={{ fontSize: 12, opacity: 0.4 }}>{ses.registros} contratos</div>
                   </div>
-                  <button title="Eliminar sesión en bloque" onClick={e => { e.stopPropagation(); handleEliminarSesion(ses); }} style={{ background: 'transparent', border: '1px solid rgba(255,82,82,0.3)', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', color: '#ff5252', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
+                  <button type="button" title="Eliminar sesión en bloque" onClick={e => { e.stopPropagation(); handleEliminarSesion(ses); }} style={{ background: 'transparent', border: '1px solid rgba(255,82,82,0.3)', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', color: '#ff5252', display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete_sweep</span>
                   </button>
                   <span className="material-symbols-outlined" style={{ fontSize: 18, opacity: 0.4, transform: abierta ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', flexShrink: 0 }}>expand_more</span>
                 </div>
                 {abierta && (
                   <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 14px' }}>
-                    <input type="text" placeholder="Buscar contrato, cliente, empresa…" value={histFiltro} onChange={e => setHistFiltro(e.target.value)}
-                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '6px 12px', fontSize: 11, color: '#fff', width: 280, outline: 'none', marginBottom: 10 }} />
-                    <TablaRegistros rows={registrosSesion} />
+                    <input aria-label="Buscar contrato, cliente, empresa…" type="text" placeholder="Buscar contrato, cliente, empresa…" value={histFiltro} onChange={e => setHistFiltro(e.target.value)}
+                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#fff', width: 280, marginBottom: 10 }} />
+                    <TablaRegistros rows={registrosSesion} histFiltro={histFiltro} onRevertir={handleRevertir} />
                   </div>
                 )}
               </div>

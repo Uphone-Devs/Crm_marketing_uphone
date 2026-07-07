@@ -72,7 +72,7 @@ function CoberturaPie({ contactados, total, pct }) {
           formatter={(v) => v.toLocaleString()}
         />
         <Legend
-          wrapperStyle={{ fontSize: 11, color: '#9ad4a5' }}
+          wrapperStyle={{ fontSize: 12, color: '#9ad4a5' }}
           iconType="circle"
           iconSize={8}
         />
@@ -218,17 +218,17 @@ export default function DashboardDirectivo({ apiBase, token }) {
             disabled={savingMeta}
             placeholder="0"
           />
-          <button className="btn-primary" onClick={handleGuardarMeta} disabled={savingMeta}>
+          <button type="button" className="btn-primary" onClick={handleGuardarMeta} disabled={savingMeta}>
             {savingMeta ? 'Guardando…' : 'Fijar Meta'}
           </button>
         </div>
 
         <div className="dd-filters">
-          <input type="text" placeholder="ID Campaña"   value={campanaId}   onChange={e => setCampanaId(e.target.value)} />
+          <input aria-label="ID Campaña" type="text" placeholder="ID Campaña"   value={campanaId}   onChange={e => setCampanaId(e.target.value)} />
           <input type="text" placeholder="Distribuidor" value={distribuidor} onChange={e => setDistribuidor(e.target.value)} />
           <input type="text" placeholder="Grupo"        value={grupo}        onChange={e => setGrupo(e.target.value)} />
           <input type="text" placeholder="N° Cuota"     value={numeroCuota}  onChange={e => setNumeroCuota(e.target.value)} />
-          <button className="btn-secondary" onClick={fetchData}>Filtrar</button>
+          <button type="button" className="btn-secondary" onClick={fetchData}>Filtrar</button>
         </div>
       </div>
 
@@ -307,8 +307,8 @@ export default function DashboardDirectivo({ apiBase, token }) {
                 <ResponsiveContainer width="100%" height={240}>
                   <LineChart data={tendencia}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.08} stroke="#fff" />
-                    <XAxis dataKey="fecha" stroke="#89c294" tick={{ fill: '#e3e3e3', fontSize: 11 }} />
-                    <YAxis stroke="#89c294" tick={{ fill: '#e3e3e3', fontSize: 11 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+                    <XAxis dataKey="fecha" stroke="#89c294" tick={{ fill: '#e3e3e3', fontSize: 12 }} />
+                    <YAxis stroke="#89c294" tick={{ fill: '#e3e3e3', fontSize: 12 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
                     <RechartsTooltip
                       formatter={v => [`$${v.toLocaleString('es', { maximumFractionDigits: 2 })}`, 'Cobrado']}
                       contentStyle={{ background: '#151515', border: '1px solid #2b2b2b', color: '#e3e3e3', fontSize: 12 }}
@@ -324,18 +324,54 @@ export default function DashboardDirectivo({ apiBase, token }) {
             <div className="chart-container morosidad-chart">
               <h3>Morosidad por Distribuidor</h3>
               {morosidad.length > 0 ? (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={morosidad} layout="vertical" margin={{ left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.08} stroke="#fff" />
-                    <XAxis type="number" stroke="#89c294" tick={{ fill: '#e3e3e3', fontSize: 11 }} unit="%" />
-                    <YAxis dataKey="distribuidor" type="category" width={90} stroke="#89c294" tick={{ fill: '#e3e3e3', fontSize: 10 }} />
-                    <RechartsTooltip
-                      formatter={v => [`${v}%`, 'Morosidad']}
-                      contentStyle={{ background: '#151515', border: '1px solid #2b2b2b', color: '#e3e3e3', fontSize: 12 }}
-                    />
-                    <Bar dataKey="pct_morosidad" fill="#ffb4ab" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div style={{ overflowY: 'auto', maxHeight: 340 }}>
+                  <ResponsiveContainer width="100%" height={Math.max(300, morosidad.length * 34)}>
+                    <BarChart
+                      data={morosidad}
+                      layout="vertical"
+                      margin={{ left: 8, right: 52, top: 4, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.06} stroke="#fff" horizontal={false} />
+                      <XAxis
+                        type="number"
+                        domain={[0, 100]}
+                        stroke="#89c294"
+                        tick={{ fill: '#a0a0a0', fontSize: 12 }}
+                        tickFormatter={v => `${v}%`}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        dataKey="distribuidor"
+                        type="category"
+                        width={140}
+                        stroke="none"
+                        tick={({ x, y, payload }) => {
+                          const label = payload.value.length > 18
+                            ? payload.value.slice(0, 17) + '…'
+                            : payload.value;
+                          return (
+                            <text x={x} y={y} dy={4} textAnchor="end" fill="#c8c8c8" fontSize={10}>
+                              {label}
+                            </text>
+                          );
+                        }}
+                      />
+                      <RechartsTooltip
+                        formatter={v => [`${v}%`, 'Morosidad']}
+                        labelFormatter={l => l}
+                        contentStyle={{ background: '#1a1a2e', border: '1px solid #2b2b2b', color: '#e3e3e3', fontSize: 12, borderRadius: 8 }}
+                      />
+                      <Bar dataKey="pct_morosidad" radius={[0, 4, 4, 0]} minPointSize={2} label={{ position: 'right', fill: '#a0a0a0', fontSize: 12, formatter: v => `${v}%` }}>
+                        {morosidad.map((entry, index) => {
+                          const pct = entry.pct_morosidad || 0;
+                          const color = pct >= 70 ? '#ff5252' : pct >= 40 ? '#ffa726' : '#00c853';
+                          return <Cell key={index} fill={color} fillOpacity={0.8} />;
+                        })}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
                 <div className="dd-empty">Sin datos de morosidad</div>
               )}
@@ -361,20 +397,20 @@ export default function DashboardDirectivo({ apiBase, token }) {
                     <tr>
                       {['0','1','2'].map(s => (
                         <React.Fragment key={s}>
-                          <th style={{ fontSize: 11, background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>Gest.</th>
-                          <th style={{ fontSize: 11, background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>PMP</th>
-                          <th style={{ fontSize: 11, color: '#00ff7f', background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>Cumpl.</th>
-                          <th style={{ fontSize: 11, color: '#ffb4ab', background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>Venc.</th>
+                          <th style={{ fontSize: 12, background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>Gest.</th>
+                          <th style={{ fontSize: 12, background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>PMP</th>
+                          <th style={{ fontSize: 12, color: '#00ff7f', background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>Cumpl.</th>
+                          <th style={{ fontSize: 12, color: '#ffb4ab', background: s==='0' ? '#111a11' : s==='1' ? '#11111a' : '#1a1111' }}>Venc.</th>
                         </React.Fragment>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {topAsesores.map((a, i) => {
+                    {topAsesores.map((a) => {
                       const maxG = Math.max(...topAsesores.map(x => x.total_gestiones || 1), 1);
                       const w = Math.round(((a.total_gestiones || 0) / maxG) * 100);
                       return (
-                        <tr key={i}>
+                        <tr key={a.asesor}>
                           <td style={{ fontWeight: 700, color: '#fff' }}>{a.asesor}</td>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px' }}>
@@ -382,7 +418,7 @@ export default function DashboardDirectivo({ apiBase, token }) {
                               <div style={{ flex: 1, height: 8, background: '#1e1e1e', borderRadius: 4, overflow: 'hidden', border: '1px solid #2a2a2a' }}>
                                 <div style={{ width: `${w}%`, height: '100%', background: 'linear-gradient(90deg,#2a6a2a,#9ad4a5)', borderRadius: 4 }} />
                               </div>
-                              <span style={{ minWidth: 28, fontSize: 10, color: '#888' }}>{w}%</span>
+                              <span style={{ minWidth: 28, fontSize: 12, color: '#888' }}>{w}%</span>
                             </div>
                           </td>
                           {['0','1','2'].map(s => {
@@ -427,8 +463,8 @@ export default function DashboardDirectivo({ apiBase, token }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {seg.map((s, i) => (
-                      <tr key={i}>
+                    {seg.map((s) => (
+                      <tr key={`seg-${s.segmento ?? 'n'}`}>
                         <td style={{ fontWeight: 700, color: '#fff' }}>S{s.segmento ?? 'N/A'}</td>
                         <td className="text-danger">${(s.valor_vencido ?? 0).toLocaleString('es', { maximumFractionDigits: 2 })}</td>
                         <td className="text-success">${(s.valor_cobrado ?? 0).toLocaleString('es', { maximumFractionDigits: 2 })}</td>

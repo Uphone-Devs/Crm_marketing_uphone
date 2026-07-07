@@ -11,6 +11,29 @@ const SEGMENTOS_LABEL = {
   PLAZO: 'Plazo',
 };
 
+function handleCopiar(texto) {
+  navigator.clipboard.writeText(texto)
+    .then(() => showToast('Mensaje copiado al portapapeles', 'success'))
+    .catch(() => showToast('Error al copiar el mensaje', 'error'));
+}
+
+function getSegmentoColor(segmento) {
+  switch (segmento) {
+    case 'TODOS': return '#4caf50';
+    case 'MENSUALES': return '#2196f3';
+    case 'QUINCENALES': return '#ff9800';
+    case 'TRAMO_0': return '#00bcd4';
+    case 'TRAMO_1': return '#9c27b0';
+    case 'TRAMO_2': return '#e91e63';
+    case 'PLAZO': return '#f44336';
+    default: return 'var(--color-primary)';
+  }
+}
+
+function getSegmentoLabel(segmento) {
+  return SEGMENTOS_LABEL[segmento] || segmento.replace('_', ' ');
+}
+
 export default function AsesorMensajes({ usuario, cartera, compact = false }) {
   const [mensajes, setMensajes] = useState([]);
   const [inactivos, setInactivos] = useState([]);
@@ -31,7 +54,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
       setInactivos(arr.filter(m => m.activo === 0).slice(0, 30)); // Mostrar solo los últimos 30 inactivos
     } catch (err) {
       console.error('Error cargando mensajes broadcast:', err);
-      showToast('Error al cargar mensajes del supervisor', 'error');
+      showToast('Error al cargar mensajes del Jefe de Área', 'error');
     } finally {
       setLoading(false);
     }
@@ -77,26 +100,6 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
     return () => removeListener?.();
   }, [cargarMensajes]);
 
-  const handleCopiar = (texto) => {
-    navigator.clipboard.writeText(texto)
-      .then(() => showToast('Mensaje copiado al portapapeles', 'success'))
-      .catch(() => showToast('Error al copiar el mensaje', 'error'));
-  };
-
-  const getSegmentoColor = (segmento) => {
-    switch (segmento) {
-      case 'TODOS': return '#4caf50';
-      case 'MENSUALES': return '#2196f3';
-      case 'QUINCENALES': return '#ff9800';
-      case 'TRAMO_0': return '#00bcd4';
-      case 'TRAMO_1': return '#9c27b0';
-      case 'TRAMO_2': return '#e91e63';
-      case 'PLAZO': return '#f44336';
-      default: return 'var(--color-primary)';
-    }
-  };
-
-  const getSegmentoLabel = (segmento) => SEGMENTOS_LABEL[segmento] || segmento.replace('_', ' ');
 
   if (loading && mensajes.length === 0) {
     return (
@@ -110,24 +113,24 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
     if (mensajes.length === 0) return null; // Don't show anything in sidebar if no messages
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '30vh', overflowY: 'auto', paddingRight: 4 }}>
-        <h4 style={{ fontSize: 11, margin: 0, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mensajes Activos</h4>
+        <h4 style={{ fontSize: 12, margin: 0, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mensajes Activos</h4>
         {mensajes.map((msg) => (
           <div key={msg.id} style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 6, padding: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <span style={{ 
-                fontSize: 9, fontWeight: 800, padding: '2px 4px', borderRadius: 4, 
+                fontSize: 12, fontWeight: 800, padding: '2px 4px', borderRadius: 4, 
                 background: `${getSegmentoColor(msg.segmento_destino)}22`, color: getSegmentoColor(msg.segmento_destino),
               }}>
                 {getSegmentoLabel(msg.segmento_destino)}
               </span>
             </div>
-            <p style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap', fontSize: 11, lineHeight: 1.4, opacity: 0.9, maxHeight: 60, overflowY: 'auto' }}>
+            <p style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.4, opacity: 0.9, maxHeight: 60, overflowY: 'auto' }}>
               {msg.mensaje}
             </p>
-            <button 
+            <button type="button" 
               className="btn btn-outline" 
               onClick={() => handleCopiar(msg.mensaje)}
-              style={{ width: '100%', fontSize: 10, padding: '4px 8px', borderColor: 'rgba(0, 229, 255, 0.2)', color: '#00e5ff', display: 'flex', justifyContent: 'center' }}
+              style={{ width: '100%', fontSize: 12, padding: '4px 8px', borderColor: 'rgba(0, 229, 255, 0.2)', color: '#00e5ff', display: 'flex', justifyContent: 'center' }}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 12, marginRight: 4 }}>content_copy</span>
               Copiar
@@ -147,7 +150,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span 
             style={{ 
-              fontSize: 10, 
+              fontSize: 12, 
               fontWeight: 800, 
               padding: '4px 8px', 
               borderRadius: 4, 
@@ -163,10 +166,10 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
             Jefe de Area: {msg.supervisor_nombre}
           </div>
           {!isActive && (
-            <span style={{ fontSize: 10, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Inactivo</span>
+            <span style={{ fontSize: 12, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Inactivo</span>
           )}
         </div>
-        <div style={{ fontSize: 11, opacity: 0.5 }}>
+        <div style={{ fontSize: 12, opacity: 0.5 }}>
           {new Date(msg.creado_en).toLocaleString()}
         </div>
       </div>
@@ -176,7 +179,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
           {msg.mensaje}
         </p>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button 
+          <button type="button" 
             className="btn btn-outline" 
             onClick={() => handleCopiar(msg.mensaje)}
             style={{ borderColor: 'rgba(0, 229, 255, 0.3)', color: '#00e5ff' }}
@@ -198,10 +201,10 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
             Mensajes
           </h3>
           <p className="text-body-sm" style={{ opacity: 0.6, maxWidth: 600 }}>
-            Aquí encontrarás los textos redactados por tu supervisor para enviarlos por WhatsApp o SMS a tu cartera asignada.
+            Aquí encontrarás los textos redactados por tu Jefe de Area para enviarlos por WhatsApp o SMS a tu cartera asignada.
           </p>
         </div>
-        <button className="btn btn-ghost" onClick={cargarMensajes}>
+        <button type="button" className="btn btn-ghost" onClick={cargarMensajes}>
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
           Actualizar
         </button>
@@ -213,7 +216,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
         <div style={{ padding: 48, textAlign: 'center', opacity: 0.4, border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 48, marginBottom: 16 }}>chat_bubble_outline</span>
           <h4 style={{ margin: '0 0 8px' }}>No hay mensajes nuevos</h4>
-          <p style={{ margin: 0, fontSize: 13 }}>Tu supervisor aún no ha enviado mensajes para copiar.</p>
+          <p style={{ margin: 0, fontSize: 13 }}>Tu Jefe de Area aún no ha enviado mensajes para copiar.</p>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -223,7 +226,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
 
       {inactivos.length > 0 && (
         <div style={{ marginTop: 32, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 24 }}>
-          <button
+          <button type="button"
             onClick={() => setMostrarInactivos(!mostrarInactivos)}
             style={{
               width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -234,7 +237,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span className="material-symbols-outlined" style={{ opacity: 0.6 }}>history</span>
               <span style={{ fontWeight: 600, fontSize: 13 }}>Mensajes Anteriores (Inactivos)</span>
-              <span style={{ fontSize: 11, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>
+              <span style={{ fontSize: 12, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 12 }}>
                 {inactivos.length}
               </span>
             </div>

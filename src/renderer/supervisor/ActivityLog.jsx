@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './ActivityLog.css';
+const _EMPTY_ARR = [];
 
 /**
  * ActivityLog — Feed de actividad reciente del sistema (tipo notificación).
@@ -24,25 +25,27 @@ function formatTimeAgo(timestamp) {
   return `${Math.floor(diff / 3600)}h`;
 }
 
-export default function ActivityLog({ eventos = [] }) {
+export default function ActivityLog({ eventos = _EMPTY_ARR }) {
   const [visible, setVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
+  const [prevEventosLen, setPrevEventosLen] = useState(0);
 
-  // Mostrar al recibir nuevos eventos
+  // Mostrar inline cuando llegan nuevos eventos (evita render obsoleto vs useEffect)
+  if (eventos.length > 0 && eventos.length !== prevEventosLen) {
+    setPrevEventosLen(eventos.length);
+    setShouldRender(true);
+    setVisible(true);
+  }
+
+  // Auto-ocultar tras 5s — useEffect es correcto aquí porque necesita cleanup del timer
   useEffect(() => {
-    if (eventos.length > 0) {
-      setShouldRender(true);
-      setVisible(true);
-      
-      const timer = setTimeout(() => {
-        setVisible(false);
-        // Esperar a que termine la animación de salida para dejar de renderizar
-        setTimeout(() => setShouldRender(false), 400);
-      }, 5000);
-
-      return () => clearTimeout(timer);
-    }
-  }, [eventos]);
+    if (!visible) return;
+    const timer = setTimeout(() => {
+      setVisible(false);
+      setTimeout(() => setShouldRender(false), 400);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [visible]);
 
   if (!shouldRender || eventos.length === 0) return null;
 

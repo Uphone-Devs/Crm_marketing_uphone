@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Logo from './Logo';
 import './TopAppBar.css';
 
@@ -45,6 +45,19 @@ export default function TopAppBar({
   leftContent,
   asesorStats,
 }) {
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   if (asesorStats) {
     return (
       <header className="top-app-bar top-app-bar--asesor">
@@ -107,7 +120,7 @@ export default function TopAppBar({
         {/* Right: connection + status */}
         <div className="top-app-bar__right" style={{ marginLeft: 'auto', gap: 12 }}>
           <div className={`dot ${isConnected ? 'dot-primary dot-pulse' : 'dot-error'}`} style={{ width: 8, height: 8 }} />
-          <span style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          <span style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             {isConnected ? 'Conectado' : 'Sin conexión'}
           </span>
         </div>
@@ -125,7 +138,7 @@ export default function TopAppBar({
       {tabs && tabs.length > 0 && (
         <nav className="top-app-bar__tabs">
           {tabs.map(tab => (
-            <button
+            <button type="button"
               key={tab.id}
               className={`top-app-bar__tab ${activeTab === tab.id ? 'top-app-bar__tab--active' : ''}`}
               onClick={() => onTabChange?.(tab.id)}
@@ -149,7 +162,7 @@ export default function TopAppBar({
         )}
 
         {!hideUserInfo && (
-          <div className="top-app-bar__user">
+          <div className="top-app-bar__user" ref={dropdownRef} style={{ position: 'relative', cursor: 'pointer' }} onClick={() => setDropdownOpen(!dropdownOpen)}>
             <div className="top-app-bar__user-info">
               <span className="top-app-bar__user-name">{userName}</span>
               <span className="top-app-bar__user-role" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>{userRole}</span>
@@ -157,6 +170,30 @@ export default function TopAppBar({
             <div className="top-app-bar__avatar">
               <span className="material-symbols-outlined">person</span>
             </div>
+            
+            {dropdownOpen && (
+              <div style={{
+                position: 'absolute', top: '100%', right: 0, marginTop: 8,
+                background: '#1a1a1a', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8, padding: 8, zIndex: 100, minWidth: 160,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+              }}>
+                <button type="button"
+                  onClick={onLogout}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '8px 12px', borderRadius: 6,
+                    background: 'transparent', border: 'none', color: '#ff5252',
+                    fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,82,82,0.1)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>logout</span>
+                  Salir del panel
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

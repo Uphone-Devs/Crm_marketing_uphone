@@ -22,7 +22,7 @@ function CollapsibleSection({ sec, renderMensajeCard }) {
       transition: 'border-color 0.2s, background 0.2s',
     }}>
       {/* Header */}
-      <button
+      <button type="button"
         onClick={() => setOpen(v => !v)}
         style={{
           width: '100%', display: 'flex', alignItems: 'center', gap: 12,
@@ -40,13 +40,13 @@ function CollapsibleSection({ sec, renderMensajeCard }) {
               {sec.label.toUpperCase()}
             </span>
             <span style={{
-              fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 20,
+              fontSize: 12, fontWeight: 800, padding: '1px 7px', borderRadius: 20,
               background: sec.color + '22', color: sec.color, minWidth: 20, textAlign: 'center',
             }}>
               {sec.items.length}
             </span>
           </div>
-          <p style={{ margin: 0, fontSize: 11, opacity: 0.45, marginTop: 1 }}>{sec.sublabel}</p>
+          <p style={{ margin: 0, fontSize: 12, opacity: 0.45, marginTop: 1 }}>{sec.sublabel}</p>
         </div>
         <span className="material-symbols-outlined" style={{
           fontSize: 18, opacity: 0.4, transition: 'transform 0.2s',
@@ -81,6 +81,14 @@ function CollapsibleSection({ sec, renderMensajeCard }) {
   );
 }
 
+async function guardarSegmentosExtra(extras) {
+  try {
+    await window.api.invoke('db:setConfig', 'segmentos_broadcast_extra', JSON.stringify(extras));
+  } catch (err) {
+    console.error('Error guardando segmentos extra:', err);
+  }
+}
+
 export default function SupervisorMensajes({ usuario }) {
   const [mensaje, setMensaje] = useState('');
   const [segmentoDestino, setSegmentoDestino] = useState('TODOS');
@@ -104,13 +112,6 @@ export default function SupervisorMensajes({ usuario }) {
     } catch { /* si no existe, usar los base */ }
   }, []);
 
-  const guardarSegmentosExtra = async (extras) => {
-    try {
-      await window.api.invoke('db:setConfig', 'segmentos_broadcast_extra', JSON.stringify(extras));
-    } catch (err) {
-      console.error('Error guardando segmentos extra:', err);
-    }
-  };
 
   const handleAgregarTramo = async () => {
     const label = nuevoTramoLabel.trim();
@@ -236,12 +237,12 @@ export default function SupervisorMensajes({ usuario }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, opacity: 0.6 }}>person</span>
           <span style={{ fontSize: 12, fontWeight: 600 }}>{msg.supervisor_nombre}</span>
-          <span style={{ fontSize: 11, background: 'rgba(0, 229, 255, 0.1)', color: 'var(--color-primary)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
+          <span style={{ fontSize: 12, background: 'rgba(0, 229, 255, 0.1)', color: 'var(--color-primary)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
             {segmentos.find(s => s.id === msg.segmento_destino)?.label || msg.segmento_destino}
           </span>
-          {!isActive && <span style={{ fontSize: 10, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Desactivado</span>}
+          {!isActive && <span style={{ fontSize: 12, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Desactivado</span>}
         </div>
-        <span style={{ fontSize: 11, opacity: 0.5 }}>{new Date(msg.creado_en).toLocaleString()}</span>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{new Date(msg.creado_en).toLocaleString()}</span>
       </div>
       <p style={{ margin: '8px 0', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, opacity: 0.9 }}>
         {msg.mensaje}
@@ -256,12 +257,12 @@ export default function SupervisorMensajes({ usuario }) {
         </div>
         
         {isActive ? (
-          <button className="btn btn-outline btn-sm" onClick={() => handleDesactivar(msg.id)} style={{ padding: '4px 10px', fontSize: 11, color: '#ff5252', borderColor: '#ff5252' }}>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => handleDesactivar(msg.id)} style={{ padding: '4px 10px', fontSize: 12, color: '#ff5252', borderColor: '#ff5252' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
             Ocultar de Asesores
           </button>
         ) : (
-          <button 
+          <button type="button" 
             className="btn btn-outline btn-sm" 
             onClick={() => {
               setMensaje(msg.mensaje);
@@ -271,7 +272,7 @@ export default function SupervisorMensajes({ usuario }) {
               scrollToForm();
               showToast('Mensaje copiado al formulario. Revise y haga clic en Enviar.', 'info');
             }} 
-            style={{ padding: '4px 10px', fontSize: 11, color: '#00e5ff', borderColor: 'rgba(0, 229, 255, 0.3)' }}
+            style={{ padding: '4px 10px', fontSize: 12, color: '#00e5ff', borderColor: 'rgba(0, 229, 255, 0.3)' }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>recycling</span>
             Reusar Mensaje
@@ -293,7 +294,7 @@ export default function SupervisorMensajes({ usuario }) {
             Envíe promociones a los asesores para que las copien. Al enviar uno nuevo a un segmento, se reemplazará automáticamente el anterior en el panel de los asesores.
           </p>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={scrollToForm} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button type="button" className="btn btn-primary btn-sm" onClick={scrollToForm} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add_circle</span>
           Añadir Promoción
         </button>
@@ -308,10 +309,10 @@ export default function SupervisorMensajes({ usuario }) {
             <label className="text-label-sm" style={{ opacity: 0.6 }}>
               SEGMENTO DESTINO
             </label>
-            <button
+            <button type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => setMostrarNuevoTramo(v => !v)}
-              style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
+              style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
               title="Añadir nuevo tramo personalizado"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
@@ -336,7 +337,7 @@ export default function SupervisorMensajes({ usuario }) {
                 style={{ flex: 1, fontSize: 13, padding: '6px 10px' }}
                 maxLength={30}
               />
-              <button className="btn btn-primary btn-sm" onClick={handleAgregarTramo} style={{ whiteSpace: 'nowrap' }}>
+              <button type="button" className="btn btn-primary btn-sm" onClick={handleAgregarTramo} style={{ whiteSpace: 'nowrap' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check</span>
                 Añadir
               </button>
@@ -401,7 +402,7 @@ export default function SupervisorMensajes({ usuario }) {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button 
+          <button type="button" 
             className="btn btn-primary" 
             onClick={handleEnviar} 
             disabled={enviando || !mensaje.trim()}

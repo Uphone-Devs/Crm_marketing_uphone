@@ -7,7 +7,7 @@ function buildApiBase() {
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 
-const SEGMENTOS = [
+const INITIAL_SEGMENTOS = [
   { key: 'TODOS',       label: 'Todos los asesores',    icon: 'groups',         color: '#00e676', gradient: 'linear-gradient(135deg,#00e676,#00bfa5)' },
   { key: 'MENSUALES',   label: 'Campaña Mensual',        icon: 'calendar_month', color: '#29b6f6', gradient: 'linear-gradient(135deg,#29b6f6,#1565c0)' },
   { key: 'QUINCENALES', label: 'Campaña Quincenal',      icon: 'event_repeat',   color: '#ce93d8', gradient: 'linear-gradient(135deg,#ce93d8,#7b1fa2)' },
@@ -17,7 +17,168 @@ const SEGMENTOS = [
   { key: 'PLAZO',       label: 'Plazo  ·  +60 días',    icon: 'priority_high',  color: '#ef5350', gradient: 'linear-gradient(135deg,#ef5350,#b71c1c)' },
 ];
 
-const SEGMENTO_META = Object.fromEntries(SEGMENTOS.map(s => [s.key, s]));
+
+function SegmentoBadge({ keyVal, segmentoMeta }) {
+  const meta = segmentoMeta[keyVal] || {};
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      padding: '4px 11px', borderRadius: 20,
+      background: `${meta.color || '#888'}18`,
+      border: `1.5px solid ${meta.color || '#888'}50`,
+      color: meta.color || '#aaa',
+      fontSize: 12.5, fontWeight: 700, letterSpacing: 0.6,
+      textTransform: 'uppercase',
+    }}>
+      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{meta.icon || 'label'}</span>
+      {meta.label || keyVal}
+    </span>
+  );
+}
+
+function Acordeon({ id, label, icon, color, count, children, expandedId, onToggle }) {
+  const open = expandedId === id;
+  return (
+    <div style={{
+      borderRadius: 12,
+      overflow: 'hidden',
+      marginBottom: 8,
+      background: open ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.015)',
+      border: `1px solid ${open ? `${color}35` : 'rgba(255,255,255,0.06)'}`,
+      transition: 'border-color 0.2s',
+    }}>
+      <button type="button"
+        onClick={() => onToggle(open ? null : id)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+          padding: '14px 18px', background: 'transparent', border: 'none',
+          cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <span style={{
+          width: 8, height: 8, borderRadius: '50%',
+          background: color, flexShrink: 0,
+          boxShadow: open ? `0 0 8px ${color}` : 'none',
+          transition: 'box-shadow 0.2s',
+        }} />
+        <span className="material-symbols-outlined" style={{ fontSize: 18, color, flexShrink: 0 }}>{icon}</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: 'rgba(255,255,255,0.88)', letterSpacing: 0.3 }}>
+          {label}
+        </span>
+        <span style={{
+          marginLeft: 4,
+          background: count > 0 ? color : 'rgba(255,255,255,0.1)',
+          color: count > 0 ? '#000' : 'rgba(255,255,255,0.4)',
+          borderRadius: 20, padding: '1px 9px',
+          fontSize: 12, fontWeight: 800,
+          minWidth: 22, textAlign: 'center',
+        }}>
+          {count}
+        </span>
+        <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto', opacity: 0.35, color: 'white' }}>
+          {open ? 'expand_less' : 'expand_more'}
+        </span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '0 14px 14px' }}>
+          <div style={{ height: 1, background: `${color}25`, marginBottom: 14 }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {count === 0 ? (
+              <div style={{
+                textAlign: 'center', padding: '24px 0', opacity: 0.35,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 30 }}>inbox</span>
+                <p style={{ margin: 0, fontSize: 12 }}>Sin mensajes en esta categoría</p>
+              </div>
+            ) : children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MensajeCard({ m, showDelete, segmentoMeta, onDesactivar }) {
+  const meta = segmentoMeta[m.segmento_destino] || {};
+  return (
+    <div style={{
+      position: 'relative',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.06)',
+      borderLeft: `3px solid ${meta.color || '#555'}`,
+      borderRadius: 12,
+      padding: '14px 18px',
+      display: 'flex', flexDirection: 'column', gap: 12,
+      transition: 'box-shadow 0.2s',
+    }}>
+      {/* Meta-row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <SegmentoBadge keyVal={m.segmento_destino} segmentoMeta={segmentoMeta} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: 0.45, fontSize: 12 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 13 }}>person</span>
+          {m.supervisor_nombre || 'Jefe de Area'}
+        </div>
+        <div style={{ marginLeft: 'auto', opacity: 0.3, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
+          {m.creado_en ? new Date(m.creado_en).toLocaleString('es-EC', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
+        </div>
+      </div>
+
+      {/* Contenido del mensaje */}
+      <p style={{
+        margin: 0,
+        fontSize: 13,
+        lineHeight: 1.7,
+        color: 'rgba(255,255,255,0.82)',
+        background: 'rgba(0,0,0,0.25)',
+        borderRadius: 10,
+        padding: '12px 16px',
+        whiteSpace: 'pre-wrap',
+        fontFamily: 'inherit',
+        letterSpacing: 0.15,
+      }}>
+        {m.mensaje}
+      </p>
+
+      {/* Footer */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+        {(m.pagos_posteriores ?? 0) > 0 && (
+          <span style={{
+            fontSize: 12.5, color: '#00e676',
+            background: 'rgba(0,230,118,0.1)',
+            border: '1px solid rgba(0,230,118,0.25)',
+            borderRadius: 20, padding: '3px 10px',
+            display: 'flex', alignItems: 'center', gap: 5, fontWeight: 700,
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>
+            {m.pagos_posteriores} pago(s)
+          </span>
+        )}
+        {showDelete && (
+          <button type="button"
+            onClick={() => onDesactivar(m.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              background: 'rgba(239,83,80,0.1)',
+              border: '1px solid rgba(239,83,80,0.3)',
+              color: '#ef5350',
+              borderRadius: 20, padding: '4px 12px',
+              fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              transition: 'background 0.18s, opacity 0.18s, border-color 0.18s, color 0.18s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.22)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.1)'; }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>cancel</span>
+            Desactivar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function MessagesConfig() {
   const [loading,   setLoading]   = useState(true);
@@ -26,6 +187,28 @@ export default function MessagesConfig() {
   const [segmento,  setSegmento]  = useState('TODOS');
   const [mensajes,  setMensajes]  = useState([]);
   const [expanded,  setExpanded]  = useState('activos');
+  const [segmentos,    setSegmentos]    = useState(INITIAL_SEGMENTOS);
+  const [addingTramo,  setAddingTramo]  = useState(false);
+  const [nuevoTramo,   setNuevoTramo]   = useState('');
+
+  const cargarSegmentos = useCallback(async () => {
+    try {
+      const apiBase = buildApiBase();
+      const authToken = localStorage.getItem('auth_token');
+      let custom = [];
+      if (apiBase) {
+        const res = await fetch(`${apiBase}/segmentos`, { headers: { Authorization: `Bearer ${authToken}` } });
+        custom = await res.json();
+      } else {
+        custom = await window.api.invoke('db:getSegmentos');
+      }
+      if (Array.isArray(custom)) {
+        setSegmentos([...INITIAL_SEGMENTOS, ...custom]);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
 
   const cargarMensajes = useCallback(async () => {
     try {
@@ -46,7 +229,10 @@ export default function MessagesConfig() {
     }
   }, []);
 
-  useEffect(() => { cargarMensajes(); }, [cargarMensajes]);
+  useEffect(() => { 
+    cargarMensajes(); 
+    cargarSegmentos();
+  }, [cargarMensajes, cargarSegmentos]);
 
   // ── Tiempo real: escuchar eventos WS desde el main process ──────────
   useEffect(() => {
@@ -109,175 +295,8 @@ export default function MessagesConfig() {
   const efectivos   = mensajes.filter(m => m.activo === 0 && (m.pagos_posteriores ?? 0) > 0);
   const noEfectivos = mensajes.filter(m => m.activo === 0 && (m.pagos_posteriores ?? 0) === 0);
 
+  const SEGMENTO_META = Object.fromEntries(segmentos.map(s => [s.key, s]));
   const segActivo = SEGMENTO_META[segmento] || {};
-
-  /* ── Badge de segmento ──────────────────────────────────────────────── */
-  function SegmentoBadge({ keyVal }) {
-    const meta = SEGMENTO_META[keyVal] || {};
-    return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 5,
-        padding: '4px 11px', borderRadius: 20,
-        background: `${meta.color || '#888'}18`,
-        border: `1.5px solid ${meta.color || '#888'}50`,
-        color: meta.color || '#aaa',
-        fontSize: 10.5, fontWeight: 700, letterSpacing: 0.6,
-        textTransform: 'uppercase',
-      }}>
-        <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{meta.icon || 'label'}</span>
-        {meta.label || keyVal}
-      </span>
-    );
-  }
-
-  /* ── Tarjeta de mensaje ─────────────────────────────────────────────── */
-  function MensajeCard({ m, showDelete }) {
-    const meta = SEGMENTO_META[m.segmento_destino] || {};
-    return (
-      <div style={{
-        position: 'relative',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderLeft: `3px solid ${meta.color || '#555'}`,
-        borderRadius: 12,
-        padding: '14px 18px',
-        display: 'flex', flexDirection: 'column', gap: 12,
-        transition: 'box-shadow 0.2s',
-      }}>
-        {/* Meta-row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <SegmentoBadge keyVal={m.segmento_destino} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: 0.45, fontSize: 11 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>person</span>
-            {m.supervisor_nombre || 'Supervisor'}
-          </div>
-          <div style={{ marginLeft: 'auto', opacity: 0.3, fontSize: 10.5, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
-            {m.creado_en ? new Date(m.creado_en).toLocaleString('es-EC', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
-          </div>
-        </div>
-
-        {/* Contenido del mensaje */}
-        <p style={{
-          margin: 0,
-          fontSize: 13,
-          lineHeight: 1.7,
-          color: 'rgba(255,255,255,0.82)',
-          background: 'rgba(0,0,0,0.25)',
-          borderRadius: 10,
-          padding: '12px 16px',
-          whiteSpace: 'pre-wrap',
-          fontFamily: 'inherit',
-          letterSpacing: 0.15,
-        }}>
-          {m.mensaje}
-        </p>
-
-        {/* Footer */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
-          {(m.pagos_posteriores ?? 0) > 0 && (
-            <span style={{
-              fontSize: 10.5, color: '#00e676',
-              background: 'rgba(0,230,118,0.1)',
-              border: '1px solid rgba(0,230,118,0.25)',
-              borderRadius: 20, padding: '3px 10px',
-              display: 'flex', alignItems: 'center', gap: 5, fontWeight: 700,
-            }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>
-              {m.pagos_posteriores} pago(s)
-            </span>
-          )}
-          {showDelete && (
-            <button
-              onClick={() => handleDesactivar(m.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                background: 'rgba(239,83,80,0.1)',
-                border: '1px solid rgba(239,83,80,0.3)',
-                color: '#ef5350',
-                borderRadius: 20, padding: '4px 12px',
-                fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                transition: 'all 0.18s',
-                outline: 'none',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.22)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.1)'; }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>cancel</span>
-              Desactivar
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  /* ── Acordeón ───────────────────────────────────────────────────────── */
-  function Acordeon({ id, label, icon, color, count, children }) {
-    const open = expanded === id;
-    return (
-      <div style={{
-        borderRadius: 12,
-        overflow: 'hidden',
-        marginBottom: 8,
-        background: open ? 'rgba(255,255,255,0.025)' : 'rgba(255,255,255,0.015)',
-        border: `1px solid ${open ? `${color}35` : 'rgba(255,255,255,0.06)'}`,
-        transition: 'border-color 0.2s',
-      }}>
-        <button
-          onClick={() => setExpanded(open ? null : id)}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 12,
-            padding: '14px 18px', background: 'transparent', border: 'none',
-            cursor: 'pointer', textAlign: 'left', outline: 'none',
-          }}
-        >
-          {/* Dot indicator */}
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%',
-            background: color, flexShrink: 0,
-            boxShadow: open ? `0 0 8px ${color}` : 'none',
-            transition: 'box-shadow 0.2s',
-          }} />
-          <span className="material-symbols-outlined" style={{ fontSize: 18, color, flexShrink: 0 }}>{icon}</span>
-          <span style={{ fontWeight: 700, fontSize: 13, color: 'rgba(255,255,255,0.88)', letterSpacing: 0.3 }}>
-            {label}
-          </span>
-          {/* Badge count */}
-          <span style={{
-            marginLeft: 4,
-            background: count > 0 ? color : 'rgba(255,255,255,0.1)',
-            color: count > 0 ? '#000' : 'rgba(255,255,255,0.4)',
-            borderRadius: 20, padding: '1px 9px',
-            fontSize: 11, fontWeight: 800,
-            minWidth: 22, textAlign: 'center',
-          }}>
-            {count}
-          </span>
-          <span className="material-symbols-outlined" style={{ fontSize: 18, marginLeft: 'auto', opacity: 0.35, color: 'white' }}>
-            {open ? 'expand_less' : 'expand_more'}
-          </span>
-        </button>
-
-        {open && (
-          <div style={{ padding: '0 14px 14px' }}>
-            <div style={{ height: 1, background: `${color}25`, marginBottom: 14 }} />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {count === 0 ? (
-                <div style={{
-                  textAlign: 'center', padding: '24px 0', opacity: 0.35,
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 30 }}>inbox</span>
-                  <p style={{ margin: 0, fontSize: 12 }}>Sin mensajes en esta categoría</p>
-                </div>
-              ) : children}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
 
   if (loading) {
     return (
@@ -308,7 +327,7 @@ export default function MessagesConfig() {
             Redacta el mensaje que los gestores deben enviar a su cartera, elige el tramo de trabajo y envíalo en tiempo real.
           </p>
         </div>
-        <button
+        <button type="button"
           className="btn btn-ghost btn-sm"
           onClick={cargarMensajes}
           style={{ marginLeft: 'auto', flexShrink: 0, opacity: 0.5 }}
@@ -331,21 +350,21 @@ export default function MessagesConfig() {
         {/* Label */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#00e676' }}>edit_note</span>
-          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase' }}>
             Nuevo Mensaje
           </span>
         </div>
 
         {/* Segmento Destino */}
         <div style={{ marginBottom: 18 }}>
-          <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+          <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
             Segmento Destino
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {SEGMENTOS.map(s => {
+            {segmentos.map(s => {
               const active = segmento === s.key;
               return (
-                <button
+                <button type="button"
                   key={s.key}
                   onClick={() => setSegmento(s.key)}
                   style={{
@@ -355,8 +374,8 @@ export default function MessagesConfig() {
                     background: active ? `${s.color}20` : 'transparent',
                     color: active ? s.color : 'rgba(255,255,255,0.5)',
                     fontSize: 12, fontWeight: active ? 700 : 400,
-                    cursor: 'pointer', outline: 'none',
-                    transition: 'all 0.18s ease',
+                    cursor: 'pointer',
+                    transition: 'background 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, color 0.18s ease',
                     boxShadow: active ? `0 0 12px ${s.color}30` : 'none',
                   }}
                 >
@@ -365,12 +384,81 @@ export default function MessagesConfig() {
                 </button>
               );
             })}
+            {addingTramo ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="text"
+                  value={nuevoTramo}
+                  onChange={e => setNuevoTramo(e.target.value)}
+                  onKeyDown={async e => {
+                    if (e.key === 'Escape') { setAddingTramo(false); setNuevoTramo(''); }
+                    if (e.key === 'Enter') {
+                      const nombre = nuevoTramo.trim();
+                      if (!nombre) return;
+                      const clave = 'CUSTOM_' + Date.now();
+                      const color = '#9c27b0';
+                      try {
+                        const apiBase = buildApiBase();
+                        const authToken = localStorage.getItem('auth_token');
+                        if (apiBase) {
+                          await fetch(`${apiBase}/segmentos`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+                            body: JSON.stringify({ clave, etiqueta: nombre, color }),
+                          });
+                        } else {
+                          await window.api.invoke('db:insertSegmento', clave, nombre, color);
+                        }
+                        showToast('Tramo añadido', 'success');
+                        cargarSegmentos();
+                      } catch {
+                        showToast('Error al añadir tramo', 'error');
+                      }
+                      setAddingTramo(false);
+                      setNuevoTramo('');
+                    }
+                  }}
+                  placeholder="Nombre del tramo…"
+                  style={{
+                    background: 'rgba(0,0,0,0.3)',
+                    border: '1.5px solid rgba(156,39,176,0.6)',
+                    borderRadius: 18, padding: '5px 12px',
+                    color: 'rgba(255,255,255,0.9)', fontSize: 12, width: 170,
+                  }}
+                />
+                <button type="button"
+                  onClick={() => { setAddingTramo(false); setNuevoTramo(''); }}
+                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', padding: 0 }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                </button>
+              </div>
+            ) : (
+              <button type="button"
+                onClick={() => setAddingTramo(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '7px 14px', borderRadius: 22,
+                  border: '1.5px dashed rgba(255,255,255,0.2)',
+                  background: 'transparent',
+                  color: 'rgba(255,255,255,0.5)',
+                  fontSize: 12, fontWeight: 400,
+                  cursor: 'pointer',
+                  transition: 'background 0.18s ease, opacity 0.18s ease, border-color 0.18s ease, color 0.18s ease',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.4)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = 'rgba(255,255,255,0.5)'; }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
+                Añadir tramo
+              </button>
+            )}
           </div>
         </div>
 
         {/* Textarea */}
         <div style={{ marginBottom: 18, position: 'relative' }}>
-          <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+          <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
             Redactar Mensaje
           </p>
           <textarea
@@ -389,7 +477,6 @@ export default function MessagesConfig() {
               fontFamily: 'inherit',
               resize: 'vertical',
               minHeight: 110,
-              outline: 'none',
               transition: 'border-color 0.18s',
               boxSizing: 'border-box',
             }}
@@ -400,7 +487,7 @@ export default function MessagesConfig() {
           {mensaje.trim() && (
             <span style={{
               position: 'absolute', bottom: 10, right: 12,
-              fontSize: 10, opacity: 0.3,
+              fontSize: 12, opacity: 0.3,
             }}>
               {mensaje.length} chars
             </span>
@@ -416,14 +503,14 @@ export default function MessagesConfig() {
               background: `${segActivo.color || '#00e676'}15`,
               border: `1.5px solid ${segActivo.color || '#00e676'}40`,
               color: segActivo.color || '#00e676',
-              fontSize: 11, fontWeight: 700,
+              fontSize: 12, fontWeight: 700,
             }}>
               <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{segActivo.icon || 'groups'}</span>
               {segActivo.label || 'Todos'}
             </span>
           </div>
 
-          <button
+          <button type="button"
             onClick={handleEnviar}
             disabled={sending || !mensaje.trim()}
             style={{
@@ -437,8 +524,7 @@ export default function MessagesConfig() {
               fontSize: 13, fontWeight: 800,
               cursor: sending || !mensaje.trim() ? 'not-allowed' : 'pointer',
               boxShadow: !sending && mensaje.trim() ? '0 4px 18px rgba(0,230,118,0.35)' : 'none',
-              transition: 'all 0.2s ease',
-              outline: 'none',
+              transition: 'background 0.2s ease, opacity 0.2s ease, border-color 0.2s ease, color 0.2s ease',
             }}
           >
             {sending ? (
@@ -452,20 +538,20 @@ export default function MessagesConfig() {
 
       {/* ── Acordeones de estado ─────────────────────────────────────────── */}
       <div>
-        <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
+        <p style={{ margin: '0 0 14px', fontSize: 12, fontWeight: 800, letterSpacing: 0.8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
           Estado de Mensajes
         </p>
 
-        <Acordeon id="activos" label="Mensajes Activos" icon="notifications_active" color="#00e676" count={activos.length}>
-          {activos.map(m => <MensajeCard key={m.id} m={m} showDelete />)}
+        <Acordeon id="activos" label="Mensajes Activos" icon="notifications_active" color="#00e676" count={activos.length} expandedId={expanded} onToggle={setExpanded}>
+          {activos.map(m => <MensajeCard key={m.id} m={m} showDelete segmentoMeta={SEGMENTO_META} onDesactivar={handleDesactivar} />)}
         </Acordeon>
 
-        <Acordeon id="efectivos" label="Mensajes Efectivos" icon="trending_up" color="#29b6f6" count={efectivos.length}>
-          {efectivos.map(m => <MensajeCard key={m.id} m={m} />)}
+        <Acordeon id="efectivos" label="Mensajes Efectivos" icon="trending_up" color="#29b6f6" count={efectivos.length} expandedId={expanded} onToggle={setExpanded}>
+          {efectivos.map(m => <MensajeCard key={m.id} m={m} segmentoMeta={SEGMENTO_META} onDesactivar={handleDesactivar} />)}
         </Acordeon>
 
-        <Acordeon id="no_efectivos" label="Mensajes No Efectivos" icon="trending_down" color="#ef5350" count={noEfectivos.length}>
-          {noEfectivos.map(m => <MensajeCard key={m.id} m={m} />)}
+        <Acordeon id="no_efectivos" label="Mensajes No Efectivos" icon="trending_down" color="#ef5350" count={noEfectivos.length} expandedId={expanded} onToggle={setExpanded}>
+          {noEfectivos.map(m => <MensajeCard key={m.id} m={m} segmentoMeta={SEGMENTO_META} onDesactivar={handleDesactivar} />)}
         </Acordeon>
       </div>
 

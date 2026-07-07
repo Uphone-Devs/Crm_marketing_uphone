@@ -608,6 +608,14 @@ function registerIpcHandlers() {
     }
   });
 
+  // ── SEGMENTOS / TRAMOS DINÁMICOS ────────────────────────
+  ipcMain.handle('db:getSegmentos', async () => {
+    return require('./database/queries').getSegmentosConfig();
+  });
+  ipcMain.handle('db:insertSegmento', async (event, clave, etiqueta, color) => {
+    return require('./database/queries').insertSegmentoConfig(clave, etiqueta, color);
+  });
+
   // ── MENSAJES BROADCAST ────────────────────────────────
   ipcMain.handle('db:getMensajesBroadcast', async () => {
     return getMensajesBroadcast();

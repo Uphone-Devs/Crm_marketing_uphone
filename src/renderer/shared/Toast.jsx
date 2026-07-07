@@ -1,18 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import './Toast.css';
+import { setAddToastFn } from './toastUtils';
 
-let addToastFn = null;
-
-/**
- * Muestra un toast.
- * @param {string} message - Texto del toast
- * @param {'info'|'success'|'warning'|'error'} type
- * @param {number} duration - ms antes de cerrar (0 = persistente, requiere clic)
- * @param {object} [opts] - { onClick, actionLabel }
- */
-export function showToast(message, type = 'info', duration = 2500, opts = {}) {
-  if (addToastFn) addToastFn({ message, type, duration, id: Date.now() + Math.random(), ...opts });
-}
+export { showToast } from './toastUtils';
 
 export default function ToastContainer() {
   const [toasts, setToasts] = useState([]);
@@ -21,11 +11,14 @@ export default function ToastContainer() {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  addToastFn = useCallback((toast) => {
-    setToasts(prev => [...prev, toast]);
-    if (toast.duration > 0) {
-      setTimeout(() => dismiss(toast.id), toast.duration);
-    }
+  useEffect(() => {
+    setAddToastFn((toast) => {
+      setToasts(prev => [...prev, toast]);
+      if (toast.duration > 0) {
+        setTimeout(() => dismiss(toast.id), toast.duration);
+      }
+    });
+    return () => setAddToastFn(null);
   }, [dismiss]);
 
   return (

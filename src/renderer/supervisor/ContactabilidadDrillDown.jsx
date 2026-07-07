@@ -93,11 +93,11 @@ export default function ContactabilidadDrillDown({ open, onClose, asesorId, ases
           background: 'rgba(255,255,255,0.03)', border: `1px solid ${info.color}33`, borderLeft: `3px solid ${info.color}`,
         }}>
           <div>
-            <div style={{ fontSize: 10, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               {fecha ? `Día ${fecha}` : 'Hoy'}{campanaId ? ` · Campaña #${campanaId}` : ''}
             </div>
             <div style={{ fontSize: 18, fontWeight: 800, color: info.color, marginTop: 2 }}>
-              {filtrados.length.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 500, opacity: 0.7 }}>{info.label?.toLowerCase()}</span>
+              {filtrados.length.toLocaleString()} <span style={{ fontSize: 12, fontWeight: 500, opacity: 0.7 }}>{info.label?.toLowerCase()}</span>
             </div>
           </div>
 
@@ -116,7 +116,7 @@ export default function ContactabilidadDrillDown({ open, onClose, asesorId, ases
           </div>
         ) : (
           <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden', maxHeight: 500, overflowY: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead style={{ position: 'sticky', top: 0, background: '#1a1a1a', zIndex: 1 }}>
                 <tr style={{ textAlign: 'left' }}>
                   <th style={th}>Hora</th>
@@ -139,13 +139,13 @@ export default function ContactabilidadDrillDown({ open, onClose, asesorId, ases
                     <td style={td}><span className="text-mono">{r.telefono || '—'}</span></td>
                     <td style={td}>
                       {r.empresa
-                        ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
+                        ? <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
                         : '—'}
                     </td>
                     <td style={td}>
                       {r.tipificacion_codigo
-                        ? <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: `${info.color}22`, color: info.color }}>{r.tipificacion_codigo}</span>
-                        : <span style={{ fontSize: 9, fontStyle: 'italic', opacity: 0.5 }}>sin tipificar</span>}
+                        ? <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: `${info.color}22`, color: info.color }}>{r.tipificacion_codigo}</span>
+                        : <span style={{ fontSize: 12, fontStyle: 'italic', opacity: 0.5 }}>sin tipificar</span>}
                     </td>
                     <td style={{ ...td, textAlign: 'right' }}><span className="text-mono">{fmtDuracion(r.duracion_seg)}</span></td>
                     <td style={{ ...td, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.75 }}>{r.notas || '—'}</td>
@@ -160,5 +160,5 @@ export default function ContactabilidadDrillDown({ open, onClose, asesorId, ases
   );
 }
 
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid rgba(255,255,255,0.08)' };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4, borderBottom: '1px solid rgba(255,255,255,0.08)' };
 const td = { padding: '7px 10px', verticalAlign: 'middle' };

@@ -152,16 +152,16 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <div>
-            <span style={{ fontSize: 10, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>SUPERVISOR · DETALLE</span>
+            <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>JEFE DE ÁREA · DETALLE</span>
             <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>{titulo}</h3>
-            <p style={{ margin: '2px 0 0', fontSize: 11, opacity: 0.5 }}>{subtitulo}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.5 }}>{subtitulo}</p>
             {(fecha || campanaId) && (
-              <p style={{ margin: '2px 0 0', fontSize: 10, opacity: 0.4, fontStyle: 'italic' }}>
+              <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.4, fontStyle: 'italic' }}>
                 Filtrado por: {fecha && `día ${fecha}`}{fecha && campanaId && ' · '}{campanaId && `campaña #${campanaId}`}
               </p>
             )}
           </div>
-          <button onClick={onClose} style={{
+          <button type="button" onClick={onClose} style={{
             background: 'transparent', border: 'none', color: 'inherit',
             cursor: 'pointer', display: 'flex', padding: 4,
           }}>
@@ -179,7 +179,7 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
               position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
               fontSize: 14, opacity: 0.4, pointerEvents: 'none',
             }}>search</span>
-            <input
+            <input aria-label="Campo"
               type="text"
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
@@ -187,7 +187,7 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
               style={{
                 width: '100%', padding: '5px 10px 5px 28px', fontSize: 12,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
           </div>
@@ -212,7 +212,7 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
               <p style={{ marginTop: 8, fontSize: 12 }}>Sin registros para los filtros aplicados</p>
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left', position: 'sticky', top: 0 }}>
                   <th style={th}>Hora</th>
@@ -234,20 +234,20 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
                   const color = TIPO_COLOR[r.tipificacion_codigo] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc' };
                   return (
                     <tr key={`d-${r.cdr_id}`} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{fmtHora(r.hora_gestion)}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_gestion)}</span></td>
                       <td style={td}>{r.asesor_nombre || '—'}</td>
                       <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || '—'}</td>
                       <td style={td}><span className="text-mono">{r.cedula || '—'}</span></td>
                       <td style={td}><span className="text-mono">{r.telefono || '—'}</span></td>
                       <td style={td}>
                         {r.empresa ? (
-                          <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)' }}>{r.empresa}</span>
+                          <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)' }}>{r.empresa}</span>
                         ) : '—'}
                       </td>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{r.contrato || '—'}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{r.contrato || '—'}</span></td>
                       <td style={td}>
                         <span style={{
-                          fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
+                          fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
                           background: color.bg, color: color.fg, whiteSpace: 'nowrap',
                         }}>
                           {TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc}
@@ -256,11 +256,11 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
                       <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>
                         {r.monto_acordado != null
                           ? <span style={{ color: 'var(--color-primary)' }}>{fmt$(r.monto_acordado)}</span>
-                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 10 }}>sin capturar</span>}
+                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 12 }}>sin capturar</span>}
                       </td>
                       <td style={td}>
                         {r.fecha_promesa ? (
-                          <span style={{ color: '#64b5f6', fontSize: 10 }}>⏰ {fmtHora(r.fecha_promesa)}</span>
+                          <span style={{ color: '#64b5f6', fontSize: 12 }}>⏰ {fmtHora(r.fecha_promesa)}</span>
                         ) : <span style={{ opacity: 0.3 }}>—</span>}
                       </td>
                       <td style={{ ...td, textAlign: 'right', color: '#ef4444', fontWeight: 600 }}>
@@ -282,7 +282,7 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
   );
 }
 
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
 const td = { padding: '7px 10px', verticalAlign: 'middle' };
 
 function Kpi({ label, value, color, warn }) {
@@ -292,7 +292,7 @@ function Kpi({ label, value, color, warn }) {
       background: warn ? 'rgba(255,152,0,0.1)' : 'rgba(255,255,255,0.04)',
       border: '1px solid ' + (warn ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.06)'),
     }}>
-      <div style={{ fontSize: 8, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 14, fontWeight: 800, color: color || 'inherit' }}>{value}</div>
     </div>
   );
