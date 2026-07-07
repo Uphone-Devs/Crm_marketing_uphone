@@ -205,19 +205,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const wsRef = useRef(null);
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
   const estadoRef = useRef(estadoActual);
-  const metricasRef = useRef({ 
-    marcaciones, 
-    tiemposAcumulados, 
-    totalGestiones, 
-    totalCompromisos,
-    tiempoEstado 
+  const metricasRef = useRef({
+    marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
+    wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos,
   });
 
   // Sincronizar Refs con el estado de React (sin disparar re-renderizados)
   useEffect(() => { estadoRef.current = estadoActual; }, [estadoActual]);
   useEffect(() => {
-    metricasRef.current = { marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado };
-  }, [marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado]);
+    metricasRef.current = {
+      marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
+      wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos,
+    };
+  }, [marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
+      wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos]);
 
   // ══════════════════════════════════════════════════════════
   // UNIVERSAL DATA FETCHING (Local vs Remote)
@@ -448,20 +449,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-    const { marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado } = metricasRef.current;
+    const {
+      marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
+      wspDetalle: _wsp, smsDetalle: _sms, emailDetalle: _mail,
+      compCumplidos: _cumpl, compReagendados: _reag, compIncumplidos: _incump,
+    } = metricasRef.current;
     const est = estadoRef.current;
 
-    // Calcular tiempos actuales (incluyendo el tick en curso)
     const currentTiempoProductivo =
       (tiemposAcumulados[1] || 0) + (est?.id === 1 ? tiempoEstado : 0);
-
-    const currentTiempoImproductivo = [2, 3, 4, 5].reduce((acc, id) => {
-      return acc + (tiemposAcumulados[id] || 0) + (est?.id === id ? tiempoEstado : 0);
-    }, 0);
-
+    const currentTiempoImproductivo = [2, 3, 4, 5].reduce((acc, id) =>
+      acc + (tiemposAcumulados[id] || 0) + (est?.id === id ? tiempoEstado : 0), 0);
     const currentProductividad = marcaciones > 0
-      ? Math.round((totalCompromisos / marcaciones) * 100)
-      : 0;
+      ? Math.round((totalCompromisos / marcaciones) * 100) : 0;
+
+    const sumObj = (o) => Object.values(o || {}).reduce((a, b) => a + b, 0);
 
     ws.send(JSON.stringify({
       tipo: 'METRICAS_ASESOR',
@@ -475,7 +477,18 @@ export default function AsesorPanel({ usuario, onLogout }) {
       tiempo_productivo: currentTiempoProductivo,
       tiempo_improductivo: currentTiempoImproductivo,
       estado_actual_id: est?.id || null,
-      progreso_campana: progresoCampana
+      progreso_campana: progresoCampana,
+      // Mensajería en tiempo real (S0/S1/S2)
+      wsp_enviados:     sumObj(_wsp),
+      wsp_detalle:      _wsp  || { 0: 0, 1: 0, 2: 0 },
+      sms_enviados:     sumObj(_sms),
+      sms_detalle:      _sms  || { 0: 0, 1: 0, 2: 0 },
+      correos_enviados: sumObj(_mail),
+      email_detalle:    _mail || { 0: 0, 1: 0, 2: 0 },
+      // Compromisos breakdown
+      compromisos_cumplidos:   _cumpl  || 0,
+      compromisos_reagendados: _reag   || 0,
+      compromisos_incumplidos: _incump || 0,
     }));
   }, [usuario.id, progresoCampana]);
 

@@ -146,13 +146,30 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'INCUMP'    } }).catch(() => 0),
     ]);
 
-    const cdrsConTipif = await db.cdr.count({
-      where: {
-        usuarioId: targetId,
-        timestampInicio: { gte: inicio, lte: fin },
-        tipificacion: { codigo: { in: codigosCompromiso } },
-      },
-    }).catch(() => 0);
+    const [cdrsConTipif, tiemposEstado] = await Promise.all([
+      db.cdr.count({
+        where: {
+          usuarioId: targetId,
+          timestampInicio: { gte: inicio, lte: fin },
+          tipificacion: { codigo: { in: codigosCompromiso } },
+        },
+      }).catch(() => 0),
+      db.evento.groupBy({
+        by: ['estadoId'],
+        where: {
+          usuarioId: targetId,
+          tipo: 'ESTADO',
+          timestamp: { gte: inicio, lte: fin },
+          duracionSeg: { not: null },
+        },
+        _sum: { duracionSeg: true },
+      }).catch(() => []),
+    ]);
+
+    const tiempoAlAire = Number(tiemposEstado.find(e => e.estadoId === 1)?._sum?.duracionSeg || 0);
+    const tiempoMuerto = tiemposEstado
+      .filter(e => e.estadoId !== 1)
+      .reduce((acc, e) => acc + Number(e._sum?.duracionSeg || 0), 0);
 
     res.json({
       usuario_id: targetId,
@@ -163,6 +180,8 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       agendados,
       gestionados,
       conectado: false,
+      tiempo_al_aire: tiempoAlAire,
+      tiempo_muerto:  tiempoMuerto,
       wsp_enviados:     wspEnv,
       sms_enviados:     rcsEnv,
       correos_enviados: correoEnv,

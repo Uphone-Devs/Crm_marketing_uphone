@@ -536,7 +536,24 @@ export default function JefePanel({ usuario, onLogout }) {
         // Exponer también al nivel superior para AdvancedMetricsCharts
         total_asignados:     wsM.progreso_campana?.total      !== undefined ? wsM.progreso_campana.total      : (dbM.total_asignados  || 0),
         gestionados_base:    wsM.progreso_campana?.gestionados !== undefined ? wsM.progreso_campana.gestionados : (dbM.gestionados_base || 0),
-        // Métricas de cobranza — solo DB (no viajan por WS)
+        // Mensajería — WS tiene prioridad (tiempo real); DB como fallback
+        wsp_enviados:        wsM.wsp_enviados     !== undefined ? wsM.wsp_enviados     : (dbM.wsp_enviados     || 0),
+        sms_enviados:        wsM.sms_enviados     !== undefined ? wsM.sms_enviados     : (dbM.sms_enviados     || 0),
+        correos_enviados:    wsM.correos_enviados !== undefined ? wsM.correos_enviados : (dbM.correos_enviados  || 0),
+        wsp_detalle:         wsM.wsp_detalle   || dbM.wsp_detalle   || { 0: 0, 1: 0, 2: 0 },
+        sms_detalle:         wsM.sms_detalle   || dbM.sms_detalle   || { 0: 0, 1: 0, 2: 0 },
+        email_detalle:       wsM.email_detalle || dbM.email_detalle || { 0: 0, 1: 0, 2: 0 },
+        // Compromisos breakdown — WS tiene prioridad
+        compromisos_cumplidos:   wsM.compromisos_cumplidos   !== undefined ? wsM.compromisos_cumplidos   : (dbM.compromisos_cumplidos   || 0),
+        compromisos_reagendados: wsM.compromisos_reagendados !== undefined ? wsM.compromisos_reagendados : (dbM.compromisos_reagendados || 0),
+        compromisos_incumplidos: wsM.compromisos_incumplidos !== undefined ? wsM.compromisos_incumplidos : (dbM.compromisos_incumplidos || 0),
+        // ratio_eficacia: gestiones / marcaciones
+        ratio_eficacia: (() => {
+          const marc = wsM.marcaciones !== undefined ? wsM.marcaciones : (dbM.total_marcaciones || 0);
+          const gest = wsM.total_gestiones !== undefined ? wsM.total_gestiones : (dbM.cdrs_total || 0);
+          return marc > 0 ? Math.round((gest / marc) * 100) : 0;
+        })(),
+        // Métricas de cobranza — solo DB
         monto_comprometido:  dbM.monto_comprometido  || 0,
         mora_total_base:     dbM.mora_total_base      || 0,
         contactos_efectivos: dbM.contactos_efectivos  || 0,
@@ -544,9 +561,6 @@ export default function JefePanel({ usuario, onLogout }) {
         monto_prometido:     dbM.monto_prometido      || 0,
         pagos_recaudados:    dbM.pagos_recaudados     || 0,
         monto_recaudado:     dbM.monto_recaudado      || 0,
-        wsp_enviados:        dbM.wsp_enviados         || 0,
-        sms_enviados:        dbM.sms_enviados         || 0,
-        correos_enviados:    dbM.correos_enviados     || 0,
         cdrs_total:          dbM.cdrs_total           || 0,
         cdrs_neutros:        dbM.cdrs_neutros         || 0,
         cdrs_no_contactados: dbM.cdrs_no_contactados  || 0,
@@ -586,6 +600,9 @@ export default function JefePanel({ usuario, onLogout }) {
     let cdrsNeutrosTotal       = 0;
     let cdrsNoContactadosTotal = 0;
     let cdrsSinTipificarTotal  = 0;
+    let compCumplidosTotal     = 0;
+    let compReagendadosTotal   = 0;
+    let compIncumplidosTotal   = 0;
 
     asesores.forEach(a => {
       const m = metricasFusionadas[a.id];
@@ -608,6 +625,9 @@ export default function JefePanel({ usuario, onLogout }) {
         cdrsNeutrosTotal       += m.cdrs_neutros        || 0;
         cdrsNoContactadosTotal += m.cdrs_no_contactados || 0;
         cdrsSinTipificarTotal  += m.cdrs_sin_tipificar  || 0;
+        compCumplidosTotal     += m.compromisos_cumplidos   || 0;
+        compReagendadosTotal   += m.compromisos_reagendados || 0;
+        compIncumplidosTotal   += m.compromisos_incumplidos || 0;
         countProductividad++;
       }
     });
@@ -641,6 +661,9 @@ export default function JefePanel({ usuario, onLogout }) {
       cdrsNeutrosTotal,
       cdrsNoContactadosTotal,
       cdrsSinTipificarTotal,
+      compCumplidosTotal,
+      compReagendadosTotal,
+      compIncumplidosTotal,
       detalleAsesores: asesores.map(a => ({
         asesor: a,
         metricas: metricasFusionadas[a.id] || {
