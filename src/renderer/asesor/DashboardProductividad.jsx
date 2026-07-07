@@ -72,7 +72,7 @@ const S = {
 /* ═══════════════════════════════════════════════
    COMPONENT
 ═══════════════════════════════════════════════ */
-export default function DashboardProductividad({ usuario, callApi, tiempoProductivoSeg, tiempoImproductivoSeg, refreshTrigger }) {
+export default function DashboardProductividad({ usuario, callApi, tiempoProductivoSeg, tiempoImproductivoSeg, refreshTrigger, totalClientesCampana }) {
   const todayLabel = useMemo(() => new Date().toLocaleDateString('es-MX', { weekday:'long', day:'numeric', month:'long' }), []);
   const [metricas,       setMetricas]       = useState(null);
   const [rankingGeneral, setRankingGeneral]  = useState([]);
@@ -86,8 +86,9 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
   const fetchAll = async () => {
     setLoading(true);
     try {
+      // fecha=null → backend usa _todayLocalISO() (misma zona que los CDRs guardados)
       const hoy = new Date().toISOString().slice(0, 10);
-      const m   = await callApi('db:getMetricasDia', usuario.id, hoy);
+      const m   = await callApi('db:getMetricasDia', usuario.id, null);
       setMetricas(m);
       const rg  = await callApi('db:getRankingGeneralAsesores', hoy);
       if (rg) setRankingGeneral(rg);
@@ -246,13 +247,47 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
             Gestiones del Día
           </div>
 
-          {/* Summary total */}
-          <div style={{ display:'flex', alignItems:'baseline', gap:6, marginBottom:2 }}>
-            <span style={{ fontSize:32, fontWeight:900, color:'var(--color-primary)', lineHeight:1 }}>
-              {metricas?.total_marcaciones || 0}
-            </span>
-            <span style={{ fontSize: 12, opacity:0.45, fontWeight:600 }}>gestiones totales</span>
-          </div>
+          {/* Summary total + progreso campaña */}
+          {(() => {
+            const gestionesHoy = metricas?.total_marcaciones || 0;
+            const totalClientes = totalClientesCampana || 0;
+            const pctAvance = totalClientes > 0 ? Math.min(100, (gestionesHoy / totalClientes) * 100) : 0;
+            const restantes = Math.max(0, totalClientes - gestionesHoy);
+            const colorAvance = pctAvance >= 80 ? '#00e676' : pctAvance >= 40 ? '#ffb74d' : '#3b82f6';
+            return (
+              <>
+                <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
+                  <span style={{ fontSize:32, fontWeight:900, color:'var(--color-primary)', lineHeight:1 }}>
+                    {gestionesHoy}
+                  </span>
+                  {totalClientes > 0 ? (
+                    <span style={{ fontSize:13, opacity:0.6, fontWeight:600 }}>
+                      gestiones de <strong style={{ color:'#fff', opacity:0.9 }}>{totalClientes.toLocaleString()}</strong> clientes
+                    </span>
+                  ) : (
+                    <span style={{ fontSize:12, opacity:0.45, fontWeight:600 }}>gestiones hoy</span>
+                  )}
+                </div>
+                {totalClientes > 0 && (
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ height:6, background:'rgba(255,255,255,0.07)', borderRadius:99, overflow:'hidden', marginBottom:4 }}>
+                      <div style={{
+                        height:'100%', width:`${pctAvance}%`,
+                        background: colorAvance,
+                        boxShadow:`0 0 8px ${colorAvance}60`,
+                        borderRadius:99,
+                        transition:'width 0.6s ease',
+                      }} />
+                    </div>
+                    <div style={{ display:'flex', justifyContent:'space-between', fontSize:11 }}>
+                      <span style={{ color: colorAvance, fontWeight:700 }}>{pctAvance.toFixed(1)}% avance</span>
+                      <span style={{ opacity:0.4 }}>{restantes.toLocaleString()} por contactar</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Horizontal metric bars */}
           {[

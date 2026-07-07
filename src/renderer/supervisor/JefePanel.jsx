@@ -304,6 +304,18 @@ export default function JefePanel({ usuario, onLogout }) {
           agregarEvento('LLAMADA_TIPIFICADA', `${msg.nombre} tipificó contacto como: ${msg.tipificacion}`);
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
         }
+        if (msg.tipo === 'RITMO_BAJO') {
+          showToast(
+            `⚠️ ${msg.nombre} fuera de ritmo — ${msg.gestiones}/${msg.meta} gestiones en ${msg.ventana_min} min. Déficit: ${msg.deficit} clientes.`,
+            'error', 0
+          );
+        }
+        if (msg.tipo === 'RITMO_OK') {
+          showToast(
+            `✅ ${msg.nombre} cumplió el ritmo — ${msg.gestiones}/${msg.meta} gestiones en ${msg.ventana_min} min.`,
+            'success', 6000
+          );
+        }
         if (msg.tipo === 'METRICAS_ASESOR') {
           setMetricasWS(prev => ({
             ...prev,
