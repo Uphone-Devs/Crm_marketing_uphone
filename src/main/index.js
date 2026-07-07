@@ -118,6 +118,9 @@ app.whenReady().then(() => {
     console.error('[APP] [WARN] No se pudo iniciar backend:', err.message);
   }
 
+  // ── 3b. Firewall Windows — abrir puerto 3001 para LAN ─────────
+  ensureFirewallRule();
+
   // ── 4. Ventana de inicio (Login) ─────────────────────
   createLoginWindow();
 

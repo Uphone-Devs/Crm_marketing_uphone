@@ -74,6 +74,21 @@ function tick() {
       if (agendMs <= ahoraMs && !avisosEnviados.has(ejecutaKey)) {
         avisosEnviados.add(ejecutaKey);
         emitir('agendamiento:ejecutar', agend);
+        // Notificar supervisor cuando la promesa vence (aunque haya perdido el aviso de 3 min)
+        if ((agend.tipo === 'PMP' || agend.tipo_agendamiento === 'PMP') && !avisosEnviados.has(avisoPmpKey)) {
+          avisosEnviados.add(avisoPmpKey);
+          try {
+            const queries = require('./database/queries');
+            const asesor = queries.findUserById(agend.asesor_id);
+            const nombreAsesor = asesor ? asesor.nombre : `Asesor #${agend.asesor_id}`;
+            const payload = { ...agend, nombreAsesor };
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (!win.isDestroyed()) win.webContents.send('promesa:aviso_supervisor', payload);
+            }
+          } catch(e) {
+            console.error('Error al notificar al supervisor:', e);
+          }
+        }
         marcarAgendamientoEjecutado(agend.id);
       }
     }
@@ -86,26 +101,19 @@ function emitir(canal, agend) {
   const { tipo: tipoAgend, ...rest } = agend;
   const payload = { ...rest, tipo_agendamiento: tipoAgend };
 
-  // Vía 1: Electron IPC (local) — solo al asesor window
+  // Vía 1: Electron IPC — solo si el asesor tiene ventana local en este PC
   let ipcDelivered = false;
   try {
     const asesorWin = getAsesorWindow();
     if (asesorWin && !asesorWin.isDestroyed()) {
       asesorWin.webContents.send(canal, payload);
       ipcDelivered = true;
-    } else {
-      // Fallback: enviar a la primera ventana no destruida
-      const wins = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
-      if (wins.length > 0) {
-        wins[0].webContents.send(canal, payload);
-        ipcDelivered = true;
-      }
     }
   } catch (err) {
     console.error(`[Scheduler] IPC error:`, err.message);
   }
 
-  // Vía 2: WebSocket (LAN) — solo si IPC no entregó (modo remoto)
+  // Vía 2: WebSocket (LAN) — cuando el asesor es remoto (ipcDelivered = false)
   if (!ipcDelivered) {
     try {
       broadcastToAsesor(agend.asesor_id, { ...payload, tipo: canal });

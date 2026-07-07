@@ -136,7 +136,9 @@ function handleMessage(ws, msg) {
             total_compromisos:   metricasDb.total_compromisos    ?? estado.total_compromisos   ?? 0,
           };
         });
-        send(ws, { tipo: 'SNAPSHOT_ESTADOS', estados: snapshot, dialing_mode: dialingMode });
+        const metricasSnapshot = {};
+        metricasAsesores.forEach((m, id) => { metricasSnapshot[id] = m; });
+        send(ws, { tipo: 'SNAPSHOT_ESTADOS', estados: snapshot, metricas: metricasSnapshot, dialing_mode: dialingMode });
       } else if (msg.rol === 'ASESOR') {
         const initialStatus = {
           estado_id: msg.estado_id || 1, // En Gestión por defecto
@@ -290,6 +292,22 @@ function handleMessage(ws, msg) {
         notas: msg.notas,
         timestamp: new Date().toISOString()
       });
+      break;
+
+    case 'RITMO_BAJO':
+    case 'RITMO_OK':
+      if (clients.get(ws)?.tipo === 'ASESOR') {
+        broadcastToSupervisors({
+          tipo: msg.tipo,
+          asesor_id: clients.get(ws).asesor_id,
+          nombre: clients.get(ws).nombre,
+          gestiones: msg.gestiones,
+          meta: msg.meta,
+          deficit: msg.deficit,
+          ventana_min: msg.ventana_min,
+          timestamp: new Date().toISOString(),
+        });
+      }
       break;
 
     case 'FORCE_OFFLINE':

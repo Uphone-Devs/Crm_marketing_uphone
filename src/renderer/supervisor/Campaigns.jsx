@@ -330,7 +330,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     }
 
     // 1. Aplanar todos los contactos de todos los grupos en un solo array
-    const todosContactos = _EMPTY_ARR;
+    const todosContactos = [];
     for (const [, data] of grupos.entries()) {
       for (const c of data.contactos) {
         todosContactos.push({ ...c, _monto: c.monto || 0 });
@@ -345,14 +345,14 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     }
 
     // 3. Contadores por asesor activo { id -> { monto, count } }
-    const acumulado = _EMPTY_OBJ;
+    const acumulado = {};
     for (const a of asesoresActivos) {
       acumulado[String(a.id)] = { monto: 0, count: 0 };
     }
 
     // 4. Asignar cada contacto al asesor activo con menor monto acumulado (greedy)
-    const asignacion = _EMPTY_OBJ; 
-    const buckets = _EMPTY_OBJ; 
+    const asignacion = {};
+    const buckets = {};
     for (const a of asesoresActivos) buckets[String(a.id)] = [];
 
     for (const c of todosContactos) {
@@ -376,7 +376,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
 
     // 5. Reconstruir grupos sintéticos — un grupo por asesor
     const nuevosGrupos = new Map();
-    const nuevoMapeo = _EMPTY_OBJ;
+    const nuevoMapeo = {};
     for (const a of asesoresActivos) {
       const aid = String(a.id);
       const contactosAsesor = buckets[aid];
@@ -437,7 +437,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
       if (!resC.success) throw new Error('No se pudo crear la campaña.');
 
       let totalInsertados = 0;
-      const desglose = _EMPTY_ARR;
+      const desglose = [];
 
       const resultadosInsercion = await Promise.all(
         [...gruposActivos].map(async ([gestor, { contactos }]) => {
@@ -962,7 +962,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
           )}
           {!loadingDashboard && !errorStatus && existingCampaigns.length > 0 && (() => {
             // Agrupar filas por campaña para rowSpan
-            const grupos = _EMPTY_ARR;
+            const grupos = [];
             let prev = null;
             for (const row of existingCampaigns) {
               if (!prev || prev.id !== row.id) {
