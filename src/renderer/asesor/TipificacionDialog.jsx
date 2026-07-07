@@ -188,7 +188,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
     setPrevSelectedId(selectedId);
     if (selectedId && tipificaciones.length > 0) {
       const tipificacion = tipificaciones.find(t => t.id === parseInt(selectedId));
-      if (tipificacion?.requiere_agd === 1) {
+      if (tipificacion?.requiere_agd) {
         const now = new Date();
         const tzOffset = now.getTimezoneOffset() * 60000;
         const localISOTime = (new Date(Date.now() - tzOffset)).toISOString().slice(0, 16);
@@ -292,7 +292,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
     const tipificacion = tipificaciones.find(t => t.id === parseInt(selectedId));
 
     // Validar si requiere agendamiento y tiene datos
-    const isAgendable = tipificacion.requiere_agd === 1;
+    const isAgendable = tipificacion.requiere_agd;
     if (isAgendable) {
       if (!fechaAgendamiento || !horaAgendamiento) {
         showToast('Debes seleccionar fecha y hora para el compromiso', 'warning');
@@ -427,7 +427,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
 
   // ── Helpers compartidos ──────────────────────────────────────
   const selectedTip  = tipificaciones.find(t => t.id.toString() === selectedId);
-  const isAgendable  = selectedTip?.requiere_agd === 1;
+  const isAgendable  = selectedTip?.requiere_agd;
   const COMP_CODES   = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
   const showMonto    = selectedTip && COMP_CODES.includes(selectedTip.codigo);
   const valorMora    = (() => {

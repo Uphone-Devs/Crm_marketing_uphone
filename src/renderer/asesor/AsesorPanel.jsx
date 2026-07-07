@@ -138,6 +138,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [showTipificacion, setShowTipificacion] = useState(false);
   const [tipifInicial, setTipifInicial] = useState(null);
   const [tipificacionesCache, setTipificacionesCache] = useState([]);
+  const [dashRefreshTrigger, setDashRefreshTrigger] = useState(0);
   const [historialGestiones, setHistorialGestiones] = useState([]);
   const [totalGestiones, setTotalGestiones] = useState(0);
   const [totalCompromisos, setTotalCompromisos] = useState(0);
@@ -1067,7 +1068,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
     setCarteraLoading(true);
     try {
       const data = await callApi('db:getCarteraAsesor', usuario.id, campana?.id);
-      setCartera(Array.isArray(data) ? data : []);
+      const arr = Array.isArray(data) ? data : [];
+      setCartera(arr);
+      // Sincronizar métricas canal con estado real de cartera (círculos verdes = ENVIADO hoy)
+      const rcs = { 0: 0, 1: 0, 2: 0 };
+      const wsp = { 0: 0, 1: 0, 2: 0 };
+      const mail = { 0: 0, 1: 0, 2: 0 };
+      arr.forEach(c => {
+        let meta = {};
+        try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+        const dias = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
+        const seg = dias >= 0 && dias <= 2 ? dias : null;
+        if (seg === null) return;
+        if (c.rcs_status === 'ENVIADO')       rcs[seg]++;
+        if (c.whatsapp_status === 'ENVIADO')  wsp[seg]++;
+        if (c.correo_status === 'ENVIADO')    mail[seg]++;
+      });
+      setSmsDetalle(rcs);
+      setWspDetalle(wsp);
+      setEmailDetalle(mail);
     } catch (err) {
       console.error('[CARTERA]', err);
       setCartera([]);
@@ -1076,12 +1095,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario?.id, callApi]);
 
-      // Cargar cartera asignada al entrar a la página (y para lotes de campañas)
-    useEffect(() => {
-      if (activePage === 'cartera' || activePage === 'campanas_wsp' || activePage === 'campanas_rcs') {
-        cargarCartera();
-      }
-    }, [activePage, cargarCartera]);
+  // Cargar cartera al montar para inicializar métricas S0/S1/S2 desde el primer momento
+  useEffect(() => {
+    cargarCartera();
+  }, [cargarCartera]);
+
+  // Recargar cartera al navegar a páginas que la muestran
+  useEffect(() => {
+    if (activePage === 'cartera' || activePage === 'campanas_wsp' || activePage === 'campanas_rcs') {
+      cargarCartera();
+    }
+  }, [activePage, cargarCartera]);
 
   async function handleConnectUSB() {
     try {
@@ -1390,6 +1414,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
       showToast('Gestión registrada', 'success');
       enviarMetricasWS();
+      setDashRefreshTrigger(p => p + 1);
 
       // ── Lógica de intentos por contacto ──────────────────────────────────
       // (intentosContactoRef ya fue incrementado arriba, antes de debeMarcarGestionado)
@@ -2406,7 +2431,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       } else {
                                         // Resto: guardar directo sin diálogo
                                         const tipif = tipificacionesCache.find(t => t.codigo === code);
-                                        if (!tipif) { showToast('Tipificación no encontrada: ' + code, 'error'); return; }
+                                        if (!tipif) {
+                                          // Código no en cache — abrir diálogo como fallback
+                                          setContactoActual(c);
+                                          setTipifInicial(code);
+                                          setShowTipificacion(true);
+                                          return;
+                                        }
                                         handleSaveTipificacion({
                                           tipificacionId: tipif.id,
                                           notas: '',
@@ -2679,9 +2710,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
             <div className="asesor-layout-grid">
               <div className="asesor-main-column">
                 {!contactoActual ? (
-                  <DashboardProductividad 
-                    usuario={usuario} 
-                    callApi={callApi} 
+                  <DashboardProductividad
+                    usuario={usuario}
+                    callApi={callApi}
+                    refreshTrigger={dashRefreshTrigger}
                   />
                 ) : (
                 <div className="widget-card customer-card">

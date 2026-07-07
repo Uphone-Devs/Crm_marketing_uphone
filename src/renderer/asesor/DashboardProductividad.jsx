@@ -72,7 +72,7 @@ const S = {
 /* ═══════════════════════════════════════════════
    COMPONENT
 ═══════════════════════════════════════════════ */
-export default function DashboardProductividad({ usuario, callApi, tiempoProductivoSeg, tiempoImproductivoSeg }) {
+export default function DashboardProductividad({ usuario, callApi, tiempoProductivoSeg, tiempoImproductivoSeg, refreshTrigger }) {
   const todayLabel = useMemo(() => new Date().toLocaleDateString('es-MX', { weekday:'long', day:'numeric', month:'long' }), []);
   const [metricas,       setMetricas]       = useState(null);
   const [rankingGeneral, setRankingGeneral]  = useState([]);
@@ -107,6 +107,10 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
     const iv = setInterval(fetchAll, 60000);
     return () => clearInterval(iv);
   }, [usuario.id]);
+
+  useEffect(() => {
+    if (refreshTrigger > 0) fetchAll();
+  }, [refreshTrigger]);
 
   /* ─── derived KPIs ───
    * Si el AsesorPanel pasa los tiempos en tiempo real (tiempoProductivoSeg /

@@ -17,6 +17,7 @@ export default function LoginPage({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [serverIp, setServerIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.192');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [welcomeData, setWelcomeData] = useState(null);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -68,8 +69,11 @@ export default function LoginPage({ onLogin }) {
         localStorage.setItem('auth_token', result.token);
         localStorage.setItem('auth_user:v1', JSON.stringify(result.usuario));
         localStorage.setItem('uphone_ws_ip', serverIp);
-        await window.api.invoke('app:switch-role', result.usuario.rol);
-        onLogin(result.usuario, result.token);
+        setWelcomeData({ usuario: result.usuario, token: result.token });
+        setTimeout(async () => {
+          await window.api.invoke('app:switch-role', result.usuario.rol);
+          onLogin(result.usuario, result.token);
+        }, 2800);
       } else {
         setError(result?.error || 'Credenciales inválidas');
       }
@@ -78,6 +82,31 @@ export default function LoginPage({ onLogin }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  if (welcomeData) {
+    const firstName = (welcomeData.usuario.nombre || '').split(' ')[0] || welcomeData.usuario.email.split('@')[0];
+    return (
+      <div className="login-page login-welcome-screen">
+        <div className="login-bg">
+          <div className="login-bg__orb login-bg__orb--1" />
+          <div className="login-bg__orb login-bg__orb--2" />
+          <div className="login-bg__orb login-bg__orb--3" />
+        </div>
+        <div className="login-welcome-card">
+          <div className="login-welcome-avatar">
+            <span>{firstName.charAt(0).toUpperCase()}</span>
+          </div>
+          <div className="login-welcome-greeting">
+            ¡Hola, <span className="login-welcome-name">{firstName}</span>!
+          </div>
+          <div className="login-welcome-msg">Que tengas una excelente gestión</div>
+          <div className="login-welcome-dots">
+            <span /><span /><span />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
