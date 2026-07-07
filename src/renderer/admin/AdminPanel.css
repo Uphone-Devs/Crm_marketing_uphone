@@ -495,9 +495,7 @@ body {
   border-radius: 6px;
   color: #e0e0e0;
   padding: 8px 10px;
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.15s;
+  font-size: 13px;  transition: border-color 0.15s;
 }
 .modal-body input:focus,
 .modal-body select:focus { border-color: #ea80fc; }
@@ -705,9 +703,7 @@ body {
   border-radius: 6px;
   color: #e0e0e0;
   padding: 9px 12px;
-  font-size: 13px;
-  outline: none;
-  transition: border-color 0.15s;
+  font-size: 13px;  transition: border-color 0.15s;
 }
 .form-label input:focus { border-color: #7c4dff; }
 .input-mono { font-family: monospace; font-size: 11px !important; }

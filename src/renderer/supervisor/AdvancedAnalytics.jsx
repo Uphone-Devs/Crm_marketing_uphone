@@ -66,16 +66,16 @@ export default function AdvancedAnalytics() {
         <h3 className="widget-title">Efectividad por Operadora (Ecuador)</h3>
         <div style={{ height: 200, display: 'flex', alignItems: 'flex-end', gap: 12, marginTop: 20 }}>
           <div style={{ flex: 1, height: '80%', background: 'var(--color-primary)', borderRadius: 4, position: 'relative' }}>
-            <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 10 }}>CLARO</span>
+            <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 12 }}>CLARO</span>
           </div>
           <div style={{ flex: 1, height: '65%', background: 'var(--color-primary)', borderRadius: 4, position: 'relative', opacity: 0.7 }}>
-             <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 10 }}>MOVISTAR</span>
+             <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 12 }}>MOVISTAR</span>
           </div>
           <div style={{ flex: 1, height: '40%', background: 'var(--color-primary)', borderRadius: 4, position: 'relative', opacity: 0.5 }}>
-             <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 10 }}>CNT</span>
+             <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 12 }}>CNT</span>
           </div>
           <div style={{ flex: 1, height: '20%', background: 'var(--color-primary)', borderRadius: 4, position: 'relative', opacity: 0.3 }}>
-             <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 10 }}>OTROS</span>
+             <span style={{ position: 'absolute', bottom: -25, left: 0, fontSize: 12 }}>OTROS</span>
           </div>
         </div>
       </div>

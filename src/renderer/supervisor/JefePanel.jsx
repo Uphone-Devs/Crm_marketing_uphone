@@ -8,8 +8,8 @@ class MetricasErrorBoundary extends React.Component {
     if (this.state.error) return (
       <div style={{ padding: 32, color: '#ff5252', background: 'rgba(255,82,82,0.08)', borderRadius: 8, margin: 16 }}>
         <strong>Error al renderizar métricas:</strong>
-        <pre style={{ fontSize: 11, marginTop: 8, whiteSpace: 'pre-wrap', opacity: 0.8 }}>{this.state.error?.message}</pre>
-        <button style={{ marginTop: 12, padding: '6px 12px' }} onClick={() => this.setState({ error: null })}>Reintentar</button>
+        <pre style={{ fontSize: 12, marginTop: 8, whiteSpace: 'pre-wrap', opacity: 0.8 }}>{this.state.error?.message}</pre>
+        <button type="button" style={{ marginTop: 12, padding: '6px 12px' }} onClick={() => this.setState({ error: null })}>Reintentar</button>
       </div>
     );
     return this.props.children;
@@ -65,6 +65,11 @@ async function vmFetch(apiBase, token, path, options = {}) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
+}
+
+function handleIncomingAudio(chunk) {
+  const event = new CustomEvent('supervisor:audio_data', { detail: chunk });
+  window.dispatchEvent(event);
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -132,7 +137,7 @@ export default function JefePanel({ usuario, onLogout }) {
   
   // Jefe de Área / Jefa de Cobranza puede gestionar usuarios
   const esAdminPrincipal = usuario?.rol === 'supervisor' || usuario?.rol === 'jefe_area' || usuario?.rol === 'jefe';
-  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.173');
+  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.192');
   const apiBase   = buildApiBase();
   const isRemote  = !!apiBase;
   const authToken = localStorage.getItem('auth_token');
@@ -141,7 +146,7 @@ export default function JefePanel({ usuario, onLogout }) {
   useEffect(() => {
     setVmUnauthorizedHandler(() => {
       localStorage.removeItem('auth_token');
-      localStorage.removeItem('auth_user');
+      localStorage.removeItem('auth_user:v1');
       if (typeof onLogout === 'function') onLogout();
     });
     return () => setVmUnauthorizedHandler(null);
@@ -168,12 +173,14 @@ export default function JefePanel({ usuario, onLogout }) {
       const data = isRemote
         ? await vmFetch(apiBase, authToken, '/asesores')
         : await window.api.invoke('db:getAsesores');
+      const metricasArray = await Promise.all(
+        data.map(a => isRemote
+          ? vmFetch(apiBase, authToken, `/metricas/${a.id}`)
+          : window.api.invoke('db:getMetricasDia', a.id)
+        )
+      );
       const mets = {};
-      for (const a of data) {
-        mets[a.id] = isRemote
-          ? await vmFetch(apiBase, authToken, `/metricas/${a.id}`)
-          : await window.api.invoke('db:getMetricasDia', a.id);
-      }
+      data.forEach((a, i) => { mets[a.id] = metricasArray[i]; });
       setMetricas(mets);
     } catch (err) {
       console.error('Error cargando métricas:', err);
@@ -253,7 +260,7 @@ export default function JefePanel({ usuario, onLogout }) {
         socket.send(JSON.stringify({
           tipo: 'IDENTIFICAR',
           rol: 'SUPERVISOR',
-          nombre: usuario?.nombre || 'Supervisor',
+          nombre: usuario?.nombre || 'Jefe de Area',
           supervisor_id: usuario?.id,            // Bug 4: grupo del supervisor
           es_admin: usuario?.rol === 'admin',    // admin ve todos los grupos
         }));
@@ -792,11 +799,6 @@ export default function JefePanel({ usuario, onLogout }) {
     }
   }
 
-  function handleIncomingAudio(chunk) {
-    // Despachar evento para que AudioMonitor lo capture
-    const event = new CustomEvent('supervisor:audio_data', { detail: chunk });
-    window.dispatchEvent(event);
-  }
 
   function handleToggleDialingMode() {
     // Ciclo: MANUAL → AUTOMATICA → PERSONALIZADO → MANUAL
@@ -838,11 +840,6 @@ export default function JefePanel({ usuario, onLogout }) {
     }
   }
 
-  function handleIncomingAudio(data) {
-    // Esta lógica se moverá al componente AudioMonitor para mejor performance
-    // Por ahora simplemente emitimos un evento custom si es necesario
-    window.dispatchEvent(new CustomEvent('supervisor:audio_data', { detail: data }));
-  }
 
   async function generarReporte() {
     try {
@@ -888,41 +885,41 @@ export default function JefePanel({ usuario, onLogout }) {
           padding: '10px 14px', marginBottom: 12, borderRadius: 8,
           background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
         }}>
-          <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4 }}>filter_alt</span>
             Filtrar Progreso
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Día</span>
-            <input
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Día</span>
+            <input aria-label="Día"
               type="date"
               value={progresoFiltroFecha}
               onChange={(e) => setProgresoFiltroFecha(e.target.value)}
               style={{
-                padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
-            <button
+            <button type="button"
               onClick={() => setProgresoFiltroFecha(todayLocalISO())}
               title="Filtrar solo hoy"
               style={{
-                padding: '4px 8px', fontSize: 9, fontWeight: 700,
+                padding: '4px 8px', fontSize: 12, fontWeight: 700,
                 background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
                 color: 'var(--color-primary)', borderRadius: 6, cursor: 'pointer',
               }}
             >HOY</button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Campaña</span>
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Campaña</span>
             <select
               value={progresoFiltroCampana}
               onChange={(e) => setProgresoFiltroCampana(e.target.value)}
               style={{
-                padding: '5px 8px', fontSize: 11,
+                padding: '5px 8px', fontSize: 12,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none', minWidth: 140,
+                borderRadius: 6, color: 'inherit', minWidth: 140,
               }}
             >
               <option value="">Todas</option>
@@ -932,10 +929,10 @@ export default function JefePanel({ usuario, onLogout }) {
             </select>
           </div>
           {hayFiltroProgreso && (
-            <button
+            <button type="button"
               onClick={() => { setProgresoFiltroFecha(''); setProgresoFiltroCampana(''); }}
               style={{
-                padding: '5px 10px', fontSize: 10, background: 'rgba(255,80,80,0.1)',
+                padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
                 border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
                 borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
               }}
@@ -945,7 +942,7 @@ export default function JefePanel({ usuario, onLogout }) {
             </button>
           )}
           {hayFiltroProgreso && (
-            <span style={{ fontSize: 9, opacity: 0.55, fontStyle: 'italic', marginLeft: 'auto' }}>
+            <span style={{ fontSize: 12, opacity: 0.55, fontStyle: 'italic', marginLeft: 'auto' }}>
               Progreso base filtrado · {progresoFiltroFecha && `día ${progresoFiltroFecha}`}{progresoFiltroFecha && progresoFiltroCampana && ' · '}{progresoFiltroCampana && `campaña #${progresoFiltroCampana}`}
             </span>
           )}
@@ -993,13 +990,13 @@ export default function JefePanel({ usuario, onLogout }) {
           padding: '10px 14px', marginBottom: 12, borderRadius: 8,
           background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
         }}>
-          <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 13, verticalAlign: 'middle', marginRight: 4 }}>filter_alt</span>
             Filtrar Métricas
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Desde</span>
-            <input
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Desde</span>
+            <input aria-label="Desde"
               type="date"
               value={metricasFiltroDesde}
               onChange={(e) => {
@@ -1010,43 +1007,43 @@ export default function JefePanel({ usuario, onLogout }) {
                 }
               }}
               style={{
-                padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Hasta</span>
-            <input
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Hasta</span>
+            <input aria-label="Hasta"
               type="date"
               value={metricasFiltroHasta}
               min={metricasFiltroDesde || undefined}
               onChange={(e) => setMetricasFiltroHasta(e.target.value)}
               style={{
-                padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
           </div>
-          <button
+          <button type="button"
             onClick={() => { setMetricasFiltroDesde(todayLocalISO()); setMetricasFiltroHasta(todayLocalISO()); }}
             style={{
-              padding: '4px 8px', fontSize: 9, fontWeight: 700,
+              padding: '4px 8px', fontSize: 12, fontWeight: 700,
               background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
               color: 'var(--color-primary)', borderRadius: 6, cursor: 'pointer',
             }}
           >HOY</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Campaña</span>
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Campaña</span>
             <select
               value={metricasFiltroCampana}
               onChange={(e) => setMetricasFiltroCampana(e.target.value)}
               style={{
-                padding: '5px 8px', fontSize: 11,
+                padding: '5px 8px', fontSize: 12,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none', minWidth: 140,
+                borderRadius: 6, color: 'inherit', minWidth: 140,
               }}
             >
               <option value="">Todas</option>
@@ -1056,10 +1053,10 @@ export default function JefePanel({ usuario, onLogout }) {
             </select>
           </div>
           {hayFiltroMet && (
-            <button
+            <button type="button"
               onClick={() => { setMetricasFiltroDesde(''); setMetricasFiltroHasta(''); setMetricasFiltroCampana(''); }}
               style={{
-                padding: '5px 10px', fontSize: 10, background: 'rgba(255,80,80,0.1)',
+                padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
                 border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
                 borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
               }}
@@ -1070,7 +1067,7 @@ export default function JefePanel({ usuario, onLogout }) {
           )}
           {hayFiltroMet && (
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 9, opacity: 0.55, fontStyle: 'italic' }}>
+              <span style={{ fontSize: 12, opacity: 0.55, fontStyle: 'italic' }}>
                 {metricasFiltroDesde && metricasFiltroHasta && metricasFiltroDesde !== metricasFiltroHasta
                   ? `Filtrando: ${metricasFiltroDesde} → ${metricasFiltroHasta}`
                   : metricasFiltroDesde
@@ -1118,11 +1115,11 @@ export default function JefePanel({ usuario, onLogout }) {
             <div style={{ marginBottom: 24 }}>
               <label className="reporte-form__label">Tipo de Reporte</label>
               <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <button
+                <button type="button"
                   className={`btn btn-sm ${reporteTipo === 'actividad' ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => setReporteTipo('actividad')}
                 >ACTIVIDAD / MÉTRICAS</button>
-                <button
+                <button type="button"
                   className={`btn btn-sm ${reporteTipo === 'gestiones' ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => setReporteTipo('gestiones')}
                 >REPORTE DE GESTIONES</button>
@@ -1131,13 +1128,13 @@ export default function JefePanel({ usuario, onLogout }) {
             <div style={{ marginBottom: 24 }}>
               <label className="reporte-form__label">Nivel de Reporte</label>
               <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <button 
+                <button type="button" 
                   className={`btn btn-sm ${!reporteFiltros.asesor_id ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => setReporteFiltros(p => ({ ...p, asesor_id: '' }))}
                 >
                   EQUIPO COMPLETO
                 </button>
-                <button 
+                <button type="button" 
                   className={`btn btn-sm ${reporteFiltros.asesor_id ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => setReporteFiltros(p => ({ ...p, asesor_id: asesores[0]?.id || '' }))}
                 >
@@ -1164,7 +1161,7 @@ export default function JefePanel({ usuario, onLogout }) {
             <div style={{ display: 'flex', gap: '16px', marginTop: '16px' }}>
               <div style={{ flex: 1 }}>
                 <label className="reporte-form__label">Fecha Inicio</label>
-                <input
+                <input aria-label="Fecha Inicio"
                   className="input"
                   type="date"
                   value={reporteFiltros.fechaInicio}
@@ -1173,7 +1170,7 @@ export default function JefePanel({ usuario, onLogout }) {
               </div>
               <div style={{ flex: 1 }}>
                 <label className="reporte-form__label">Fecha Fin</label>
-                <input
+                <input aria-label="Fecha Fin"
                   className="input"
                   type="date"
                   value={reporteFiltros.fechaFin}
@@ -1185,7 +1182,7 @@ export default function JefePanel({ usuario, onLogout }) {
             <label className="reporte-form__label" style={{ marginTop: 24 }}>Formato de Salida</label>
             <div style={{ display: 'flex', gap: 12 }}>
               {['xlsx', 'pdf', 'csv'].map(fmt => (
-                <button 
+                <button type="button" 
                   key={fmt}
                   className={`btn btn-sm ${reporteFiltros.formato === fmt ? 'btn-primary' : 'btn-outline'}`}
                   onClick={() => setReporteFiltros(p => ({ ...p, formato: fmt }))}
@@ -1195,7 +1192,7 @@ export default function JefePanel({ usuario, onLogout }) {
               ))}
             </div>
 
-            <button 
+            <button type="button" 
               className="btn btn-primary btn-lg" 
               style={{ width: '100%', marginTop: 32 }}
               onClick={generarReporte}
@@ -1288,7 +1285,7 @@ export default function JefePanel({ usuario, onLogout }) {
           <div style={{ display: 'grid', gridTemplateColumns: esAdminPrincipal ? '1fr 1fr 1fr 1fr auto' : '1fr 1fr 1fr auto', gap: 12, marginBottom: 24, alignItems: 'end' }}>
              <div>
                <label className="text-label-sm" style={{ display: 'block', marginBottom: 6, opacity: 0.6 }}>NOMBRE</label>
-               <input 
+               <input aria-label="NOMBRE" 
                  type="text" 
                  className="input" 
                  placeholder="Ej: Juan Pérez" 
@@ -1298,7 +1295,7 @@ export default function JefePanel({ usuario, onLogout }) {
              </div>
              <div>
                <label className="text-label-sm" style={{ display: 'block', marginBottom: 6, opacity: 0.6 }}>CORREO ACCESO</label>
-               <input 
+               <input aria-label="CORREO ACCESO" 
                  type="email" 
                  className="input" 
                  placeholder="juan@uphone.local" 
@@ -1308,7 +1305,7 @@ export default function JefePanel({ usuario, onLogout }) {
              </div>
              <div>
                <label className="text-label-sm" style={{ display: 'block', marginBottom: 6, opacity: 0.6 }}>CONTRASEÑA</label>
-               <input 
+               <input aria-label="CONTRASEÑA" 
                  type="password" 
                  className="input" 
                  placeholder="••••••••" 
@@ -1324,12 +1321,12 @@ export default function JefePanel({ usuario, onLogout }) {
                     value={newAsesorRol} 
                     onChange={e => setNewAsesorRol(e.target.value)}
                   >
-                    <option value="asesor">Asesor</option>
-                    <option value="supervisor">Supervisor</option>
+                    <option value="asesor">Gestor</option>
+                    <option value="supervisor">Jefe de Area</option>
                   </select>
                 </div>
               )}
-             <button className="btn btn-primary" style={{ padding: '0 16px', height: '38px', gridColumn: esAdminPrincipal ? 'span 1' : 'auto' }} onClick={handleAddAsesor}>
+             <button type="button" className="btn btn-primary" style={{ padding: '0 16px', height: '38px', gridColumn: esAdminPrincipal ? 'span 1' : 'auto' }} onClick={handleAddAsesor}>
                 <span className="material-symbols-outlined">person_add</span>
                 Agregar
              </button>
@@ -1350,12 +1347,12 @@ export default function JefePanel({ usuario, onLogout }) {
                       <div className={`dot ${u.estado === 'activo' ? 'dot-primary dot-pulse' : ''}`} style={{ backgroundColor: u.estado !== 'activo' ? 'rgba(255,255,255,0.2)' : undefined }} />
                       <div style={{ display: 'flex', flexDirection: 'column' }}>
                          <span style={{ fontWeight: 600, fontSize: 14, color: u.estado === 'activo' ? '#fff' : 'rgba(255,255,255,0.5)' }}>{u.nombre}</span>
-                         <span className="text-mono" style={{ fontSize: 11, opacity: 0.4 }}>{u.email}</span>
+                         <span className="text-mono" style={{ fontSize: 12, opacity: 0.4 }}>{u.email}</span>
                       </div>
                    </div>
                    <div style={{ width: 100 }}>
                       <span className="badge" style={{ 
-                        fontSize: 9, 
+                        fontSize: 12, 
                         background: u.rol === 'supervisor' ? 'var(--color-primary)' : 'transparent',
                         color: u.rol === 'supervisor' ? 'white' : 'var(--color-primary)',
                         border: u.rol === 'supervisor' ? 'none' : '1px solid var(--color-primary)',
@@ -1366,15 +1363,15 @@ export default function JefePanel({ usuario, onLogout }) {
                       </span>
                    </div>
                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: 220, justifyContent: 'flex-end' }}>
-                      <span className="text-label-sm" style={{ marginRight: 8, opacity: 0.5, fontSize: 10 }}>{u.estado.toUpperCase()}</span>
-                      <button 
+                      <span className="text-label-sm" style={{ marginRight: 8, opacity: 0.5, fontSize: 12 }}>{u.estado.toUpperCase()}</span>
+                      <button type="button" 
                          className={`btn btn-sm ${u.estado === 'activo' ? 'btn-outline' : 'btn-primary'}`}
-                         style={{ minWidth: 90, height: 28, fontSize: 11 }}
+                         style={{ minWidth: 90, height: 28, fontSize: 12 }}
                          onClick={() => handleToggleEstadoAsesor(u.id, u.estado)}
                       >
                          {u.estado === 'activo' ? 'Desactivar' : 'Reactivar'}
                       </button>
-                      <button
+                      <button type="button"
                          className="btn btn-sm btn-ghost"
                          style={{ color: '#ffb300' }}
                          onClick={() => handleAnonymizeAsesor(u.id, u.nombre)}
@@ -1382,7 +1379,7 @@ export default function JefePanel({ usuario, onLogout }) {
                       >
                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_off</span>
                       </button>
-                      <button
+                      <button type="button"
                          className="btn btn-sm btn-ghost"
                          style={{ color: '#ff5252' }}
                          onClick={() => handleDeleteAsesor(u.id, u.nombre)}
@@ -1418,10 +1415,10 @@ export default function JefePanel({ usuario, onLogout }) {
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
             <div>
-              <label className="text-label-sm" style={{ display: 'block', marginBottom: 4, opacity: 0.6, fontSize: '9px', textTransform: 'uppercase' }}>
+              <label className="text-label-sm" style={{ display: 'block', marginBottom: 4, opacity: 0.6, fontSize: '12px', textTransform: 'uppercase' }}>
                 Servidor (IP WebSocket)
               </label>
-              <input 
+              <input aria-label="Campo" 
                 type="text" 
                 className="input" 
                 placeholder="Ej: 192.168.1.108" 
@@ -1430,7 +1427,7 @@ export default function JefePanel({ usuario, onLogout }) {
                 onChange={e => setWsIp(e.target.value)} 
               />
             </div>
-            <button 
+            <button type="button" 
               className="btn btn-primary btn-sm" 
               style={{ height: '34px', padding: '0 12px', fontSize: '12px' }}
               onClick={() => {
@@ -1447,7 +1444,7 @@ export default function JefePanel({ usuario, onLogout }) {
               Guardar
             </button>
           </div>
-          <p style={{ marginTop: 8, fontSize: '9px', opacity: 0.35 }}>
+          <p style={{ marginTop: 8, fontSize: '12px', opacity: 0.35 }}>
             Use '127.0.0.1' si el servidor está en esta misma PC local.
           </p>
         </div>
@@ -1460,14 +1457,16 @@ export default function JefePanel({ usuario, onLogout }) {
       <ToastContainer />
 
       <NavigationDrawer
-        role="supervisor"
+        userRole="supervisor"
         activePage={activePage}
         onNavigate={setActivePage}
+        usuario={usuario}
+        onLogout={onLogout}
       />
 
       <div className="app-main">
         <TopAppBar
-          userName={usuario?.nombre || 'Supervisor'}
+          userName={usuario?.nombre || 'Jefe de Area'}
           userRole="Jefe de Área"
           isConnected={wsStatus === 'CONECTADO'}
           onLogout={onLogout}
@@ -1606,7 +1605,7 @@ export default function JefePanel({ usuario, onLogout }) {
           </select>
 
           <label className="reporte-form__label">Fecha</label>
-          <input
+          <input aria-label="Fecha"
             className="input"
             type="date"
             value={reporteFiltros.fecha}
@@ -1625,10 +1624,10 @@ export default function JefePanel({ usuario, onLogout }) {
           </select>
 
           <div className="reporte-form__actions">
-            <button className="btn btn-ghost" onClick={() => setShowReporteModal(false)}>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowReporteModal(false)}>
               Cancelar
             </button>
-            <button className="btn btn-primary" onClick={generarReporte}>
+            <button type="button" className="btn btn-primary" onClick={generarReporte}>
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
               Generar
             </button>

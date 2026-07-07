@@ -275,12 +275,12 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
         <div>
           <span className="text-label" style={{ opacity: 0.5 }}>ASESOR · MIS COMPROMISOS</span>
           <h3 className="widget-title" style={{ marginTop: 4 }}>Compromisos y Recalls</h3>
-          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 11 }}>
+          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
             Tus compromisos de pago (PMP, Pago Realizado, Abono Parcial, Pendiente Comprobante) y "Volver a Llamar"
           </p>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button
+          <button type="button"
             onClick={exportarXls}
             className="btn btn-outline btn-sm"
             style={{ padding: '4px 12px', fontSize: 12, height: 'auto' }}
@@ -292,7 +292,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
             </span>
             {descargandoXls ? 'Generando…' : 'Descargar XLS'}
           </button>
-          <button
+          <button type="button"
             onClick={exportarCsv}
             className="btn btn-outline btn-sm"
             style={{ padding: '4px 12px', fontSize: 12, height: 'auto' }}
@@ -312,27 +312,27 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
         background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Fecha</span>
-          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{
-            padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Fecha</span>
+          <input aria-label="Fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{
+            padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
             background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6, color: 'inherit', outline: 'none',
+            borderRadius: 6, color: 'inherit',
           }} />
-          <button
+          <button type="button"
             onClick={() => setFecha(hoy)}
             style={{
-              padding: '4px 8px', fontSize: 9, fontWeight: 700,
+              padding: '4px 8px', fontSize: 12, fontWeight: 700,
               background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
               color: 'var(--color-primary)', borderRadius: 6, cursor: 'pointer',
             }}
           >HOY</button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Tipo</span>
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Tipo</span>
           <select value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} style={{
-            padding: '5px 8px', fontSize: 11,
+            padding: '5px 8px', fontSize: 12,
             background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6, color: 'inherit', outline: 'none',
+            borderRadius: 6, color: 'inherit',
           }}>
             <option value="">Todos</option>
             <option value="PMP">Compromiso de Pago</option>
@@ -348,15 +348,15 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
             position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
             fontSize: 14, opacity: 0.4, pointerEvents: 'none',
           }}>search</span>
-          <input
+          <input aria-label="Campo"
             type="text"
             value={textoFiltro}
             onChange={(e) => setTextoFiltro(e.target.value)}
             placeholder="Buscar cliente, cédula, teléfono, contrato..."
             style={{
-              width: '100%', padding: '5px 26px 5px 28px', fontSize: 11,
+              width: '100%', padding: '5px 26px 5px 28px', fontSize: 12,
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           />
         </div>
@@ -384,7 +384,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
         </div>
       ) : (
         <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
                 <th style={th}>Hora</th>
@@ -417,21 +417,21 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                       <td style={td}><span className="text-mono">{r.telefono || '—'}</span></td>
                       <td style={td}>
                         {r.empresa
-                          ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
+                          ? <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
                           : '—'}
                       </td>
                       <td style={td}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: color.bg, color: color.fg }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: color.bg, color: color.fg }}>
                             {TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc}
                           </span>
                           {r.resultado === 'COMP_CUM' && (
-                            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(0,230,118,0.15)', color: 'var(--color-primary)' }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(0,230,118,0.15)', color: 'var(--color-primary)' }}>
                               PAGADO
                             </span>
                           )}
                           {r.resultado === 'REAG' && r.tipificacion_codigo !== 'INCUMP' && (
-                            <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(255,152,0,0.15)', color: '#ffcc02' }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(255,152,0,0.15)', color: '#ffcc02' }}>
                               REAGENDADO
                             </span>
                           )}
@@ -440,12 +440,12 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                       <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>
                         {r.monto_acordado != null
                           ? <span style={{ color: 'var(--color-primary)' }}>{fmt$(r.monto_acordado)}</span>
-                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 10 }}>sin capturar</span>}
+                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 12 }}>sin capturar</span>}
                       </td>
                       <td style={td}>
                         {r.fecha_promesa
                           ? (
-                            <div style={{ color: '#64b5f6', fontSize: 10, lineHeight: 1.2 }}>
+                            <div style={{ color: '#64b5f6', fontSize: 12, lineHeight: 1.2 }}>
                               <span style={{ fontWeight: 700 }}>Promesa para las {fmtHora(r.fecha_promesa)}</span><br/>
                               <span style={{ opacity: 0.8 }}>en segmento {r.dias_mora != null ? r.dias_mora : '0'}</span>
                             </div>
@@ -461,15 +461,15 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                     {isOpen && (
                       <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                         <td colSpan={8} style={{ padding: '10px 14px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 11 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 12 }}>
                             <Detail label="Cédula" value={r.cedula || '—'} mono />
                             <Detail label="Contrato" value={r.contrato || '—'} mono />
                             <Detail label="Mora del cliente" value={r.valor_mora != null ? fmt$(r.valor_mora) : '—'} />
                             <Detail label="Duración llamada" value={r.duracion_seg ? `${Math.floor(r.duracion_seg/60)}:${(r.duracion_seg%60).toString().padStart(2,'0')}` : '—'} mono />
                           </div>
                           {r.notas && (
-                            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontSize: 11, lineHeight: 1.4, opacity: 0.85 }}>
-                              <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 700 }}>NOTAS</span>
+                            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontSize: 12, lineHeight: 1.4, opacity: 0.85 }}>
+                              <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700 }}>NOTAS</span>
                               <p style={{ margin: '4px 0 0' }}>{r.notas}</p>
                             </div>
                           )}
@@ -481,39 +481,39 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                               border: '1px solid rgba(100,181,246,0.25)',
                               borderRadius: 8,
                             }} onClick={(e) => e.stopPropagation()}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: '#64b5f6', letterSpacing: 0.5, marginBottom: 10 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#64b5f6', letterSpacing: 0.5, marginBottom: 10 }}>
                                 REAGENDAR COMPROMISO
                               </div>
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
                                 <div>
-                                  <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Nueva fecha</div>
-                                  <input
+                                  <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Nueva fecha</div>
+                                  <input aria-label="Nueva fecha"
                                     type="date"
                                     value={reagendaFecha}
                                     onChange={(e) => setReagendaFecha(e.target.value)}
                                     style={{
                                       width: '100%', padding: '6px 8px', fontSize: 12, colorScheme: 'dark',
                                       background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(100,181,246,0.3)',
-                                      borderRadius: 6, color: 'inherit', outline: 'none',
+                                      borderRadius: 6, color: 'inherit',
                                     }}
                                   />
                                 </div>
                                 <div>
-                                  <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Hora coordinada</div>
-                                  <input
+                                  <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Hora coordinada</div>
+                                  <input aria-label="Hora coordinada"
                                     type="time"
                                     value={reagendaHora}
                                     onChange={(e) => setReagendaHora(e.target.value)}
                                     style={{
                                       width: '100%', padding: '6px 8px', fontSize: 12, colorScheme: 'dark',
                                       background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(100,181,246,0.3)',
-                                      borderRadius: 6, color: 'inherit', outline: 'none',
+                                      borderRadius: 6, color: 'inherit',
                                     }}
                                   />
                                 </div>
                                 <div>
-                                  <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Nuevo valor ($)</div>
-                                  <input
+                                  <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Nuevo valor ($)</div>
+                                  <input aria-label="Campo"
                                     type="number" min="0.01" step="0.01"
                                     value={reagendaMonto}
                                     onChange={(e) => setReagendaMonto(e.target.value)}
@@ -521,25 +521,25 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     style={{
                                       width: '100%', padding: '6px 8px', fontSize: 12,
                                       background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)',
-                                      borderRadius: 6, color: 'inherit', outline: 'none',
+                                      borderRadius: 6, color: 'inherit',
                                     }}
                                   />
                                 </div>
                               </div>
                               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                                <button
+                                <button type="button"
                                   onClick={(e) => { e.stopPropagation(); setReagendaFormId(null); }}
                                   style={{
-                                    padding: '5px 12px', fontSize: 11, cursor: 'pointer',
+                                    padding: '5px 12px', fontSize: 12, cursor: 'pointer',
                                     background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                                     borderRadius: 6, color: 'inherit',
                                   }}
                                 >Cancelar</button>
-                                <button
+                                <button type="button"
                                   onClick={(e) => handleReagendar(e, r.cdr_id)}
                                   disabled={reagendaGuardando}
                                   style={{
-                                    padding: '5px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                    padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
                                     background: '#1565c0', border: 'none',
                                     borderRadius: 6, color: '#fff', opacity: reagendaGuardando ? 0.6 : 1,
                                   }}
@@ -557,13 +557,13 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                               border: '1px solid rgba(0,230,118,0.25)',
                               borderRadius: 8,
                             }} onClick={(e) => e.stopPropagation()}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-primary)', letterSpacing: 0.5, marginBottom: 10 }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-primary)', letterSpacing: 0.5, marginBottom: 10 }}>
                                 CONFIRMAR PAGO REALIZADO
                               </div>
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
                                 <div>
-                                  <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Valor cancelado ($)</div>
-                                  <input
+                                  <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Valor cancelado ($)</div>
+                                  <input aria-label="Campo"
                                     type="number" min="0.01" step="0.01"
                                     value={pagoMonto}
                                     onChange={(e) => setPagoMonto(e.target.value)}
@@ -571,13 +571,13 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     style={{
                                       width: '100%', padding: '6px 8px', fontSize: 12,
                                       background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(0,230,118,0.3)',
-                                      borderRadius: 6, color: 'inherit', outline: 'none',
+                                      borderRadius: 6, color: 'inherit',
                                     }}
                                   />
                                 </div>
                                 <div>
-                                  <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Nº Comprobante</div>
-                                  <input
+                                  <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Nº Comprobante</div>
+                                  <input aria-label="Campo"
                                     type="text"
                                     value={pagoComprobante}
                                     onChange={(e) => setPagoComprobante(e.target.value)}
@@ -585,19 +585,19 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     style={{
                                       width: '100%', padding: '6px 8px', fontSize: 12,
                                       background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)',
-                                      borderRadius: 6, color: 'inherit', outline: 'none',
+                                      borderRadius: 6, color: 'inherit',
                                     }}
                                   />
                                 </div>
                                 <div>
-                                  <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Forma de pago</div>
+                                  <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Forma de pago</div>
                                   <select
                                     value={pagoForma}
                                     onChange={(e) => setPagoForma(e.target.value)}
                                     style={{
                                       width: '100%', padding: '6px 8px', fontSize: 12,
                                       background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)',
-                                      borderRadius: 6, color: 'inherit', outline: 'none',
+                                      borderRadius: 6, color: 'inherit',
                                     }}
                                   >
                                     {FORMAS_PAGO.map(fp => (
@@ -607,19 +607,19 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                 </div>
                               </div>
                               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                                <button
+                                <button type="button"
                                   onClick={(e) => { e.stopPropagation(); setPagoFormId(null); }}
                                   style={{
-                                    padding: '5px 12px', fontSize: 11, cursor: 'pointer',
+                                    padding: '5px 12px', fontSize: 12, cursor: 'pointer',
                                     background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                                     borderRadius: 6, color: 'inherit',
                                   }}
                                 >Cancelar</button>
-                                <button
+                                <button type="button"
                                   onClick={(e) => handleConfirmarPago(e, r.cdr_id)}
                                   disabled={pagoGuardando}
                                   style={{
-                                    padding: '5px 14px', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                                    padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
                                     background: 'var(--color-primary)', border: 'none',
                                     borderRadius: 6, color: '#000', opacity: pagoGuardando ? 0.6 : 1,
                                   }}
@@ -634,7 +634,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                             {esIncumplido ? (
                               <div style={{
                                 display: 'flex', alignItems: 'center', gap: 6,
-                                padding: '5px 12px', borderRadius: 6, fontSize: 11,
+                                padding: '5px 12px', borderRadius: 6, fontSize: 12,
                                 background: 'rgba(244,67,54,0.08)', border: '1px solid rgba(244,67,54,0.25)',
                                 color: '#ef9a9a',
                               }}>
@@ -644,10 +644,10 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                             ) : (
                               <>
                                 {CODIGOS_CONFIRMABLES.has(r.tipificacion_codigo) && pagoFormId !== r.cdr_id && (
-                                  <button
+                                  <button type="button"
                                     className="btn btn-sm"
                                     style={{
-                                      padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                                      padding: '4px 12px', fontSize: 12, fontWeight: 700,
                                       background: 'rgba(0,230,118,0.12)', border: '1px solid rgba(0,230,118,0.4)',
                                       color: 'var(--color-primary)', borderRadius: 6, cursor: 'pointer',
                                     }}
@@ -658,10 +658,10 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                   </button>
                                 )}
                                 {CODIGOS_REAGENDABLES.has(r.tipificacion_codigo) && reagendaFormId !== r.cdr_id && (
-                                  <button
+                                  <button type="button"
                                     className="btn btn-sm"
                                     style={{
-                                      padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                                      padding: '4px 12px', fontSize: 12, fontWeight: 700,
                                       background: 'rgba(100,181,246,0.12)', border: '1px solid rgba(100,181,246,0.4)',
                                       color: '#64b5f6', borderRadius: 6, cursor: 'pointer',
                                     }}
@@ -672,11 +672,11 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                   </button>
                                 )}
                                 {CODIGOS_INCUMPLIBLES.has(r.tipificacion_codigo) && (
-                                  <button
+                                  <button type="button"
                                     className="btn btn-sm"
                                     disabled={incumpGuardandoId === r.cdr_id}
                                     style={{
-                                      padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                                      padding: '4px 12px', fontSize: 12, fontWeight: 700,
                                       background: 'rgba(244,67,54,0.12)', border: '1px solid rgba(244,67,54,0.4)',
                                       color: '#ef9a9a', borderRadius: 6, cursor: 'pointer',
                                       opacity: incumpGuardandoId === r.cdr_id ? 0.6 : 1,
@@ -690,9 +690,9 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                               </>
                             )}
                             {onGestionar && r.contacto_id && (
-                              <button
+                              <button type="button"
                                 className="btn btn-primary btn-sm"
-                                style={{ padding: '4px 12px', fontSize: 11 }}
+                                style={{ padding: '4px 12px', fontSize: 12 }}
                                 onClick={(e) => { e.stopPropagation(); onGestionar(r.contacto_id); }}
                               >
                                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>phone_forwarded</span>
@@ -714,7 +714,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   );
 }
 
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
 const td = { padding: '8px 10px', verticalAlign: 'middle' };
 
 function KpiCard({ label, value, color, warn }) {
@@ -725,7 +725,7 @@ function KpiCard({ label, value, color, warn }) {
       background: warn ? 'rgba(255,152,0,0.08)' : 'rgba(255,255,255,0.03)',
       border: '1px solid ' + (warn ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.06)'),
     }}>
-      <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: color || 'inherit' }}>{value}</div>
     </div>
   );
@@ -734,7 +734,7 @@ function KpiCard({ label, value, color, warn }) {
 function Detail({ label, value, mono }) {
   return (
     <div>
-      <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</div>
       <div className={mono ? 'text-mono' : ''} style={{ fontSize: 12, marginTop: 2 }}>{value}</div>
     </div>
   );

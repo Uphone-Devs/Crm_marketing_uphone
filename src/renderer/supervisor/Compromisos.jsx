@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { todayLocalISO } from '../shared/timeUtils';
+const _EMPTY_ARR = [];
 
 const TIPO_LABEL = {
   PMP:       'Promesa de Pago',
@@ -38,7 +39,7 @@ const fmtHora = (ts) => {
   } catch { return '—'; }
 };
 
-export default function Compromisos({ callApi, asesores = [] }) {
+export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
   const hoy = todayLocalISO();
   const [fecha, setFecha] = useState(hoy);
   const [asesorId, setAsesorId] = useState('');
@@ -128,9 +129,9 @@ export default function Compromisos({ callApi, asesores = [] }) {
     <div className="widget-card" style={{ maxWidth: 1200, margin: '0 auto' }}>
       <div className="widget-header" style={{ marginBottom: 12 }}>
         <div>
-          <span className="text-label" style={{ opacity: 0.5 }}>SUPERVISOR · DRILL-DOWN</span>
+          <span className="text-label" style={{ opacity: 0.5 }}>JEFE DE ÁREA · DRILL-DOWN</span>
           <h3 className="widget-title" style={{ marginTop: 4 }}>Compromisos de Pago</h3>
-          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 11 }}>
+          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
             Detalle de PMP, Pago Realizado, Abono Parcial, Pendiente Comprobante e Incumplidos
           </p>
         </div>
@@ -143,30 +144,30 @@ export default function Compromisos({ callApi, asesores = [] }) {
         background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Fecha</span>
-          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{
-            padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Fecha</span>
+          <input aria-label="Fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} style={{
+            padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
             background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6, color: 'inherit', outline: 'none',
+            borderRadius: 6, color: 'inherit',
           }} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Asesor</span>
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Asesor</span>
           <select value={asesorId} onChange={(e) => setAsesorId(e.target.value)} style={{
-            padding: '5px 8px', fontSize: 11,
+            padding: '5px 8px', fontSize: 12,
             background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6, color: 'inherit', outline: 'none',
+            borderRadius: 6, color: 'inherit',
           }}>
             <option value="">Todos</option>
             {asesores.map(a => (<option key={a.id} value={a.id}>{a.nombre}</option>))}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10, opacity: 0.5 }}>Tipo</span>
+          <span style={{ fontSize: 12, opacity: 0.5 }}>Tipo</span>
           <select value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} style={{
-            padding: '5px 8px', fontSize: 11,
+            padding: '5px 8px', fontSize: 12,
             background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 6, color: 'inherit', outline: 'none',
+            borderRadius: 6, color: 'inherit',
           }}>
             <option value="">Todos</option>
             <option value="PMP">Promesa de Pago</option>
@@ -182,15 +183,15 @@ export default function Compromisos({ callApi, asesores = [] }) {
             position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
             fontSize: 14, opacity: 0.4, pointerEvents: 'none',
           }}>search</span>
-          <input
+          <input aria-label="Campo"
             type="text"
             value={textoFiltro}
             onChange={(e) => setTextoFiltro(e.target.value)}
             placeholder="Buscar cliente, cédula, teléfono, contrato..."
             style={{
-              width: '100%', padding: '5px 26px 5px 28px', fontSize: 11,
+              width: '100%', padding: '5px 26px 5px 28px', fontSize: 12,
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 6, color: 'inherit', outline: 'none',
+              borderRadius: 6, color: 'inherit',
             }}
           />
         </div>
@@ -217,7 +218,7 @@ export default function Compromisos({ callApi, asesores = [] }) {
         </div>
       ) : (
         <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
                 <th style={th}>Hora</th>
@@ -248,18 +249,18 @@ export default function Compromisos({ callApi, asesores = [] }) {
                       <td style={td}><span className="text-mono">{r.telefono || '—'}</span></td>
                       <td style={td}>
                         {r.empresa
-                          ? <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
+                          ? <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
                           : '—'}
                       </td>
                       <td style={td}>
-                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: color.bg, color: color.fg }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: color.bg, color: color.fg }}>
                           {TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc}
                         </span>
                       </td>
                       <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>
                         {r.monto_acordado != null
                           ? <span style={{ color: 'var(--color-primary)' }}>{fmt$(r.monto_acordado)}</span>
-                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 10 }}>sin capturar</span>}
+                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 12 }}>sin capturar</span>}
                       </td>
                       <td style={td}>
                         {r.fecha_promesa
@@ -275,23 +276,23 @@ export default function Compromisos({ callApi, asesores = [] }) {
                     {isOpen && (
                       <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
                         <td colSpan={9} style={{ padding: '10px 14px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 11 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 12 }}>
                             <Detail label="Cédula" value={r.cedula || '—'} mono />
                             <Detail label="Contrato" value={r.contrato || '—'} mono />
                             <Detail label="Mora del cliente" value={r.valor_mora != null ? fmt$(r.valor_mora) : '—'} />
                             <Detail label="Duración llamada" value={r.duracion_seg ? `${Math.floor(r.duracion_seg/60)}:${(r.duracion_seg%60).toString().padStart(2,'0')}` : '—'} mono />
                           </div>
                           {r.notas && (
-                            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontSize: 11, lineHeight: 1.4, opacity: 0.85 }}>
-                              <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 700 }}>NOTAS</span>
+                            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontSize: 12, lineHeight: 1.4, opacity: 0.85 }}>
+                              <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700 }}>NOTAS</span>
                               <p style={{ margin: '4px 0 0' }}>{r.notas}</p>
                             </div>
                           )}
                           <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-                            <button
+                            <button type="button"
                               onClick={(e) => { e.stopPropagation(); handleEliminar(r.cdr_id); }}
                               disabled={eliminandoId === r.cdr_id}
-                              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid rgba(244,67,54,0.4)', background: 'rgba(244,67,54,0.12)', color: '#ef5350' }}
+                              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid rgba(244,67,54,0.4)', background: 'rgba(244,67,54,0.12)', color: '#ef5350' }}
                             >
                               <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
                               {eliminandoId === r.cdr_id ? 'Eliminando...' : 'Eliminar compromiso'}
@@ -311,7 +312,7 @@ export default function Compromisos({ callApi, asesores = [] }) {
   );
 }
 
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
 const td = { padding: '8px 10px', verticalAlign: 'middle' };
 
 function KpiCard({ label, value, color, warn }) {
@@ -322,7 +323,7 @@ function KpiCard({ label, value, color, warn }) {
       background: warn ? 'rgba(255,152,0,0.08)' : 'rgba(255,255,255,0.03)',
       border: '1px solid ' + (warn ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.06)'),
     }}>
-      <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: color || 'inherit' }}>{value}</div>
     </div>
   );
@@ -331,7 +332,7 @@ function KpiCard({ label, value, color, warn }) {
 function Detail({ label, value, mono }) {
   return (
     <div>
-      <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</div>
       <div className={mono ? 'text-mono' : ''} style={{ fontSize: 12, marginTop: 2 }}>{value}</div>
     </div>
   );

@@ -32,9 +32,7 @@
   border-radius: var(--radius-xl);
   color: var(--color-on-surface);
   font-family: var(--font-body);
-  font-size: 13px;
-  outline: none;
-  transition: border-color var(--transition-fast);
+  font-size: 13px;  transition: border-color var(--transition-fast);
 }
 
 .adv-list__search-input:focus {
@@ -64,7 +62,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: background var(--transition-fast), opacity var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
 .adv-list__filter-btn:hover {
@@ -100,7 +98,7 @@
   background: var(--color-surface-container-low);
   border: 1px solid rgba(61, 74, 62, 0.08);
   border-radius: var(--radius-xl);
-  transition: all var(--transition-base);
+  transition: background var(--transition-base), opacity var(--transition-base), border-color var(--transition-base), color var(--transition-base);
 }
 
 .adv-card:hover {

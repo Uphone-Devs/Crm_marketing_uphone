@@ -40,6 +40,11 @@ const cardStyle = { cursor: 'pointer', transition: 'transform 0.2s' };
 const onEnter = (e) => { e.currentTarget.style.transform = 'translateY(-2px)'; };
 const onLeave = (e) => { e.currentTarget.style.transform = 'translateY(0)'; };
 
+const VOLUMEN_COLORS = ['#00E5FF', '#2979FF', '#651FFF', '#FF6E40', '#1DE9B6', '#FFD740', '#F50057', '#7C4DFF', '#69F0AE', '#FFAB40'];
+const SECTION_HEADER_STYLE = { display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 10px' };
+const SECTION_TAG_STYLE = { fontSize: 12, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.55 };
+const SECTION_RULE_STYLE = { flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' };
+
 function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, onOpenContactabilidad, onOpenVolumen, filtroFechaDesde, filtroFechaHasta, filtroCampana }) {
   const _api   = buildApiBase();
   const _isRem = !!_api;
@@ -255,7 +260,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   // Reutiliza detalleContact (mismo dataset que Contactabilidad por Hora) pero
   // agrupa por hora + asesor. Permite correlacionar volumen vs efectividad:
   // hora con muchas marcaciones pero pocos efectivos â†’ mala franja horaria.
-  const VOLUMEN_COLORS = ['#00E5FF', '#2979FF', '#651FFF', '#FF6E40', '#1DE9B6', '#FFD740', '#F50057', '#7C4DFF', '#69F0AE', '#FFAB40'];
+
   const volumenInfo = useMemo(() => {
     // Asesores presentes en el detalle (con al menos 1 CDR)
     const aMap = new Map();
@@ -322,23 +327,15 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   const [modalTitle, setModalTitle] = React.useState('');
   const openModal = (type, title) => { setModalType(type); setModalTitle(title); setModalOpen(true); };
 
-  const sectionHeaderStyle = {
-    display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 10px',
-  };
-  const sectionTagStyle = {
-    fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.55,
-  };
-  const sectionRuleStyle = {
-    flex: 1, height: 1, background: 'rgba(255,255,255,0.07)',
-  };
+
 
   return (
     <>
       {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECCIÃ“N PRIORITARIA â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
-      <div style={sectionHeaderStyle}>
+      <div style={SECTION_HEADER_STYLE}>
         <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>star</span>
-        <span style={{ ...sectionTagStyle, color: 'var(--color-primary)' }}>Vista Prioritaria</span>
-        <div style={sectionRuleStyle} />
+        <span style={{ ...SECTION_TAG_STYLE, color: 'var(--color-primary)' }}>Vista Prioritaria</span>
+        <div style={SECTION_RULE_STYLE} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 'var(--space-md)', alignItems: 'stretch' }}>
 
@@ -358,7 +355,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               <thead>
                 <tr>
                   {['Asesor', 'Marcaciones', 'Gestionados / Total', 'Compromisos', 'Tiempo Aire', '% Eficacia', '% Productividad'].map((h, i) => (
-                    <th key={i} style={{ textAlign: i === 0 ? 'left' : 'center', padding: '6px 10px', opacity: 0.45, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ textAlign: i === 0 ? 'left' : 'center', padding: '6px 10px', opacity: 0.45, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -373,7 +370,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 700, color: 'var(--color-primary)' }}>{d?.metricas?.total_marcaciones || 0}</td>
                       <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 600 }}>
                         <span style={{ color: '#fff' }}>{d?.metricas?.gestionados_base || 0}</span>
-                        <span style={{ fontSize: 11, opacity: 0.35 }}> / {d?.metricas?.total_asignados || 0}</span>
+                        <span style={{ fontSize: 12, opacity: 0.35 }}> / {d?.metricas?.total_asignados || 0}</span>
                       </td>
                       <td style={{ padding: '9px 10px', textAlign: 'center', fontWeight: 700, color: '#1DE9B6' }}>{d?.metricas?.total_compromisos || 0}</td>
                       <td style={{ padding: '9px 10px', textAlign: 'center', opacity: 0.7 }}>{aireMin}m</td>
@@ -399,9 +396,9 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               { label: 'Gestion. / Total', val: `${detalleAsesores.reduce((s, d) => s + (d?.metricas?.gestionados_base || 0), 0)} / ${detalleAsesores.reduce((s, d) => s + (d?.metricas?.total_asignados || 0), 0)}`, color: '#fff' },
               { label: 'Compromisos',      val: detalleAsesores.reduce((s, d) => s + (d?.metricas?.total_compromisos || 0), 0),  color: '#1DE9B6' },
               { label: 'Tiempo Aire',      val: `${Math.round(detalleAsesores.reduce((s, d) => s + (d?.metricas?.tiempo_al_aire || 0), 0) / 60)}m`, color: 'rgba(255,255,255,0.6)' },
-            ].map((item, i) => (
-              <div key={i} style={{ textAlign: 'center' }}>
-                <span style={{ display: 'block', fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
+            ].map((item) => (
+              <div key={item.label} style={{ textAlign: 'center' }}>
+                <span style={{ display: 'block', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
                 <span style={{ fontSize: 15, fontWeight: 800, color: item.color }}>{typeof item.val === 'number' ? item.val.toLocaleString() : item.val}</span>
               </div>
             ))}
@@ -440,10 +437,10 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                 <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
                   <ComposedChart data={dataContactHora} margin={{ top: 4, right: 48, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="hora" tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.5)' }} interval={0} />
+                    <XAxis dataKey="hora" tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.5)' }} interval={0} />
                     <YAxis
                       yAxisId="vol"
-                      tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.5)' }}
+                      tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.5)' }}
                       allowDecimals={false}
                     />
                     <YAxis
@@ -451,7 +448,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       orientation="right"
                       domain={[0, 100]}
                       tickFormatter={v => `${v}%`}
-                      tick={{ fontSize: 10, fill: 'rgba(255,193,7,0.7)' }}
+                      tick={{ fontSize: 12, fill: 'rgba(255,193,7,0.7)' }}
                       allowDecimals={false}
                       width={40}
                     />
@@ -462,7 +459,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                         return [value, name];
                       }}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Bar yAxisId="vol" dataKey="efectivos" stackId="a" fill="#00E676" name="Efectivos" />
                     <Bar yAxisId="vol" dataKey="neutros" stackId="a" fill="#FBC02D" name="Neutros" />
                     <Bar yAxisId="vol" dataKey="no_contactados" stackId="a" fill="#9E9E9E" name="No contactados" radius={[3, 3, 0, 0]} />
@@ -495,12 +492,12 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   { label: 'No Contactados', val: noc, color: '#9E9E9E', suf: ` (${pct(noc)}%)` },
                   ...(sinTip > 0 ? [{ label: 'Sin Tipificar', val: sinTip, color: '#ff8a65', suf: ` (${pct(sinTip)}%)` }] : []),
                   { label: 'Tasa Contactabilidad', val: `${tasaContactabilidadHora}%`, color: tasaContactabilidadHora >= 30 ? '#00E676' : tasaContactabilidadHora >= 15 ? '#FBC02D' : '#ff5252', suf: '' },
-                ].map((item, i) => (
-                  <div key={i} style={{ textAlign: 'center' }}>
-                    <span style={{ display: 'block', fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
+                ].map((item) => (
+                  <div key={item.label} style={{ textAlign: 'center' }}>
+                    <span style={{ display: 'block', fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
                     <span style={{ fontSize: 16, fontWeight: 800, color: item.color }}>
                       {typeof item.val === 'number' ? item.val.toLocaleString() : item.val}
-                      <span style={{ fontSize: 11, opacity: 0.65, fontWeight: 600 }}>{item.suf}</span>
+                      <span style={{ fontSize: 12, opacity: 0.65, fontWeight: 600 }}>{item.suf}</span>
                     </span>
                   </div>
                 ))}
@@ -534,8 +531,8 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   ))}
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="hora" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.5)' }} interval={0} />
-                <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.5)' }} allowDecimals={false} />
+                <XAxis dataKey="hora" tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.5)' }} interval={0} />
+                <YAxis tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.5)' }} allowDecimals={false} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
                   formatter={(v, name) => {
@@ -547,7 +544,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                     return `${label} Â· Total: ${total}`;
                   }}
                 />
-                <Legend wrapperStyle={{ fontSize: 10 }} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
                 {volumenInfo.asesores.map((a, i) => (
                   <Area
                     key={a.key}
@@ -571,13 +568,13 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           {/* Tabla resumen por asesor */}
           {volumenInfo.asesores.length > 0 && (
             <div style={{ marginTop: 10, maxHeight: 140, overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left' }}>
-                    <th style={{ padding: '6px 8px', fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Asesor</th>
-                    <th style={{ padding: '6px 8px', fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>Marcaciones</th>
-                    <th style={{ padding: '6px 8px', fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>% del total</th>
-                    <th style={{ padding: '6px 8px', fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' }}>Hora pico</th>
+                    <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Asesor</th>
+                    <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>Marcaciones</th>
+                    <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>% del total</th>
+                    <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' }}>Hora pico</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -603,7 +600,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                         <td style={{ padding: '6px 8px', textAlign: 'right', opacity: 0.75 }}>
                           {totalMarcacionesHora > 0 ? `${Math.round((a.total / totalMarcacionesHora) * 100)}%` : '0%'}
                         </td>
-                        <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 10 }}>
+                        <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: 12 }}>
                           <span className="text-mono">{a.peakH}</span>
                           <span style={{ opacity: 0.5, marginLeft: 4 }}>({a.peakV})</span>
                         </td>
@@ -635,9 +632,9 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               { label: 'Correos',   val: metricasEquipo?.correosEnviadosTotal ?? 0, color: '#ff8a65', icon: 'mail' },
               { label: 'Total',     val: (metricasEquipo?.wspEnviadosTotal ?? 0) + (metricasEquipo?.smsEnviadosTotal ?? 0) + (metricasEquipo?.correosEnviadosTotal ?? 0), color: 'var(--color-primary)', icon: 'forum' },
             ].map((item, i) => (
-              <div key={i} style={{ textAlign: 'center', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+              <div key={item.label} style={{ textAlign: 'center', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16, color: item.color, opacity: 0.85 }}>{item.icon}</span>
-                <div style={{ fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{item.label}</div>
+                <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{item.label}</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: item.color, marginTop: 2 }}>{item.val.toLocaleString()}</div>
               </div>
             ))}
@@ -648,11 +645,11 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left',  padding: '5px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Asesor</th>
-                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#25D366' }}>WSP</th>
-                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#64b5f6' }}>SMS</th>
-                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#ff8a65' }}>Correos</th>
-                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Total</th>
+                  <th style={{ textAlign: 'left',  padding: '5px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Asesor</th>
+                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#25D366' }}>WSP</th>
+                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#64b5f6' }}>SMS</th>
+                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#ff8a65' }}>Correos</th>
+                  <th style={{ textAlign: 'center', padding: '5px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -702,37 +699,35 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
               {/* Rango de fechas */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 10, opacity: 0.45, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Desde</span>
-                <input
+                <span style={{ fontSize: 12, opacity: 0.45, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Desde</span>
+                <input aria-label="Desde"
                   type="date"
                   value={rotFechaInicio}
                   onChange={e => setRotFechaInicio(e.target.value)}
                   max={rotFechaFin || undefined}
                   style={{
                     padding: '3px 7px',
-                    fontSize: 11,
+                    fontSize: 12,
                     borderRadius: 6,
                     border: rotFechaInicio ? '1px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.1)',
                     background: '#1a1a1a',
                     color: rotFechaInicio ? 'var(--color-primary)' : 'rgba(255,255,255,0.45)',
-                    outline: 'none',
                     colorScheme: 'dark',
                   }}
                 />
-                <span style={{ fontSize: 10, opacity: 0.45, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Hasta</span>
-                <input
+                <span style={{ fontSize: 12, opacity: 0.45, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>Hasta</span>
+                <input aria-label="Hasta"
                   type="date"
                   value={rotFechaFin}
                   onChange={e => setRotFechaFin(e.target.value)}
                   min={rotFechaInicio || undefined}
                   style={{
                     padding: '3px 7px',
-                    fontSize: 11,
+                    fontSize: 12,
                     borderRadius: 6,
                     border: rotFechaFin ? '1px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.1)',
                     background: '#1a1a1a',
                     color: rotFechaFin ? 'var(--color-primary)' : 'rgba(255,255,255,0.45)',
-                    outline: 'none',
                     colorScheme: 'dark',
                   }}
                 />
@@ -745,13 +740,12 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   onChange={e => setRotCampana(e.target.value)}
                   style={{
                     padding: '4px 8px',
-                    fontSize: 11,
+                    fontSize: 12,
                     borderRadius: 6,
                     border: rotCampana ? '1px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.1)',
                     background: '#1a1a1a',
                     color: rotCampana ? 'var(--color-primary)' : 'rgba(255,255,255,0.45)',
                     cursor: 'pointer',
-                    outline: 'none',
                     colorScheme: 'dark',
                   }}
                 >
@@ -764,12 +758,12 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
               {/* BotÃ³n limpiar â€” solo cuando hay filtro activo */}
               {(rotFechaInicio || rotFechaFin || rotCampana) && (
-                <button
+                <button type="button"
                   onClick={() => { setRotFechaInicio(''); setRotFechaFin(''); setRotCampana(''); }}
                   title="Limpiar filtros"
                   style={{
                     padding: '4px 8px',
-                    fontSize: 10,
+                    fontSize: 12,
                     borderRadius: 6,
                     border: '1px solid rgba(255,82,82,0.4)',
                     background: 'rgba(255,82,82,0.08)',
@@ -780,7 +774,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                     gap: 4,
                   }}
                 >
-                  <span className="material-symbols-outlined" style={{ fontSize: 11 }}>filter_alt_off</span>
+                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>filter_alt_off</span>
                   Limpiar
                 </button>
               )}
@@ -794,10 +788,10 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
             {/* IZQ â€” Lista de progress bars por asesor (live) */}
             <div style={{ minHeight: 260, display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Avance por Asesor
                 </span>
-                <span style={{ fontSize: 9, opacity: 0.4 }}>
+                <span style={{ fontSize: 12, opacity: 0.4 }}>
                   {dataRotacionAsesor.length} asesores con cartera
                 </span>
               </div>
@@ -827,7 +821,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-on-surface)' }}>
                             {r.fullName}
                           </span>
-                          <span style={{ fontSize: 11, opacity: 0.75 }}>
+                          <span style={{ fontSize: 12, opacity: 0.75 }}>
                             <span style={{ fontWeight: 800, color }}>{r.gestionados}</span>
                             <span style={{ opacity: 0.5 }}> de </span>
                             <span style={{ fontWeight: 700 }}>{r.total}</span>
@@ -852,7 +846,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                           }} />
                         </div>
                         {/* Sub-stats */}
-                        <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 10, opacity: 0.55 }}>
+                        <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12, opacity: 0.55 }}>
                           <span><span style={{ color }}>â—</span> Gestionados: <b>{r.gestionados}</b></span>
                           <span><span style={{ opacity: 0.4 }}>â—</span> Pendientes: <b>{pendientes}</b></span>
                         </div>
@@ -865,7 +859,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
             {/* DER â€” Pie chart global */}
             <div style={{ minHeight: 260, display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 'var(--space-md)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 Vista Global
               </div>
               <div style={{ flex: 1, position: 'relative', minHeight: 200 }}>
@@ -885,17 +879,17 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   textAlign: 'center', pointerEvents: 'none',
                 }}>
                   <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--color-primary)', lineHeight: 1 }}>{rotacionReal}%</div>
-                  <div style={{ fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 }}>Completado</div>
+                  <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 }}>Completado</div>
                 </div>
               </div>
               {/* Leyenda */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Gestionados</div>
+                  <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Gestionados</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-primary)', marginTop: 2 }}>{gestionadosBase.toLocaleString()}</div>
                 </div>
                 <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pendientes</div>
+                  <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pendientes</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{Math.max(0, totalAsignados - gestionadosBase).toLocaleString()}</div>
                 </div>
               </div>
@@ -911,7 +905,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               <h3 className="widget-title">Contactabilidad Cruda</h3>
               <p className="text-body-sm" style={{ opacity: 0.5 }}>
                 {cdrsTotal.toLocaleString()} CDRs Â· <span style={{ color: '#00E676', fontWeight: 700 }}>{tasaContactabilidad}% efectividad</span>
-                <span style={{ opacity: 0.4, marginLeft: 6, fontSize: 10 }}>(click en celda para ver detalle)</span>
+                <span style={{ opacity: 0.4, marginLeft: 6, fontSize: 12 }}>(click en celda para ver detalle)</span>
               </p>
             </div>
             <span className="material-symbols-outlined" style={{ color: '#00E676' }}>support_agent</span>
@@ -921,19 +915,19 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
             {/* IZQ â€” Tabla por asesor con celdas clickeables */}
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                 Desglose por Asesor
               </div>
               <div style={{ overflowY: 'auto', maxHeight: 360 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr>
-                      <th style={{ textAlign: 'left',  padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Asesor</th>
-                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#00E676' }}>Efectivos</th>
-                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#FBC02D' }}>Neutros</th>
-                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#9E9E9E' }}>No Cont.</th>
-                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Total</th>
-                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Tasa</th>
+                      <th style={{ textAlign: 'left',  padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Asesor</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#00E676' }}>Efectivos</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#FBC02D' }}>Neutros</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#9E9E9E' }}>No Cont.</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Total</th>
+                      <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Tasa</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -990,7 +984,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
             {/* DER â€” Pie chart 4 segmentos global */}
             <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 'var(--space-md)' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 Vista Global
               </div>
               <div style={{ flex: 1, minHeight: 200 }}>
@@ -1002,8 +996,8 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
                     <PieChart>
                       <Pie data={dataContactabilidad4} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2} dataKey="value" stroke="none">
-                        {dataContactabilidad4.map((entry, i) => (
-                          <Cell key={i} fill={entry.color} />
+                        {dataContactabilidad4.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
                       <Tooltip
@@ -1016,14 +1010,14 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               </div>
               {/* Leyenda */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                {dataContactabilidad4.map((seg, i) => {
+                {dataContactabilidad4.map((seg) => {
                   const pct = cdrsTotal > 0 ? Math.round((seg.value / cdrsTotal) * 100) : 0;
                   return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
+                    <div key={seg.name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                       <span style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
                       <span style={{ opacity: 0.7 }}>{seg.name}</span>
                       <span style={{ marginLeft: 'auto', fontWeight: 700, color: seg.color }}>{seg.value}</span>
-                      <span style={{ opacity: 0.4, fontSize: 9 }}>({pct}%)</span>
+                      <span style={{ opacity: 0.4, fontSize: 12 }}>({pct}%)</span>
                     </div>
                   );
                 })}
@@ -1046,18 +1040,18 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
             <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
               <BarChart data={dataMontoFinal} layout="vertical" margin={{ left: 10, right: 90 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis type="number" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }} tickFormatter={fmt$} />
-                <YAxis dataKey="name" type="category" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} width={72} />
+                <XAxis type="number" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }} tickFormatter={fmt$} />
+                <YAxis dataKey="name" type="category" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12 }} width={72} />
                 <Tooltip
                   cursor={{ fill: 'rgba(255,255,255,0.02)' }}
                   contentStyle={chartTooltipStyle}
                   formatter={(v, name) => [fmt$(v), name === 'monto' ? 'Comprometido' : 'Total Mora']}
                   labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || ''}
                 />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} formatter={(v) => v === 'monto' ? 'Comprometido hoy' : 'Mora base'} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} formatter={(v) => v === 'monto' ? 'Comprometido hoy' : 'Mora base'} />
                 <Bar dataKey="mora"  fill="rgba(255,82,82,0.15)"  radius={[0, 2, 2, 0]} barSize={18} />
                 <Bar dataKey="monto" fill={C_DANGER}               radius={[0, 4, 4, 0]} barSize={18}>
-                  <LabelList dataKey="monto" position="right" formatter={fmt$} style={{ fontSize: 11, fill: 'rgba(255,255,255,0.55)' }} />
+                  <LabelList dataKey="monto" position="right" formatter={fmt$} style={{ fontSize: 12, fill: 'rgba(255,255,255,0.55)' }} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -1073,9 +1067,9 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               { label: 'Total Mora Base',    val: fmt$(metricasEquipo?.moraTotal),              color: 'rgba(255,255,255,0.5)' },
               { label: 'Total Comprometido', val: fmt$(metricasEquipo?.montoComprometidoTotal), color: C_DANGER },
               { label: 'Tasa RecuperaciÃ³n',  val: `${metricasEquipo?.tasaRecuperacion ?? 0}%`, color: C_WARN },
-            ].map((item, i) => (
-              <div key={i} style={{ textAlign: 'center' }}>
-                <span style={{ display: 'block', fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
+            ].map((item) => (
+              <div key={item.label} style={{ textAlign: 'center' }}>
+                <span style={{ display: 'block', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
                 <span style={{ fontSize: 16, fontWeight: 800, color: item.color }}>{item.val}</span>
               </div>
             ))}
@@ -1115,15 +1109,15 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               { label: 'Compromisos',  icon: 'handshake',     actual: metricasEquipo?.totalCompromisosEquipo || 0,   proy: compromisosTotalProy,    color: '#1DE9B6',              isMoney: false },
               { label: 'Recaudo',      icon: 'payments',      actual: metricasEquipo?.montoRecaudadoTotal || 0,      proy: montoRecaudadoTotalProy, color: '#ffc107',              isMoney: true  },
             ].map((kpi, i) => (
-              <div key={i} style={{ textAlign: 'center', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none', padding: '0 8px' }}>
+              <div key={kpi.label} style={{ textAlign: 'center', borderLeft: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none', padding: '0 8px' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 16, color: kpi.color, opacity: 0.85 }}>{kpi.icon}</span>
-                <div style={{ fontSize: 9, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{kpi.label} Proyectado</div>
+                <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{kpi.label} Proyectado</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: kpi.color, marginTop: 2 }}>
                   {kpi.isMoney
                     ? '$' + Number(kpi.proy).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                     : kpi.proy.toLocaleString()}
                 </div>
-                <div style={{ fontSize: 10, opacity: 0.5, marginTop: 2 }}>
+                <div style={{ fontSize: 12, opacity: 0.5, marginTop: 2 }}>
                   Actual: <b style={{ color: 'rgba(255,255,255,0.75)' }}>
                     {kpi.isMoney
                       ? '$' + Number(kpi.actual).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -1142,11 +1136,11 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           {/* Bar chart por asesor: stacked actual + delta */}
           <div style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 Marcaciones Â· actual vs proyectado por asesor
               </span>
               {proyEsHoy && (
-                <div style={{ display: 'flex', gap: 12, fontSize: 9, opacity: 0.6 }}>
+                <div style={{ display: 'flex', gap: 12, fontSize: 12, opacity: 0.6 }}>
                   <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--color-primary)', borderRadius: 2, verticalAlign: 'middle', marginRight: 4 }} />Realizado</span>
                   <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'rgba(0,230,118,0.25)', borderRadius: 2, border: '1px dashed rgba(0,230,118,0.6)', verticalAlign: 'middle', marginRight: 4 }} />ProyecciÃ³n</span>
                 </div>
@@ -1161,8 +1155,8 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                 <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
                   <BarChart data={dataProyeccion} layout="vertical" margin={{ left: 10, right: 80, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.05)" />
-                    <XAxis type="number" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }} />
-                    <YAxis dataKey="name" type="category" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 11 }} width={80} />
+                    <XAxis type="number" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }} />
+                    <YAxis dataKey="name" type="category" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12 }} width={80} />
                     <Tooltip
                       cursor={{ fill: 'rgba(255,255,255,0.02)' }}
                       contentStyle={chartTooltipStyle}
@@ -1177,7 +1171,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       <LabelList
                         dataKey="marcProy"
                         position="right"
-                        style={{ fill: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 700 }}
+                        style={{ fill: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 700 }}
                       />
                     </Bar>
                   </BarChart>
@@ -1189,13 +1183,13 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           {/* Tabla detalle: proyecciones de los 3 KPIs por asesor */}
           {dataProyeccion.length > 0 && (
             <div style={{ marginTop: 16, overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left',  padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Asesor</th>
-                    <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--color-primary)' }}>Marcaciones</th>
-                    <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#1DE9B6' }}>Compromisos</th>
-                    <th style={{ textAlign: 'right',  padding: '6px 8px', opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#ffc107' }}>Recaudo</th>
+                    <th style={{ textAlign: 'left',  padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>Asesor</th>
+                    <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--color-primary)' }}>Marcaciones</th>
+                    <th style={{ textAlign: 'center', padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#1DE9B6' }}>Compromisos</th>
+                    <th style={{ textAlign: 'right',  padding: '6px 8px', opacity: 0.5, fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid rgba(255,255,255,0.08)', color: '#ffc107' }}>Recaudo</th>
                   </tr>
                 </thead>
                 <tbody>

@@ -10,20 +10,20 @@ import AsesorPanel from './AsesorPanel';
 function App() {
   const [usuario, setUsuario] = useState(() => {
     try {
-      const saved = localStorage.getItem('auth_user');
+      const saved = localStorage.getItem('auth_user:v1');
       return saved ? JSON.parse(saved) : null;
     } catch { return null; }
   });
 
   function handleLogin(userData, token) {
     localStorage.setItem('auth_token', token);
-    localStorage.setItem('auth_user', JSON.stringify(userData));
+    localStorage.setItem('auth_user:v1', JSON.stringify(userData));
     setUsuario(userData);
   }
 
   async function handleLogout() {
     localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    localStorage.removeItem('auth_user:v1');
     await window.api.invoke('app:logout');
     setUsuario(null);
   }
