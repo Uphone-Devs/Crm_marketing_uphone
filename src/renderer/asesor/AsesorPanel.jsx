@@ -1320,19 +1320,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
         }
       }
 
-      if (activeCdrId) {
-        await callApi('db:updateCdr', activeCdrId, {
-          tipificacionId,
-          notas,
-          timestampFin: nowLocalISO(),
-          resultado: tipificacion.descripcion,
-          urlGrabacion: ultimoAudioPathRef.current,
-          montoAcordado: montoAcordado ?? null,
-        });
-      } else {
-        console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
-      }
-
       // Lista blanca de códigos que permiten reintento automático.
       // Solo cuando NO hubo contacto humano genuino (no contestó / sonó buzón).
       // Cualquier otro código (efectivo, decisivo, número malo, fallecido, etc.)
@@ -1345,31 +1332,49 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const nIntentosActual = intentosContactoRef.current;
       const nIntentosMax = Number(intentosConfig);
 
-      if (contactoSnapshot?.id && typeof contactoSnapshot.id === 'number') {
-        // Registrar el intento
-        await callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax);
-        // Regla de negocio: cualquier tipificación = contacto GESTIONADO
-        await callApi('db:marcarContactoGestionado', contactoSnapshot.id);
-        // Actualizar cartera en tiempo real sin reload
+      // Optimistic UI: actualizar cartera al instante (estado + gestiones_count)
+      if (contactoSnapshot?.id) {
         setCartera(prev => prev.map(x =>
-          x.id === contactoSnapshot.id ? { ...x, estado_marcacion: 'GESTIONADO' } : x
+          x.id === contactoSnapshot.id
+            ? { ...x, estado_marcacion: 'GESTIONADO', gestiones_count: (x.gestiones_count || 0) + 1 }
+            : x
         ));
+      }
 
-        // Si existe agendamiento, registrarlo en la base de datos
-        if (agendamiento) {
-          try {
-            await callApi('db:insertAgendamiento', {
-              contacto_id: contactoSnapshot.id,
-              asesor_id: usuario.id,
-              tipo: agendamiento.tipo,
-              fecha_hora: `${agendamiento.fecha}T${agendamiento.hora}:00`,
-              notas: notas || tipificacion.descripcion
-            });
-            showToast('Agendamiento programado', 'info');
-          } catch (err) {
-            console.error('[AGENDAMIENTO] Error al guardar:', err);
-            showToast('Error al registrar horario de agendamiento', 'error');
-          }
+      // Paralelizar todas las escrituras a BD — reduce latencia de ~6s a ~1-2s
+      const dbWrites = [];
+      if (activeCdrId) {
+        dbWrites.push(callApi('db:updateCdr', activeCdrId, {
+          tipificacionId,
+          notas,
+          timestampFin: nowLocalISO(),
+          resultado: tipificacion.descripcion,
+          urlGrabacion: ultimoAudioPathRef.current,
+          montoAcordado: montoAcordado ?? null,
+        }));
+      } else {
+        console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
+      }
+      if (contactoSnapshot?.id && typeof contactoSnapshot.id === 'number') {
+        dbWrites.push(callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax));
+        dbWrites.push(callApi('db:marcarContactoGestionado', contactoSnapshot.id));
+      }
+      await Promise.all(dbWrites);
+
+      // Agendamiento (secuencial — depende del contacto ya gestionado)
+      if (agendamiento && contactoSnapshot?.id) {
+        try {
+          await callApi('db:insertAgendamiento', {
+            contacto_id: contactoSnapshot.id,
+            asesor_id: usuario.id,
+            tipo: agendamiento.tipo,
+            fecha_hora: `${agendamiento.fecha}T${agendamiento.hora}:00`,
+            notas: notas || tipificacion.descripcion
+          });
+          showToast('Agendamiento programado', 'info');
+        } catch (err) {
+          console.error('[AGENDAMIENTO] Error al guardar:', err);
+          showToast('Error al registrar horario de agendamiento', 'error');
         }
       }
 
@@ -1394,12 +1399,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
       if (esGestionExitosa) setTotalCompromisos(prev => prev + 1);
 
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        // Antes de enviar, intentar refrescar progreso local
-        if (campana?.id) {
-          const p = await callApi('db:getProgresoCampana', campana.id, usuario?.id);
-          if (p) setProgresoCampana(p);
-        }
-
         wsRef.current.send(JSON.stringify({
           tipo: 'TIPIFICACION_REALIZADA',
           asesor_id: usuario.id,
@@ -1408,13 +1407,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
           tipificacion: tipificacion.descripcion,
           notas,
           tiempos_acumulados: tiemposAcumulados,
-          progreso_campana: progresoCampana // Enviar progreso actualizado
+          progreso_campana: progresoCampana
         }));
+        // Refrescar progreso en segundo plano (no bloquea el flujo principal)
+        if (campana?.id) {
+          callApi('db:getProgresoCampana', campana.id, usuario?.id)
+            .then(p => { if (p) setProgresoCampana(p); })
+            .catch(() => {});
+        }
       }
 
       showToast('Gestión registrada', 'success');
-      enviarMetricasWS();
       setDashRefreshTrigger(p => p + 1);
+      fetchMetricasYEnviar();
 
       // ── Lógica de intentos por contacto ──────────────────────────────────
       // (intentosContactoRef ya fue incrementado arriba, antes de debeMarcarGestionado)
