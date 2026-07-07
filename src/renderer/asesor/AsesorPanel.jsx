@@ -603,6 +603,22 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario.id, contactoActual, cdrId, grabando, enLlamada, dialingMode, intentosConfig, enviarMetricasWS, callApi]);
 
+  const handleAdbMarcar = useCallback(async (telefono) => {
+    if (!telefono) return;
+    let tel = telefono;
+    if (!tel.startsWith('0')) tel = '0' + tel;
+    try {
+      const res = await window.api.invoke('adb:dial', tel);
+      if (res.success) {
+        showToast(`Marcando ${tel} vía ADB...`, 'success');
+      } else {
+        showToast('Sin conexión ADB — verifica depuración USB', 'warning');
+      }
+    } catch {
+      showToast('Error ADB — verifica depuración USB', 'error');
+    }
+  }, [showToast]);
+
   async function handleHangup() {
     try {
       const res = await window.api.invoke('adb:hangup');
@@ -2429,7 +2445,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Marcación automática por ADB (opcional)">Auto📱</th>
+                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={isDeviceConnected ? 'Marcar vía ADB (dispositivo conectado)' : 'Marcar vía ADB (sin dispositivo)'}>📱</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2563,6 +2579,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               })}
                               <td style={{ padding: '6px 10px', textAlign: 'center', minWidth: 148 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  {/* Chip resultado último tipificación */}
+                                  {c.ultima_tip_codigo ? (
+                                    <div style={{
+                                      padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 800,
+                                      background: 'rgba(0,230,118,0.12)', border: '1px solid rgba(0,230,118,0.35)',
+                                      color: '#00e676', letterSpacing: '0.06em', textAlign: 'center',
+                                    }}>
+                                      ✓ {c.ultima_tip_codigo}
+                                    </div>
+                                  ) : null}
                                   {/* Selector tipificación */}
                                   <select
                                     value=""
@@ -2602,15 +2628,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     }}
                                     style={{
                                       width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6,
-                                      background: c.ultima_tip_codigo ? 'rgba(0,230,118,0.08)' : 'rgba(255,255,255,0.06)',
-                                      border: c.ultima_tip_codigo ? '1px solid rgba(0,230,118,0.3)' : '1px solid rgba(255,255,255,0.14)',
-                                      color: c.ultima_tip_codigo ? '#00e676' : 'rgba(255,255,255,0.75)',
-                                      cursor: 'pointer', outline: 'none', appearance: 'none', textAlign: 'center',
-                                      fontWeight: c.ultima_tip_codigo ? 700 : 400,
+                                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)',
+                                      color: 'rgba(255,255,255,0.75)', cursor: 'pointer', outline: 'none',
+                                      appearance: 'none', textAlign: 'center',
                                     }}
                                   >
                                     <option value="" disabled style={{ background: '#1e1e1e' }}>
-                                      {c.ultima_tip_codigo ? `✓ ${c.ultima_tip_codigo}` : '⚡ Tipificar...'}
+                                      {c.ultima_tip_codigo ? '⚡ Re-tipificar...' : '⚡ Tipificar...'}
                                     </option>
                                     <option value="cuelga" style={{ background: '#1e1e1e' }}>Cuelga</option>
                                     <option value="no_contesta" style={{ background: '#1e1e1e' }}>No contesta</option>
@@ -2638,25 +2662,32 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   </button>
                                 </div>
                               </td>
-                              {/* ── Columna ADB opcional ── */}
-                              <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                                {isDeviceConnected ? (
+                              {/* ── Columna ADB opcional — siempre visible y activa ── */}
+                              <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                                   <button
                                     type="button"
-                                    title={`Marcar ${c.telefono} vía ADB`}
-                                    onClick={(e) => { e.stopPropagation(); handleDial(c, 0); }}
+                                    title={`Marcar ${c.telefono} vía ADB${isDeviceConnected ? '' : ' (verificar depuración USB)'}`}
+                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c.telefono); }}
                                     style={{
-                                      padding: '4px 10px', fontSize: 11, borderRadius: 6, fontWeight: 700,
-                                      background: 'rgba(100,181,246,0.1)', border: '1px solid rgba(100,181,246,0.3)',
-                                      color: '#64b5f6', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                                      width: 32, height: 32, borderRadius: 8,
+                                      border: '1px solid rgba(100,181,246,0.35)',
+                                      background: 'rgba(100,181,246,0.10)',
+                                      color: '#64b5f6',
+                                      cursor: 'pointer',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      transition: 'all 0.2s',
                                     }}
                                   >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>phone_forwarded</span>
-                                    Marcar
+                                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_forwarded</span>
                                   </button>
-                                ) : (
-                                  <span style={{ fontSize: 10, opacity: 0.25 }}>sin disp.</span>
-                                )}
+                                  {/* Indicador de estado ADB */}
+                                  <div style={{
+                                    width: 6, height: 6, borderRadius: '50%',
+                                    background: isDeviceConnected ? '#00e676' : '#ff5252',
+                                    boxShadow: isDeviceConnected ? '0 0 4px #00e676' : 'none',
+                                  }} title={isDeviceConnected ? 'ADB conectado' : 'ADB desconectado'} />
+                                </div>
                               </td>
                             </tr>
                           );
