@@ -3397,7 +3397,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
             <button type="button" className="btn btn-primary" style={{ flex: 2, padding: '16px' }} onClick={() => {
               setShowAgendamientoModal(false);
               const esPMPModal = (agendamientoData?.tipo_agendamiento || agendamientoData?.tipo) === 'PMP';
-              cargarContactoAgendado(agendamientoData.contacto_id, esPMPModal);
+              cargarContactoAgendado(agendamientoData?.contacto_id, esPMPModal);
             }}>
               <span className="material-symbols-outlined" style={{ marginRight: 8 }}>phone_callback</span>
               GESTIONAR AHORA

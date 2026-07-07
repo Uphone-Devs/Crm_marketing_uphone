@@ -290,6 +290,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
   const handleSave = async () => {
     if (!selectedId || isSaving) return;
     const tipificacion = tipificaciones.find(t => t.id === parseInt(selectedId));
+    if (!tipificacion) return;
 
     // Validar si requiere agendamiento y tiene datos
     const isAgendable = tipificacion.requiere_agd;

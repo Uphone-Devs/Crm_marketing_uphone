@@ -163,7 +163,7 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
           duracionSeg: { not: null },
         },
         _sum: { duracionSeg: true },
-      }).catch(() => []),
+      }).catch(err => { console.error('[EVENTO_GROUPBY]', err); return []; }),
     ]);
 
     const tiempoAlAire = Number(tiemposEstado.find(e => e.estadoId === 1)?._sum?.duracionSeg || 0);
