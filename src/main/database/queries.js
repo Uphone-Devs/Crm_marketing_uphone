@@ -2879,6 +2879,7 @@ function getMensajesBroadcast() {
               OR (m.segmento_destino = 'PLAZO' AND CAST(json_extract(co.metadata, '$."DIAS IMPAGO"') AS INTEGER) > 60)
               OR (m.segmento_destino = 'MENSUALES' AND co.metadata LIKE '%"TIPO CAMPANA": "MENSUAL"%')
               OR (m.segmento_destino = 'QUINCENALES' AND co.metadata LIKE '%"TIPO CAMPANA": "QUINCENAL"%')
+              OR (m.segmento_destino NOT IN ('TODOS','TRAMO_0','TRAMO_1','TRAMO_2','PLAZO','MENSUALES','QUINCENALES'))
             )
         ) as pagos_posteriores
       FROM mensajes_broadcast m
@@ -2890,6 +2891,27 @@ function getMensajesBroadcast() {
   } catch (err) {
     console.error('Error getMensajesBroadcast:', err);
     return [];
+  }
+}
+
+function getSegmentosConfig() {
+  const db = getDb();
+  try {
+    return db.prepare(`SELECT clave as key, etiqueta as label, color, icono as icon, 'transparent' as gradient FROM segmentos_config ORDER BY id ASC`).all();
+  } catch (err) {
+    console.error('Error getSegmentosConfig:', err);
+    return [];
+  }
+}
+
+function insertSegmentoConfig(clave, etiqueta, color) {
+  const db = getDb();
+  try {
+    db.prepare(`INSERT INTO segmentos_config (clave, etiqueta, color) VALUES (?, ?, ?)`).run(clave, etiqueta, color);
+    return { success: true };
+  } catch (err) {
+    console.error('Error insertSegmentoConfig:', err);
+    return { success: false, error: err.message };
   }
 }
 
@@ -3490,5 +3512,8 @@ module.exports = {
   marcarLoteEnviado,
   getIndicadoresRecaudo,
   saveIndicadoresRecaudo,
+  // Segmentos
+  getSegmentosConfig,
+  insertSegmentoConfig
 };
 

@@ -53,7 +53,8 @@ contextBridge.exposeInMainWorld('api', {
       'db:getProyeccionMensual', 'db:getIndicadoresCobranza',
       // DB: Ranking de Gestores
       'db:getRankingGestores', 'db:getRankingLlamadas', 'db:getRankingGeneralAsesores',
-      // DB: Mensajes Broadcast
+      // DB: Mensajes Broadcast & Segmentos
+      'db:getSegmentos', 'db:insertSegmento',
       'db:insertMensajeBroadcast', 'db:getMensajesBroadcast', 'db:deleteMensajeBroadcast',
       // System
       'reports:generate', 'shell:openPath', 'shell:openExternal', 'app:switch-role', 'app:logout',

@@ -152,6 +152,20 @@ function buildInternationalPhone(telefono, codigoPais) {
  *   - asesorNombre: nombre del asesor actual
  *   - callApi: funcion opcional para resolucion remota (Multi-PC)
  */
+const CATEGORY_META = {
+    'CONTACTO EXITOSO':  { icon:'check_circle', color:'#00e676', bg:'rgba(0,230,118,0.08)',   border:'rgba(0,230,118,0.2)' },
+    'CONTACTO NEUTRO':   { icon:'help_center',  color:'#64b5f6', bg:'rgba(100,181,246,0.08)', border:'rgba(100,181,246,0.2)' },
+    'CONTACTO NEGATIVO': { icon:'cancel',       color:'#ff5252', bg:'rgba(255,82,82,0.08)',   border:'rgba(255,82,82,0.2)' },
+    'NO CONTACTADO':     { icon:'person_off',   color:'#b0bec5', bg:'rgba(255,255,255,0.04)', border:'rgba(255,255,255,0.1)' },
+    'OTROS':             { icon:'category',     color:'#b0bec5', bg:'rgba(255,255,255,0.04)', border:'rgba(255,255,255,0.1)' },
+  };
+const TIPIF_ICON = {
+    PMP:'handshake', COMP_CUM:'verified', PAGO_REAL:'paid', AB_PARC:'payment',
+    PEND_COMP:'pending', REAG:'event_repeat', VOL_CALL:'phone_callback',
+    INCUMP:'warning', BUZON:'voicemail', NO_CONT:'phone_missed',
+  };
+const LABEL_MONTO = { PMP:'Monto comprometido a pagar', PAGO_REAL:'Monto realmente pagado', AB_PARC:'Monto del abono parcial', PEND_COMP:'Monto pendiente de comprobar' };
+
 export default function TipificacionDialog({ open, tipifInicial, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida }) {
   const [tipificaciones, setTipificaciones] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -167,9 +181,11 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
   const [showRefPanel, setShowRefPanel] = useState(false);
   const [refNombre, setRefNombre] = useState('');
   const [refParentesco, setRefParentesco] = useState('');
+  const [prevSelectedId, setPrevSelectedId] = useState('');
 
-  // Auto set date/time for agendable tipifications + pre-fill montoAcordado for PMP/AB_PARC
-  useEffect(() => {
+  // Ajuste inline al cambiar selectedId — evita render con valor obsoleto (vs useEffect)
+  if (selectedId !== prevSelectedId) {
+    setPrevSelectedId(selectedId);
     if (selectedId && tipificaciones.length > 0) {
       const tipificacion = tipificaciones.find(t => t.id === parseInt(selectedId));
       if (tipificacion?.requiere_agd === 1) {
@@ -183,34 +199,42 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
         setFechaAgendamiento('');
         setHoraAgendamiento('');
       }
-
       // Monto se captura SIEMPRE en blanco — el asesor debe ingresarlo explícitamente.
       // Antes se pre-cargaba con VALOR EN MORA → causaba sobrestimación del recaudado
       // cuando el asesor no editaba (asumía pago total de la deuda).
       setMontoAcordado('');
     }
-  }, [selectedId, tipificaciones, contacto]);
+  }
 
-  useEffect(() => {
-    if (open && tipifInicial && tipificaciones.length > 0 && !selectedId) {
-      const matched = tipificaciones.find(t => t.codigo === tipifInicial);
-      if (matched) setSelectedId(matched.id.toString());
-    }
-  }, [tipifInicial, tipificaciones, open, selectedId]);
+  // Preselección inline cuando tipifInicial o tipificaciones cambia — evita stale render
+  const [prevTipifInicial, setPrevTipifInicial] = useState(null);
+  const [prevTipificacionesLen, setPrevTipificacionesLen] = useState(0);
+  const tipifCode = typeof tipifInicial === 'string' ? tipifInicial : tipifInicial?.codigo;
+  const tipifOrTipsChanged = tipifCode !== prevTipifInicial || tipificaciones.length !== prevTipificacionesLen;
+  if (open && tipifCode && tipificaciones.length > 0 && !selectedId && tipifOrTipsChanged) {
+    setPrevTipifInicial(tipifCode);
+    setPrevTipificacionesLen(tipificaciones.length);
+    const matched = tipificaciones.find(t => t.codigo === tipifCode);
+    if (matched) setSelectedId(matched.id.toString());
+  }
 
   // Plantillas cargadas desde la config del supervisor
   const [templates, setTemplates] = useState({});
   const [codigoPais, setCodigoPais] = useState('593');
 
-  // Auto-populate email from contact metadata when dialog opens
-  useEffect(() => {
+  // Sincronizar email/teléfono inline cuando cambia open o contacto
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevContacto, setPrevContacto] = useState(contacto);
+  if (open !== prevOpen || contacto !== prevContacto) {
+    setPrevOpen(open);
+    setPrevContacto(contacto);
     if (open && contacto?.metadata?.['CORREO CLIENTE']) {
       setEmailDestino(contacto.metadata['CORREO CLIENTE']);
     } else if (!open) {
       setEmailDestino('');
       setTelefonoAlt('');
     }
-  }, [open, contacto]);
+  }
 
   const loadConfig = useCallback(async () => {
     try {
@@ -412,7 +436,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
     const p = parseFloat(String(raw).replace(/[^0-9.-]/g, ''));
     return isNaN(p) ? null : p;
   })();
-  const labelMonto = { PMP:'Monto comprometido a pagar', PAGO_REAL:'Monto realmente pagado', AB_PARC:'Monto del abono parcial', PEND_COMP:'Monto pendiente de comprobar' };
+
 
   // ── Sección: Agendar promesa ──────────────────────────────────
   const seccionAgendar = isAgendable ? (
@@ -423,19 +447,19 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
         </div>
         <div>
           <div style={{ fontSize:12, fontWeight:700, color:'#00e676' }}>Agendar promesa</div>
-          <div style={{ fontSize:9, opacity:0.55 }}>¿Cuándo se realiza el pago?</div>
+          <div style={{ fontSize: 12, opacity:0.55 }}>¿Cuándo se realiza el pago?</div>
         </div>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
         <div>
-          <div style={{ fontSize:9, fontWeight:700, opacity:0.5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:5 }}>📅 Fecha</div>
-          <input type="date" value={fechaAgendamiento} onChange={e=>setFechaAgendamiento(e.target.value)} min={todayLocalISO()}
-            style={{ fontSize:13, padding:'8px 10px', colorScheme:'dark', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(0,230,118,0.3)', borderRadius:8, color:'#fff', outline:'none', width:'100%' }} />
+          <div style={{ fontSize: 12, fontWeight:700, opacity:0.5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:5 }}>📅 Fecha</div>
+          <input aria-label="Fecha" type="date" value={fechaAgendamiento} onChange={e=>setFechaAgendamiento(e.target.value)} min={todayLocalISO()}
+            style={{ fontSize:13, padding:'8px 10px', colorScheme:'dark', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(0,230,118,0.3)', borderRadius:8, color:'#fff', width:'100%' }} />
         </div>
         <div>
-          <div style={{ fontSize:9, fontWeight:700, opacity:0.5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:5 }}>🕐 Hora</div>
-          <input type="time" value={horaAgendamiento} onChange={e=>setHoraAgendamiento(e.target.value)}
-            style={{ fontSize:13, padding:'8px 10px', colorScheme:'dark', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(0,230,118,0.3)', borderRadius:8, color:'#fff', outline:'none', width:'100%' }} />
+          <div style={{ fontSize: 12, fontWeight:700, opacity:0.5, letterSpacing:'0.06em', textTransform:'uppercase', marginBottom:5 }}>🕐 Hora</div>
+          <input aria-label="Hora" type="time" value={horaAgendamiento} onChange={e=>setHoraAgendamiento(e.target.value)}
+            style={{ fontSize:13, padding:'8px 10px', colorScheme:'dark', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(0,230,118,0.3)', borderRadius:8, color:'#fff', width:'100%' }} />
         </div>
       </div>
     </div>
@@ -449,19 +473,19 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
           <span className="material-symbols-outlined" style={{ fontSize:16, color:'#ffc107' }}>payments</span>
         </div>
         <div>
-          <div style={{ fontSize:12, fontWeight:700, color:'#ffc107' }}>{labelMonto[selectedTip.codigo] || 'Monto acordado'} <span style={{ color:'#ff5252' }}>*</span></div>
-          <div style={{ fontSize:9, opacity:0.5 }}>Campo obligatorio</div>
+          <div style={{ fontSize:12, fontWeight:700, color:'#ffc107' }}>{LABEL_MONTO[selectedTip.codigo] || 'Monto acordado'} <span style={{ color:'#ff5252' }}>*</span></div>
+          <div style={{ fontSize: 12, opacity:0.5 }}>Campo obligatorio</div>
         </div>
       </div>
       <div style={{ display:'flex', gap:8 }}>
         <div style={{ position:'relative', flex:1 }}>
           <span style={{ position:'absolute', left:11, top:'50%', transform:'translateY(-50%)', fontSize:14, fontWeight:700, color:'#ffc107', opacity:0.7 }}>$</span>
-          <input type="number" min="0" step="0.01" value={montoAcordado} onChange={e=>setMontoAcordado(e.target.value)} placeholder="0.00" required
-            style={{ width:'100%', fontSize:15, padding:'8px 10px 8px 26px', fontWeight:700, background:'rgba(0,0,0,0.35)', border:'1px solid rgba(255,193,7,0.3)', borderRadius:8, color:'#fff', outline:'none' }} />
+          <input aria-label="Monto" type="number" min="0" step="0.01" value={montoAcordado} onChange={e=>setMontoAcordado(e.target.value)} placeholder="0.00" required
+            style={{ width:'100%', fontSize:15, padding:'8px 10px 8px 26px', fontWeight:700, background:'rgba(0,0,0,0.35)', border:'1px solid rgba(255,193,7,0.3)', borderRadius:8, color:'#fff' }} />
         </div>
         {valorMora != null && (
           <button type="button" onClick={() => setMontoAcordado(String(valorMora))} title={`Mora: $${valorMora.toFixed(2)}`}
-            style={{ padding:'0 12px', fontSize:10, whiteSpace:'nowrap', fontWeight:700, background:'rgba(255,193,7,0.15)', border:'1px solid rgba(255,193,7,0.35)', color:'#ffc107', borderRadius:8, cursor:'pointer' }}>
+            style={{ padding:'0 12px', fontSize: 12, whiteSpace:'nowrap', fontWeight:700, background:'rgba(255,193,7,0.15)', border:'1px solid rgba(255,193,7,0.35)', color:'#ffc107', borderRadius:8, cursor:'pointer' }}>
             💰 ${valorMora.toFixed(2)}
           </button>
         )}
@@ -474,10 +498,10 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
     <div style={{ marginBottom:12 }}>
       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
         <span className="material-symbols-outlined" style={{ fontSize:14, opacity:0.4 }}>edit_note</span>
-        <span style={{ fontSize:9, fontWeight:700, opacity:0.4, letterSpacing:'0.08em', textTransform:'uppercase' }}>Notas / Comentario</span>
+        <span style={{ fontSize: 12, fontWeight:700, opacity:0.4, letterSpacing:'0.08em', textTransform:'uppercase' }}>Notas / Comentario</span>
       </div>
-      <textarea
-        style={{ width:'100%', minHeight:52, resize:'none', padding:'9px 12px', fontSize:12, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, lineHeight:1.5, color:'#fff', outline:'none', transition:'border-color 0.2s' }}
+      <textarea aria-label="Notas / Comentario"
+        style={{ width:'100%', minHeight:52, resize:'none', padding:'9px 12px', fontSize:12, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, lineHeight:1.5, color:'#fff', transition:'border-color 0.2s' }}
         onFocus={e=>e.target.style.borderColor='rgba(100,181,246,0.45)'}
         onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.1)'}
         placeholder="Escribe detalles relevantes de la gestión..."
@@ -491,28 +515,28 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
     <div style={{ background:'rgba(255,255,255,0.02)', padding:'10px 12px', borderRadius:10, border:'1px solid rgba(255,255,255,0.06)', marginBottom:14 }}>
       <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
         <span className="material-symbols-outlined" style={{ fontSize:13, opacity:0.35 }}>bolt</span>
-        <span style={{ fontSize:9, fontWeight:700, opacity:0.35, letterSpacing:'0.1em', textTransform:'uppercase' }}>Acciones Rápidas</span>
+        <span style={{ fontSize: 12, fontWeight:700, opacity:0.35, letterSpacing:'0.1em', textTransform:'uppercase' }}>Acciones Rápidas</span>
       </div>
       <div style={{ display:'flex', gap:6, marginBottom:8, alignItems:'center' }}>
-        <button disabled={!telefonoAlt.trim()} onClick={()=>{ if(!telefonoAlt.trim()) return; setShowRefPanel(true); setRefNombre(''); setRefParentesco(''); }}
-          style={{ flexShrink:0, width:26, height:26, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background: telefonoAlt.trim()?'rgba(76,175,80,0.8)':'rgba(255,255,255,0.08)', opacity: telefonoAlt.trim()?1:0.35, transition:'all 0.2s' }}>
+        <button type="button" disabled={!telefonoAlt.trim()} onClick={()=>{ if(!telefonoAlt.trim()) return; setShowRefPanel(true); setRefNombre(''); setRefParentesco(''); }}
+          style={{ flexShrink:0, width:26, height:26, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background: telefonoAlt.trim()?'rgba(76,175,80,0.8)':'rgba(255,255,255,0.08)', opacity: telefonoAlt.trim()?1:0.35, transition: 'background 0.2s, opacity 0.2s, border-color 0.2s, color 0.2s' }}>
           <span className="material-symbols-outlined" style={{ fontSize:13, color:'#000' }}>save</span>
         </button>
-        <input type="tel" value={telefonoAlt} onChange={e=>setTelefonoAlt(e.target.value)} placeholder={contacto?.telefono || 'Otro número'}
-          style={{ padding:'5px 8px', fontSize:11, width:'100%', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#fff', outline:'none' }} />
-        <button disabled={!telefonoAlt.trim()} onClick={async()=>{ let num=telefonoAlt.trim(); if(!num.startsWith('0')) num='0'+num; const fn=callApi||window.api.invoke; try{await fn('adb:dial',num); if(onExternalDial) onExternalDial(num); showToast(`Marcando ${num}...`,'info');}catch(e){showToast('Error: '+(e?.message||e),'error');} }}
-          style={{ flexShrink:0, width:26, height:26, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background: telefonoAlt.trim()?'rgba(33,150,243,0.8)':'rgba(255,255,255,0.08)', opacity: telefonoAlt.trim()?1:0.35, transition:'all 0.2s' }}>
+        <input aria-label="Teléfono" type="tel" value={telefonoAlt} onChange={e=>setTelefonoAlt(e.target.value)} placeholder={contacto?.telefono || 'Otro número'}
+          style={{ padding:'5px 8px', fontSize: 12, width:'100%', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#fff' }} />
+        <button type="button" disabled={!telefonoAlt.trim()} onClick={async()=>{ let num=telefonoAlt.trim(); if(!num.startsWith('0')) num='0'+num; const fn=callApi||window.api.invoke; try{await fn('adb:dial',num); if(onExternalDial) onExternalDial(num); showToast(`Marcando ${num}...`,'info');}catch(e){showToast('Error: '+(e?.message||e),'error');} }}
+          style={{ flexShrink:0, width:26, height:26, borderRadius:'50%', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', background: telefonoAlt.trim()?'rgba(33,150,243,0.8)':'rgba(255,255,255,0.08)', opacity: telefonoAlt.trim()?1:0.35, transition: 'background 0.2s, opacity 0.2s, border-color 0.2s, color 0.2s' }}>
           <span className="material-symbols-outlined" style={{ fontSize:13, color:'#fff' }}>call</span>
         </button>
       </div>
       {showRefPanel && (
         <div style={{ marginBottom:8, padding:'9px 10px', background:'rgba(100,181,246,0.06)', border:'1px solid rgba(100,181,246,0.2)', borderRadius:8 }}>
-          <div style={{ fontSize:9, fontWeight:700, color:'#64b5f6', marginBottom:7 }}>GUARDAR REFERENCIA</div>
+          <div style={{ fontSize: 12, fontWeight:700, color:'#64b5f6', marginBottom:7 }}>GUARDAR REFERENCIA</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:7 }}>
-            <input type="text" placeholder="Nombre del referido" value={refNombre} onChange={e=>setRefNombre(e.target.value)}
-              style={{ fontSize:10, padding:'4px 8px', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(100,181,246,0.25)', borderRadius:6, color:'#fff', outline:'none' }} />
+            <input aria-label="Nombre del referido" type="text" placeholder="Nombre del referido" value={refNombre} onChange={e=>setRefNombre(e.target.value)}
+              style={{ fontSize: 12, padding:'4px 8px', background:'rgba(0,0,0,0.3)', border:'1px solid rgba(100,181,246,0.25)', borderRadius:6, color:'#fff' }} />
             <select value={refParentesco} onChange={e=>setRefParentesco(e.target.value)}
-              style={{ fontSize:10, padding:'4px 8px', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(100,181,246,0.25)', borderRadius:6, color:'#fff' }}>
+              style={{ fontSize: 12, padding:'4px 8px', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(100,181,246,0.25)', borderRadius:6, color:'#fff' }}>
               <option value="">Parentesco...</option>
               <option value="conyuge">Cónyuge</option><option value="padre/madre">Padre/Madre</option>
               <option value="hijo/a">Hijo/a</option><option value="hermano/a">Hermano/a</option>
@@ -520,8 +544,8 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
             </select>
           </div>
           <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-            <button style={{ fontSize:10, padding:'3px 10px', background:'transparent', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#aaa', cursor:'pointer' }} onClick={()=>setShowRefPanel(false)}>Omitir</button>
-            <button style={{ fontSize:10, padding:'3px 10px', background:'rgba(100,181,246,0.2)', border:'1px solid rgba(100,181,246,0.4)', borderRadius:6, color:'#64b5f6', cursor:'pointer', fontWeight:700 }}
+            <button type="button" style={{ fontSize: 12, padding:'3px 10px', background:'transparent', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#aaa', cursor:'pointer' }} onClick={()=>setShowRefPanel(false)}>Omitir</button>
+            <button type="button" style={{ fontSize: 12, padding:'3px 10px', background:'rgba(100,181,246,0.2)', border:'1px solid rgba(100,181,246,0.4)', borderRadius:6, color:'#64b5f6', cursor:'pointer', fontWeight:700 }}
               onClick={()=>{ let num=telefonoAlt.trim(); if(!num.startsWith('0')) num='0'+num; if(onAltDialed) onAltDialed(num, notas, refNombre.trim()||null, refParentesco||null); showToast('Subgestión guardada','success'); setShowRefPanel(false); setTelefonoAlt(''); setRefNombre(''); setRefParentesco(''); }}>
               Confirmar
             </button>
@@ -530,8 +554,8 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
       )}
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
         {[{label:'WhatsApp',icon:'chat',handler:handleSendWSP,color:'#25D366',disabled:!contacto?.telefono},{label:'SMS',icon:'sms',handler:handleSendSMS,color:'#64b5f6',disabled:!contacto?.telefono},{label:'Correo',icon:'email',handler:handleSendEmail,color:'#f48fb1',disabled:false}].map(({label,icon,handler,color,disabled})=>(
-          <button key={label} onClick={handler} disabled={disabled}
-            style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:'7px 4px', borderRadius:8, border:`1px solid ${disabled?'rgba(255,255,255,0.06)':color+'33'}`, background:disabled?'rgba(255,255,255,0.02)':color+'11', color:disabled?'rgba(255,255,255,0.2)':color, cursor:disabled?'not-allowed':'pointer', fontSize:9, fontWeight:700, letterSpacing:'0.04em' }}>
+          <button type="button" key={label} onClick={handler} disabled={disabled}
+            style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:'7px 4px', borderRadius:8, border:`1px solid ${disabled?'rgba(255,255,255,0.06)':color+'33'}`, background:disabled?'rgba(255,255,255,0.02)':color+'11', color:disabled?'rgba(255,255,255,0.2)':color, cursor:disabled?'not-allowed':'pointer', fontSize: 12, fontWeight:700, letterSpacing:'0.04em' }}>
             <span className="material-symbols-outlined" style={{ fontSize:16 }}>{icon}</span>
             {label.toUpperCase()}
           </button>
@@ -543,11 +567,11 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
   // ── Botones principales ───────────────────────────────────────
   const seccionBotones = (canSave) => (
     <div style={{ display:'flex', gap:8 }}>
-      <button onClick={onCancel} style={{ flex:1, fontSize:12, padding:'11px 8px', borderRadius:10, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.55)', cursor:'pointer', fontWeight:600 }}>
+      <button type="button" onClick={onCancel} style={{ flex:1, fontSize:12, padding:'11px 8px', borderRadius:10, border:'1px solid rgba(255,255,255,0.1)', background:'rgba(255,255,255,0.04)', color:'rgba(255,255,255,0.55)', cursor:'pointer', fontWeight:600 }}>
         Cancelar
       </button>
-      <button onClick={handleSave} disabled={!canSave || isSaving}
-        style={{ flex:2.5, fontSize:12, padding:'11px 8px', borderRadius:10, cursor:(!canSave||isSaving)?'not-allowed':'pointer', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:7, border:'none', background:(!canSave||isSaving)?'rgba(255,255,255,0.06)':'linear-gradient(135deg,#00e676,#00c853)', color:(!canSave||isSaving)?'rgba(255,255,255,0.3)':'#000', boxShadow:(!canSave||isSaving)?'none':'0 4px 20px rgba(0,230,118,0.35)', transition:'all 0.2s' }}>
+      <button type="button" onClick={handleSave} disabled={!canSave || isSaving}
+        style={{ flex:2.5, fontSize:12, padding:'11px 8px', borderRadius:10, cursor:(!canSave||isSaving)?'not-allowed':'pointer', fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', gap:7, border:'none', background:(!canSave||isSaving)?'rgba(255,255,255,0.06)':'linear-gradient(135deg,#00e676,#00c853)', color:(!canSave||isSaving)?'rgba(255,255,255,0.3)':'#000', boxShadow:(!canSave||isSaving)?'none':'0 4px 20px rgba(0,230,118,0.35)', transition: 'background 0.2s, opacity 0.2s, border-color 0.2s, color 0.2s' }}>
         <span className="material-symbols-outlined" style={{ fontSize:17 }}>{isSaving?'hourglass_top':'task_alt'}</span>
         {isSaving?'Guardando...':'Guardar Gestión'}
       </button>
@@ -560,75 +584,68 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
       {loading ? (
         <div className="spinner-container"><span className="spinner" /></div>
       ) : (
-        <div style={{ padding: '0 4px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Fila 1: Fecha · Hora · Monto */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
             <div>
-              <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: '0.05em' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>calendar_today</span> FECHA
-              </label>
-              <input type="date" value={fechaAgendamiento} onChange={e=>setFechaAgendamiento(e.target.value)} min={todayLocalISO()}
-                style={{ fontSize: 13, padding: '10px 12px', width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', outline: 'none', transition: 'border 0.2s', colorScheme: 'dark' }} 
-                onFocus={e => e.target.style.borderColor = '#00e676'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+              <div style={{ fontSize: 12, opacity: 0.45, fontWeight: 700, letterSpacing: '0.06em', marginBottom: 3 }}>FECHA</div>
+              <input aria-label="Fecha" type="date" value={fechaAgendamiento} onChange={e=>setFechaAgendamiento(e.target.value)} min={todayLocalISO()}
+                style={{ fontSize: 12, padding: '6px 8px', width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', colorScheme: 'dark' }}
+                onFocus={e=>e.target.style.borderColor='#00e676'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.1)'} />
             </div>
             <div>
-              <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: '0.05em' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span> HORA
-              </label>
-              <input type="time" value={horaAgendamiento} onChange={e=>setHoraAgendamiento(e.target.value)}
-                style={{ fontSize: 13, padding: '10px 12px', width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', outline: 'none', transition: 'border 0.2s', colorScheme: 'dark' }}
-                onFocus={e => e.target.style.borderColor = '#00e676'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+              <div style={{ fontSize: 12, opacity: 0.45, fontWeight: 700, letterSpacing: '0.06em', marginBottom: 3 }}>HORA</div>
+              <input aria-label="Hora" type="time" value={horaAgendamiento} onChange={e=>setHoraAgendamiento(e.target.value)}
+                style={{ fontSize: 12, padding: '6px 8px', width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff', colorScheme: 'dark' }}
+                onFocus={e=>e.target.style.borderColor='#00e676'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.1)'} />
             </div>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: '0.05em' }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>payments</span> MONTO $
-                </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                <div style={{ fontSize: 12, opacity: 0.45, fontWeight: 700, letterSpacing: '0.06em' }}>MONTO $</div>
                 {valorMora != null && (
-                  <span onClick={() => setMontoAcordado(String(valorMora))} style={{ fontSize: 10, color: '#ffc107', cursor: 'pointer', fontWeight: 700, background: 'rgba(255,193,7,0.15)', padding: '2px 6px', borderRadius: 4, transition: 'background 0.2s' }} onMouseEnter={e=>e.currentTarget.style.background='rgba(255,193,7,0.25)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(255,193,7,0.15)'}>
-                    Mora: ${valorMora.toFixed(2)}
-                  </span>
+                  <button type="button" onClick={()=>setMontoAcordado(String(valorMora))}
+                    style={{ fontSize: 12, color: '#ffc107', background: 'rgba(255,193,7,0.12)', border: 'none', borderRadius: 4, padding: '1px 5px', cursor: 'pointer', fontWeight: 700 }}>
+                    ${valorMora.toFixed(2)}
+                  </button>
                 )}
               </div>
-              <input type="number" min="0" step="0.01" value={montoAcordado} onChange={e=>setMontoAcordado(e.target.value)} placeholder="0.00"
-                style={{ fontSize: 13, padding: '10px 12px', width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', outline: 'none', transition: 'border 0.2s' }}
-                onFocus={e => e.target.style.borderColor = '#ffc107'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'} />
+              <input aria-label="Monto" type="number" min="0" step="0.01" value={montoAcordado} onChange={e=>setMontoAcordado(e.target.value)} placeholder="0.00"
+                style={{ fontSize: 12, padding: '6px 8px', width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: '#fff' }}
+                onFocus={e=>e.target.style.borderColor='#ffc107'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.1)'} />
             </div>
           </div>
-          
-          <div style={{ marginBottom: 20 }}>
-            <textarea
-              style={{ width: '100%', minHeight: 60, resize: 'none', padding: '12px', fontSize: 13, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, color: '#fff', outline: 'none', transition: 'border 0.2s', lineHeight: 1.5 }}
-              onFocus={e => e.target.style.borderColor = 'rgba(100,181,246,0.5)'} onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
-              placeholder="Escribe notas relevantes sobre este compromiso..."
-              value={notas} onChange={e=>setNotas(e.target.value)}
-            />
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 24 }}>
-            {[{label:'WhatsApp',icon:'chat',handler:handleSendWSP,color:'#25D366',disabled:!contacto?.telefono},{label:'SMS',icon:'sms',handler:handleSendSMS,color:'#64b5f6',disabled:!contacto?.telefono},{label:'Correo',icon:'email',handler:handleSendEmail,color:'#f48fb1',disabled:false}].map(({label,icon,handler,color,disabled})=>(
-              <button key={label} onClick={handler} disabled={disabled}
-                style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent: 'center', gap:6, padding:'12px 6px', borderRadius:10, border:`1px solid ${disabled?'rgba(255,255,255,0.05)':color+'40'}`, background:disabled?'rgba(255,255,255,0.02)':`linear-gradient(180deg, ${color}15, transparent)`, color:disabled?'rgba(255,255,255,0.2)':color, cursor:disabled?'not-allowed':'pointer', fontSize:10, fontWeight:700, letterSpacing:'0.05em', transition: 'all 0.2s', boxShadow: disabled ? 'none' : `0 4px 12px ${color}10` }}
-                onMouseEnter={e => !disabled && (e.currentTarget.style.transform = 'translateY(-2px)', e.currentTarget.style.boxShadow = `0 6px 16px ${color}20`, e.currentTarget.style.background = `linear-gradient(180deg, ${color}25, ${color}05)`)}
-                onMouseLeave={e => !disabled && (e.currentTarget.style.transform = 'none', e.currentTarget.style.boxShadow = `0 4px 12px ${color}10`, e.currentTarget.style.background = `linear-gradient(180deg, ${color}15, transparent)`)}
-                >
-                <span className="material-symbols-outlined" style={{ fontSize:20 }}>{icon}</span>
-                {label.toUpperCase()}
+          {/* Fila 2: Nota */}
+          <textarea aria-label="Notas"
+            style={{ width: '100%', minHeight: 38, resize: 'none', padding: '6px 9px', fontSize: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: '#fff', lineHeight: 1.4 }}
+            onFocus={e=>e.target.style.borderColor='rgba(100,181,246,0.4)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.08)'}
+            placeholder="Notas del compromiso..."
+            value={notas} onChange={e=>setNotas(e.target.value)}
+          />
+
+          {/* Fila 3: Acciones rápidas + botones */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            {[
+              {label:'WSP', icon:'chat', handler:handleSendWSP, color:'#25D366', disabled:!contacto?.telefono},
+              {label:'SMS', icon:'sms',  handler:handleSendSMS,  color:'#64b5f6', disabled:!contacto?.telefono},
+              {label:'Email',icon:'email',handler:handleSendEmail,color:'#f48fb1', disabled:false},
+            ].map(({label,icon,handler,color,disabled})=>(
+              <button type="button" key={label} onClick={handler} disabled={disabled} title={label}
+                style={{ display:'flex', alignItems:'center', gap:4, padding:'5px 10px', borderRadius:6, border:`1px solid ${disabled?'rgba(255,255,255,0.06)':color+'40'}`, background:disabled?'transparent':color+'12', color:disabled?'rgba(255,255,255,0.2)':color, cursor:disabled?'not-allowed':'pointer', fontSize:11, fontWeight:700 }}>
+                <span className="material-symbols-outlined" style={{ fontSize:14 }}>{icon}</span>
+                {label}
               </button>
             ))}
-          </div>
-          
-          <div style={{ display: 'flex', gap: 12 }}>
-            <button onClick={onCancel} style={{ flex: 1, fontSize: 13, padding: '12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontWeight: 600, transition: 'all 0.2s' }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#fff'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; }}>
-              Cancelar
-            </button>
-            <button onClick={handleSave} disabled={!selectedId || isSaving}
-              style={{ flex: 2, fontSize: 13, padding: '12px', borderRadius: 10, cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: 700, border: 'none', background: isSaving ? 'rgba(255,255,255,0.1)' : 'linear-gradient(135deg, #00e676, #00c853)', color: isSaving ? 'rgba(255,255,255,0.4)' : '#000', boxShadow: isSaving ? 'none' : '0 4px 16px rgba(0,230,118,0.3)', transition: 'all 0.2s' }}
-              onMouseEnter={e => { if(!isSaving) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,230,118,0.4)'; } }}
-              onMouseLeave={e => { if(!isSaving) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,230,118,0.3)'; } }}>
-              {isSaving ? 'Guardando...' : 'Guardar Compromiso'}
-            </button>
+            <div style={{ marginLeft:'auto', display:'flex', gap:6 }}>
+              <button type="button" onClick={onCancel}
+                style={{ fontSize:12, padding:'6px 14px', borderRadius:6, border:'1px solid rgba(255,255,255,0.1)', background:'transparent', color:'rgba(255,255,255,0.5)', cursor:'pointer', fontWeight:600 }}>
+                Cancelar
+              </button>
+              <button type="button" onClick={handleSave} disabled={!selectedId || isSaving}
+                style={{ fontSize:12, padding:'6px 18px', borderRadius:6, cursor:(!selectedId||isSaving)?'not-allowed':'pointer', fontWeight:700, border:'none', background:(!selectedId||isSaving)?'rgba(255,255,255,0.06)':'linear-gradient(135deg,#00e676,#00c853)', color:(!selectedId||isSaving)?'rgba(255,255,255,0.3)':'#000' }}>
+                {isSaving?'Guardando...':'Guardar'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -636,18 +653,6 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
   );
 
   // ── Modo COMPLETO: llamada normal ────────────────────────────
-  const CATEGORY_META = {
-    'CONTACTO EXITOSO':  { icon:'check_circle', color:'#00e676', bg:'rgba(0,230,118,0.08)',   border:'rgba(0,230,118,0.2)' },
-    'CONTACTO NEUTRO':   { icon:'help_center',  color:'#64b5f6', bg:'rgba(100,181,246,0.08)', border:'rgba(100,181,246,0.2)' },
-    'CONTACTO NEGATIVO': { icon:'cancel',       color:'#ff5252', bg:'rgba(255,82,82,0.08)',   border:'rgba(255,82,82,0.2)' },
-    'NO CONTACTADO':     { icon:'person_off',   color:'#b0bec5', bg:'rgba(255,255,255,0.04)', border:'rgba(255,255,255,0.1)' },
-    'OTROS':             { icon:'category',     color:'#b0bec5', bg:'rgba(255,255,255,0.04)', border:'rgba(255,255,255,0.1)' },
-  };
-  const TIPIF_ICON = {
-    PMP:'handshake', COMP_CUM:'verified', PAGO_REAL:'paid', AB_PARC:'payment',
-    PEND_COMP:'pending', REAG:'event_repeat', VOL_CALL:'phone_callback',
-    INCUMP:'warning', BUZON:'voicemail', NO_CONT:'phone_missed',
-  };
 
   const formContentCompleto = (
     <>
@@ -657,7 +662,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
         <>
           {/* Grilla de tipificaciones */}
           <div style={{ marginBottom:14 }}>
-            <div style={{ fontSize:10, fontWeight:700, opacity:0.35, letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:10 }}>Resultado de la gestión</div>
+            <div style={{ fontSize: 12, fontWeight:700, opacity:0.35, letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:10 }}>Resultado de la gestión</div>
             {(() => {
               const grouped = tipificaciones.reduce((acc, t) => {
                 const cat = (t.categoria || 'OTROS').toUpperCase();
@@ -671,15 +676,15 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
                   <div key={cat} style={{ marginBottom:10 }}>
                     <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:7, padding:'3px 9px', background:meta.bg, border:`1px solid ${meta.border}`, borderRadius:20, width:'fit-content' }}>
                       <span className="material-symbols-outlined" style={{ fontSize:12, color:meta.color }}>{meta.icon}</span>
-                      <span style={{ fontSize:9, fontWeight:800, color:meta.color, letterSpacing:'0.1em' }}>{cat}</span>
+                      <span style={{ fontSize: 12, fontWeight:800, color:meta.color, letterSpacing:'0.1em' }}>{cat}</span>
                     </div>
                     <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(120px,1fr))', gap:6 }}>
                       {grouped[cat].map(t => {
                         const isSel = selectedId === t.id.toString();
                         const tipIcon = TIPIF_ICON[t.codigo] || 'label';
                         return (
-                          <button key={t.id} onClick={() => setSelectedId(t.id.toString())}
-                            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:5, padding:'9px 6px', borderRadius:10, cursor:'pointer', fontSize:10, fontWeight:700, lineHeight:1.2, letterSpacing:'0.03em', textAlign:'center', transition:'all 0.15s', border:isSel?`2px solid ${meta.color}`:`1.5px solid ${meta.border}`, background:isSel?`${meta.bg.replace('0.08','0.22')}`:'rgba(255,255,255,0.03)', color:isSel?meta.color:'rgba(255,255,255,0.65)', boxShadow:isSel?`0 0 12px ${meta.color}28`:'none', transform:isSel?'translateY(-1px)':'none' }}>
+                          <button type="button" key={t.id} onClick={() => setSelectedId(t.id.toString())}
+                            style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:5, padding:'9px 6px', borderRadius:10, cursor:'pointer', fontSize: 12, fontWeight:700, lineHeight:1.2, letterSpacing:'0.03em', textAlign:'center', transition: 'background 0.15s, opacity 0.15s, border-color 0.15s, color 0.15s', border:isSel?`2px solid ${meta.color}`:`1.5px solid ${meta.border}`, background:isSel?`${meta.bg.replace('0.08','0.22')}`:'rgba(255,255,255,0.03)', color:isSel?meta.color:'rgba(255,255,255,0.65)', boxShadow:isSel?`0 0 12px ${meta.color}28`:'none', transform:isSel?'translateY(-1px)':'none' }}>
                             <span className="material-symbols-outlined" style={{ fontSize:18, color:isSel?meta.color:'rgba(255,255,255,0.3)', transition:'color 0.15s' }}>{tipIcon}</span>
                             {t.descripcion.toUpperCase()}
                           </button>
@@ -718,7 +723,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
             <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'var(--color-primary)' }}>assignment</span>
             <h3 className="widget-title" style={{ fontSize: 15 }}>{titleText}</h3>
           </div>
-          <button className="btn-crm" onClick={onCancel} style={{ padding: '4px 8px', fontSize: 10 }}>
+          <button type="button" className="btn-crm" onClick={onCancel} style={{ padding: '4px 8px', fontSize: 12 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14, marginRight: 0 }}>close</span>
           </button>
         </div>

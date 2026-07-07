@@ -219,7 +219,7 @@ textarea::selection  { background: rgba(0, 220, 130, 0.35); color: #ffffff; }
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: background var(--transition-base), opacity var(--transition-base), border-color var(--transition-base), color var(--transition-base);
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -335,9 +335,7 @@ textarea::selection  { background: rgba(0, 220, 130, 0.35); color: #ffffff; }
   color: var(--color-on-surface);
   font-family: var(--font-body);
   font-size: 14px;
-  padding: 16px;
-  outline: none;
-  width: 100%;
+  padding: 16px;  width: 100%;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .input:focus {

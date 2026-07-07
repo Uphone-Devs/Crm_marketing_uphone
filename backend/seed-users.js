@@ -22,7 +22,7 @@ async function main() {
     { nombre: 'Gestor Cobros',  email: 'gestor@sistema.local',      rol: 'asesor',     estado: 'activo', passwordHash: hash },
   ];
 
-  for (const u of users) {
+  await Promise.all(users.map(async (u) => {
     const existing = await db.usuario.findUnique({ where: { email: u.email } });
     if (existing) {
       await db.usuario.update({ where: { email: u.email }, data: { passwordHash: hash, estado: 'activo', rol: u.rol } });
@@ -31,7 +31,7 @@ async function main() {
       await db.usuario.create({ data: u });
       console.log(`✅ Creado: ${u.email} (rol: ${u.rol})`);
     }
-  }
+  }));
 
   console.log('\n📋 Credenciales de acceso:');
   console.log('─'.repeat(50));

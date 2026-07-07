@@ -44,7 +44,7 @@ export default function CampaignSelector({ open, onSelect, usuarioId, callApi })
               </p>
             ) : (
               campanas.map(c => (
-                <button
+                <button type="button"
                   key={c.id}
                   className="btn btn-outline"
                   style={{ justifyContent: 'space-between', padding: '16px 20px' }}

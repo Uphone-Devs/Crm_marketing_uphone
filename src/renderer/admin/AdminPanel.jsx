@@ -82,7 +82,7 @@ function Card({ title, onRefresh, children, className = '' }) {
       <div className="admin-card__header">
         <span className="admin-card__title">{title}</span>
         {onRefresh && (
-          <button className="admin-card__refresh" onClick={onRefresh} title="Actualizar">
+          <button type="button" className="admin-card__refresh" onClick={onRefresh} title="Actualizar">
             <span className="material-icons" style={{ fontSize: 16 }}>refresh</span>
           </button>
         )}
@@ -148,8 +148,8 @@ function MetaMensualCard() {
   return (
     <Card title="Meta Mensual de Cobranza (USD)">
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        <input type="number" className="input" value={meta} onChange={e => setMeta(e.target.value)} style={{ width: '150px' }} />
-        <button className="btn btn--outline" onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Fijar Meta'}</button>
+        <input aria-label="Número" type="number" className="input" value={meta} onChange={e => setMeta(e.target.value)} style={{ width: '150px' }} />
+        <button type="button" className="btn btn--outline" onClick={handleSave} disabled={saving}>{saving ? 'Guardando...' : 'Fijar Meta'}</button>
       </div>
       <p style={{ fontSize: 12, color: '#7f8c8d', marginTop: 8 }}>Usado en el Dashboard Directivo para proyecciones.</p>
     </Card>
@@ -166,12 +166,6 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
     { name: 'Jefes de Area',  value: jefeCount,   fill: '#40c4ff' },
     { name: 'Gestores',       value: gestorCount, fill: '#00e676' },
   ].filter(d => d.value > 0);
-  const processList = [
-    { label: 'Express API Server', key: 'express',   icon: 'dns'        },
-    { label: 'WebSocket Server',   key: 'websocket', icon: 'sync_alt'   },
-    { label: 'ADB / Android',      key: 'adb',       icon: 'smartphone' },
-    { label: 'SQLite Database',    key: 'sqlite',    icon: 'storage'    },
-  ];
   const supervisores = (connUsers || []).filter(u => u.tipo === 'SUPERVISOR');
   const asesores     = (connUsers || []).filter(u => u.tipo === 'ASESOR');
 
@@ -200,7 +194,7 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
       {/* Processes */}
       <Card title="Estado de Procesos" onRefresh={() => reload('sys')}>
         <div className="process-list">
-          {processList.map(p => (
+          {PROCESS_LIST.map(p => (
             <div key={p.key} className="process-row">
               <span className="material-icons process-icon">{p.icon}</span>
               <span className="process-label">{p.label}</span>
@@ -221,8 +215,8 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
               </linearGradient>
             </defs>
             <CartesianGrid stroke="#222" strokeDasharray="3 3" />
-            <XAxis dataKey="t" tick={{ fill: '#555', fontSize: 10 }} />
-            <YAxis domain={[0, 100]} tick={{ fill: '#555', fontSize: 10 }} />
+            <XAxis dataKey="t" tick={{ fill: '#555', fontSize: 12 }} />
+            <YAxis domain={[0, 100]} tick={{ fill: '#555', fontSize: 12 }} />
             <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #333', fontSize: 12 }} formatter={v => [`${v}%`, 'CPU']} />
             <Area type="monotone" dataKey="v" stroke="#00e676" fill="url(#cpuGrad)" strokeWidth={2} dot={false} />
           </AreaChart>
@@ -243,8 +237,8 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
             </div>
           </div>
           <div className="conn-mini-list">
-            {(connUsers || []).slice(0, 6).map((u, i) => (
-              <div key={i} className="conn-mini-row">
+            {(connUsers || []).slice(0, 6).map((u) => (
+              <div key={u.nombre} className="conn-mini-row">
                 <span className={`conn-dot conn-dot--${u.tipo === 'SUPERVISOR' ? 'sup' : 'ase'}`} />
                 <span className="conn-mini-name">{u.nombre}</span>
                 <span className="conn-mini-tipo">{u.tipo === 'SUPERVISOR' ? 'JEFE DE AREA' : 'GESTOR'}</span>
@@ -278,13 +272,93 @@ function PageDashboard({ sysInfo, cpuHistory, connUsers, globalMetrics, dbConfig
             <div className="kpi-item">
               <span className="material-icons kpi-icon" style={{ color: '#ea80fc' }}>people</span>
               <div className="kpi-val">{globalMetrics.totalConectados ?? 0}</div>
-              <div className="kpi-key">Asesores Activos</div>
+              <div className="kpi-key">Gestores Activos</div>
             </div>
           </div>
         ) : (
           <div className="empty-state">Sin datos disponibles</div>
         )}
       </Card>
+
+      {/* Distribucion del Equipo */}
+      {userPieData.length > 0 && (
+        <Card title="Distribucion del Equipo" onRefresh={() => reload('userList')}>
+          <ResponsiveContainer width="100%" height={170}>
+            <PieChart>
+              <Pie data={userPieData} cx="50%" cy="50%" innerRadius={42} outerRadius={65} paddingAngle={3} dataKey="value">
+                {userPieData.map((e) => <Cell key={e.name} fill={e.fill} />)}
+              </Pie>
+              <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #333', fontSize: 12 }} />
+              <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 4 }}>
+            {userPieData.map((d) => (
+              <div key={d.name} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: d.fill }}>{d.value}</div>
+                <div style={{ fontSize: 12, opacity: 0.55 }}>{d.name}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Cartera General */}
+      {IS_VM(dbConfig) && indicators?.global && (
+        <Card title="Cartera General (USD)" onRefresh={() => reload('all')}>
+          <div style={{ display: 'flex', gap: 0, marginBottom: 10 }}>
+            <div style={{ flex: 1, textAlign: 'center', borderRight: '1px solid #2a2a2a', padding: '0 8px' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#ff5252' }}>${(parseFloat(indicators.global.valor_vencido)||0).toLocaleString('es', { maximumFractionDigits: 0 })}</div>
+              <div style={{ fontSize: 12, opacity: 0.55 }}>{indicators.global.unidades_vencidas} vencidas</div>
+            </div>
+            <div style={{ flex: 1, textAlign: 'center', padding: '0 8px' }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#00e676' }}>${(parseFloat(indicators.global.valor_cobrado)||0).toLocaleString('es', { maximumFractionDigits: 0 })}</div>
+              <div style={{ fontSize: 12, opacity: 0.55 }}>{indicators.global.unidades_cobradas} cobradas</div>
+            </div>
+          </div>
+          <ResponsiveContainer width="100%" height={100}>
+            <BarChart data={[
+              { name: 'Vencida', valor: parseFloat(indicators.global.valor_vencido)||0 },
+              { name: 'Cobrada', valor: parseFloat(indicators.global.valor_cobrado)||0 },
+            ]} margin={{ top: 0, right: 4, left: -20, bottom: 0 }}>
+              <CartesianGrid stroke="#222" strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fill: '#666', fontSize: 12 }} />
+              <YAxis tick={{ fill: '#555', fontSize: 12 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+              <Tooltip formatter={v => [`$${parseFloat(v).toLocaleString('es', { maximumFractionDigits: 0 })}`, 'Cartera']} contentStyle={{ background: '#1a1a1a', border: '1px solid #333', fontSize: 12 }} />
+              <Bar dataKey="valor" radius={[4,4,0,0]}>
+                <Cell fill="#ff5252" />
+                <Cell fill="#00e676" />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{ fontSize: 12, opacity: 0.5, marginTop: 6, textAlign: 'center' }}>
+            Recuperacion: {(parseFloat(indicators.global.pct_recuperacion)||0).toFixed(1)}%
+          </div>
+        </Card>
+      )}
+
+      {/* Campanas */}
+      {IS_VM(dbConfig) && (
+        <Card title={`Campanas (${campaigns.length})`} onRefresh={() => reload('campaigns')} className="card--wide">
+          {campaigns.length === 0 ? (
+            <div className="empty-state">Sin campanas registradas</div>
+          ) : (
+            <table className="admin-table">
+              <thead><tr><th>#</th><th>Nombre</th><th>Estado</th><th>Contactos</th></tr></thead>
+              <tbody>
+                {campaigns.slice(0, 8).map(c => (
+                  <tr key={c.id}>
+                    <td className="td-num" style={{ opacity: 0.4 }}>{c.id}</td>
+                    <td>{c.nombre}</td>
+                    <td><span className={`status-badge ${c.estado === 'activa' ? 'status-badge--ok' : 'status-badge--err'}`}>{c.estado?.toUpperCase()}</span></td>
+                    <td className="td-num">{c._count?.contactos ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
@@ -297,13 +371,13 @@ function PageConectados({ connUsers, dbConfig, reload }) {
 
   return (
     <div className="page-grid">
-      <Card title={`Supervisores Conectados (${supervisores.length})`} onRefresh={() => reload('users')} className="card--full">
+      <Card title={`Jefes de Area Conectados (${supervisores.length})`} onRefresh={() => reload('users')} className="card--full">
         <table className="admin-table">
           <thead><tr><th>Nombre</th><th>Estado WS</th></tr></thead>
           <tbody>
-            {supervisores.length === 0 && <tr><td colSpan={2} className="empty-td">Sin supervisores conectados</td></tr>}
-            {supervisores.map((u, i) => (
-              <tr key={i}>
+            {supervisores.length === 0 && <tr><td colSpan={2} className="empty-td">Sin Jefes de Area conectados</td></tr>}
+            {supervisores.map((u) => (
+              <tr key={u.nombre}>
                 <td><span className="material-icons" style={{ fontSize: 14, color: '#40c4ff', verticalAlign: 'middle', marginRight: 6 }}>supervisor_account</span>{u.nombre}</td>
                 <td><span className="status-badge status-badge--ok">ONLINE</span></td>
               </tr>
@@ -319,11 +393,11 @@ function PageConectados({ connUsers, dbConfig, reload }) {
           </thead>
           <tbody>
             {asesores.length === 0 && <tr><td colSpan={6} className="empty-td">Sin asesores conectados</td></tr>}
-            {asesores.map((u, i) => {
+            {asesores.map((u) => {
               const m = u.metricas || {};
               const e = u.estado   || {};
               return (
-                <tr key={i}>
+                <tr key={u.nombre}>
                   <td><span className="material-icons" style={{ fontSize: 14, color: '#00e676', verticalAlign: 'middle', marginRight: 6 }}>headset_mic</span>{u.nombre}</td>
                   <td><span className="estado-badge">{e.nombre_estado || 'Conectado'}</span></td>
                   <td className="td-num">{m.marcaciones ?? 0}</td>
@@ -351,10 +425,10 @@ function PageUsuarios({ users, dbConfig, reload }) {
   const [saving,      setSaving]      = useState(false);
   const [msg,         setMsg]         = useState('');
 
-  const currentUser = JSON.parse(localStorage.getItem('auth_user') || '{}');
+  const currentUser = JSON.parse(localStorage.getItem('auth_user:v1') || '{}');
 
-  const ROL_COLORS  = { admin: '#ea80fc', supervisor: '#40c4ff', asesor: '#00e676' };
-  const ROL_LABELS  = { admin: 'Admin', supervisor: 'Jefe de Area', asesor: 'Gestor', jefe_area: 'Jefe de Area' };
+
+
 
   // Decide si usar IPC o REST según modo
   async function apiCall(ipcChannel, ipcArgs, restMethod, restPath, restBody) {
@@ -438,7 +512,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
     <div className="page-grid">
       <Card title={`Gestión de Usuarios ${IS_VM(dbConfig) ? '— VM / PostgreSQL' : '— Local SQLite'}`} onRefresh={() => reload('userList')} className="card--full">
         <div className="users-toolbar">
-          <button className="btn btn--primary" onClick={() => { setForm({ nombre: '', email: '', password: '', rol: 'asesor', supervisor_id: null }); setMsg(''); setModal('create'); }}>
+          <button type="button" className="btn btn--primary" onClick={() => { setForm({ nombre: '', email: '', password: '', rol: 'asesor', supervisor_id: null }); setMsg(''); setModal('create'); }}>
             <span className="material-icons" style={{ fontSize: 16 }}>person_add</span>
             Nuevo Usuario
           </button>
@@ -466,20 +540,20 @@ function PageUsuarios({ users, dbConfig, reload }) {
                 <td className="td-date">{u.creado_en?.slice(0, 10) || '—'}</td>
                 <td>
                   <div className="action-btns">
-                    <button className="btn-icon" title="Editar" onClick={() => { setForm({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, estado: u.estado, supervisor_id: u.supervisor_id ?? null }); setMsg(''); setModal('edit'); }}>
+                    <button type="button" className="btn-icon" title="Editar" onClick={() => { setForm({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, estado: u.estado, supervisor_id: u.supervisor_id ?? null }); setMsg(''); setModal('edit'); }}>
                       <span className="material-icons">edit</span>
                     </button>
-                    <button className="btn-icon" title="Cambiar contrasena" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
+                    <button type="button" className="btn-icon" title="Cambiar contrasena" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
                       <span className="material-icons">lock_reset</span>
                     </button>
-                    <button className={`btn-icon ${u.estado === 'activo' ? 'btn-icon--warn' : 'btn-icon--ok'}`} title={u.estado === 'activo' ? 'Desactivar' : 'Activar'} onClick={() => handleToggle(u)}>
+                    <button type="button" className={`btn-icon ${u.estado === 'activo' ? 'btn-icon--warn' : 'btn-icon--ok'}`} title={u.estado === 'activo' ? 'Desactivar' : 'Activar'} onClick={() => handleToggle(u)}>
                       <span className="material-icons">{u.estado === 'activo' ? 'block' : 'check_circle'}</span>
                     </button>
                     {u.id !== currentUser.id && (
-                      <button
+                      <button type="button"
                         className="btn-icon"
                         style={{ color: '#ff5252' }}
-                        title="Eliminar usuario (transfiere cartera al supervisor)"
+                        title="Eliminar usuario (transfiere cartera al Jefe de Area)"
                         onClick={() => { setMsg(''); setDeleteModal(u); }}
                       >
                         <span className="material-icons">delete</span>
@@ -499,7 +573,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
           <div className="modal-box" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span>{modal === 'create' ? 'Nuevo Usuario' : 'Editar Usuario'}</span>
-              <button className="btn-icon" onClick={() => setModal(null)}><span className="material-icons">close</span></button>
+              <button type="button" className="btn-icon" onClick={() => setModal(null)}><span className="material-icons">close</span></button>
             </div>
             <div className="modal-body">
               {msg && <div className="modal-err">{msg}</div>}
@@ -536,8 +610,8 @@ function PageUsuarios({ users, dbConfig, reload }) {
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn--ghost" onClick={() => setModal(null)}>Cancelar</button>
-              <button className="btn btn--primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
+              <button type="button" className="btn btn--ghost" onClick={() => setModal(null)}>Cancelar</button>
+              <button type="button" className="btn btn--primary" onClick={handleSave} disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
             </div>
           </div>
         </div>
@@ -548,15 +622,15 @@ function PageUsuarios({ users, dbConfig, reload }) {
           <div className="modal-box modal-box--sm" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span>Cambiar Contrasena — {pwModal.nombre}</span>
-              <button className="btn-icon" onClick={() => setPwModal(null)}><span className="material-icons">close</span></button>
+              <button type="button" className="btn-icon" onClick={() => setPwModal(null)}><span className="material-icons">close</span></button>
             </div>
             <div className="modal-body">
               {msg && <div className="modal-err">{msg}</div>}
-              <label>Nueva Contrasena<input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoFocus /></label>
+              <label>Nueva Contrasena<input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} /></label>
             </div>
             <div className="modal-footer">
-              <button className="btn btn--ghost" onClick={() => setPwModal(null)}>Cancelar</button>
-              <button className="btn btn--primary" onClick={handlePwSave} disabled={saving}>{saving ? 'Guardando...' : 'Cambiar'}</button>
+              <button type="button" className="btn btn--ghost" onClick={() => setPwModal(null)}>Cancelar</button>
+              <button type="button" className="btn btn--primary" onClick={handlePwSave} disabled={saving}>{saving ? 'Guardando...' : 'Cambiar'}</button>
             </div>
           </div>
         </div>
@@ -570,7 +644,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
                 <span className="material-icons" style={{ verticalAlign: 'middle', marginRight: 6, fontSize: 18 }}>warning</span>
                 Eliminar Usuario
               </span>
-              <button className="btn-icon" onClick={() => setDeleteModal(null)}><span className="material-icons">close</span></button>
+              <button type="button" className="btn-icon" onClick={() => setDeleteModal(null)}><span className="material-icons">close</span></button>
             </div>
             <div className="modal-body">
               {msg && <div className="modal-err">{msg}</div>}
@@ -580,7 +654,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
               <div style={{ background: 'rgba(255,82,82,0.08)', border: '1px solid rgba(255,82,82,0.25)', borderRadius: 8, padding: '10px 14px', fontSize: 13, lineHeight: 1.6 }}>
                 <strong>Que ocurre con su cartera:</strong>
                 <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
-                  <li>Contactos activos (pendientes/en gestion) se transfieren a su supervisor asignado.</li>
+                  <li>Contactos activos (pendientes/en gestion) se transfieren a su Jefe de Area asignado.</li>
                   <li>Contactos cerrados (ya pagados/gestionados) quedan archivados sin asignar.</li>
                   <li>Agendamientos pendientes se cancelan.</li>
                   <li>El historial de llamadas (CDRs) se conserva.</li>
@@ -589,13 +663,13 @@ function PageUsuarios({ users, dbConfig, reload }) {
               {!deleteModal.supervisor_id && deleteModal.rol === 'asesor' && (
                 <p style={{ marginTop: 10, color: '#ffab40', fontSize: 12 }}>
                   <span className="material-icons" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>info</span>
-                  Este asesor no tiene supervisor asignado. Los contactos activos quedaran sin asignar.
+                  Este gestor no tiene Jefe de Area asignado. Los contactos activos quedaran sin asignar.
                 </p>
               )}
             </div>
             <div className="modal-footer">
-              <button className="btn btn--ghost" onClick={() => setDeleteModal(null)}>Cancelar</button>
-              <button
+              <button type="button" className="btn btn--ghost" onClick={() => setDeleteModal(null)}>Cancelar</button>
+              <button type="button"
                 className="btn"
                 style={{ background: '#ff5252', color: '#fff', border: 'none' }}
                 onClick={confirmDelete}
@@ -778,7 +852,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
                   </div>
                 </label>
                 <div className="vm-form-actions">
-                  <button className="btn btn--outline" onClick={handleTest} disabled={testing}>
+                  <button type="button" className="btn btn--outline" onClick={handleTest} disabled={testing}>
                     <span className="material-icons" style={{ fontSize: 15 }}>{testing ? 'hourglass_empty' : 'wifi_tethering'}</span>
                     {testing ? 'Probando…' : 'Test Conexión'}
                   </button>
@@ -807,7 +881,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
                     Contraseña
                     <input type="password" value={vmPw} onChange={e => setVmPw(e.target.value)} placeholder="••••••••" />
                   </label>
-                  <button className="btn btn--primary" onClick={handleVmLogin} disabled={logging}>
+                  <button type="button" className="btn btn--primary" onClick={handleVmLogin} disabled={logging}>
                     <span className="material-icons" style={{ fontSize: 15 }}>login</span>
                     {logging ? 'Conectando…' : 'Conectar y obtener token'}
                   </button>
@@ -861,7 +935,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
       <Card title="Aplicar Configuración" className="card--full">
         {msg && <div className="modal-err" style={{ marginBottom: 12 }}>{msg}</div>}
         <div className="save-row">
-          <button className="btn btn--primary btn--lg" onClick={handleSave} disabled={saving}>
+          <button type="button" className="btn btn--primary btn--lg" onClick={handleSave} disabled={saving}>
             <span className="material-icons">{saving ? 'hourglass_empty' : saved ? 'check' : 'save'}</span>
             {saving ? 'Guardando…' : saved ? '¡Guardado!' : 'Guardar y Aplicar'}
           </button>
@@ -929,6 +1003,16 @@ const NAV = [
   { id: 'sistema',    label: 'Sistema',             icon: 'memory'             },
 ];
 
+const PROCESS_LIST = [
+    { label: 'Express API Server', key: 'express',   icon: 'dns'        },
+    { label: 'WebSocket Server',   key: 'websocket', icon: 'sync_alt'   },
+    { label: 'ADB / Android',      key: 'adb',       icon: 'smartphone' },
+    { label: 'SQLite Database',    key: 'sqlite',    icon: 'storage'    },
+  ];
+
+const ROL_COLORS = { admin: '#ea80fc', supervisor: '#40c4ff', asesor: '#00e676' };
+const ROL_LABELS = { admin: 'Admin', supervisor: 'Jefe de Area', asesor: 'Gestor', jefe_area: 'Jefe de Area' };
+
 export default function AdminPanel() {
   const [page,       setPage]       = useState('dashboard');
   const [sysInfo,    setSysInfo]    = useState(null);
@@ -936,12 +1020,14 @@ export default function AdminPanel() {
   const [globalMet,  setGlobalMet]  = useState(null);
   const [users,      setUsers]      = useState([]);
   const [cpuHistory, setCpuHistory] = useState([]);
+  const [campaigns,  setCampaigns]  = useState([]);
+  const [indicators, setIndicators] = useState(null);
   const [dbConfig,   setDbConfig]   = useState({ mode: 'local', vmUrl: '', vmToken: '', pgString: '' });
 
   const cpuRef = useRef([]);
 
   const user = (() => {
-    try { return JSON.parse(localStorage.getItem('auth_user')); } catch { return null; }
+    try { return JSON.parse(localStorage.getItem('auth_user:v1')); } catch { return null; }
   })();
 
   // ── Carga dbConfig al inicio — localStorage primero (misma fuente que JefePanel) ──
@@ -988,7 +1074,7 @@ export default function AdminPanel() {
         const raw = await vmApiFetch(dbConfig.vmUrl, dbConfig.vmToken, '/api/admin/connected');
         const mapped = [
           ...( raw.asesores || []).map(a => ({ tipo: 'ASESOR', nombre: a.nombre, asesor_id: a.asesor_id, estado: { nombre_estado: a.nombre_estado } })),
-          ...Array(raw.supervisores || 0).fill(null).map((_, i) => ({ tipo: 'SUPERVISOR', nombre: `Supervisor ${i + 1}` }))
+          ...Array(raw.supervisores || 0).fill(null).map((_, i) => ({ tipo: 'SUPERVISOR', nombre: `Jefe de Area ${i + 1}` }))
         ];
         setConnUsers(mapped);
       } else {
@@ -1020,13 +1106,32 @@ export default function AdminPanel() {
     } catch {}
   }, [dbConfig]);
 
+  const loadCampaigns = useCallback(async () => {
+    try {
+      if (IS_VM(dbConfig)) {
+        const data = await vmApiFetch(dbConfig.vmUrl, dbConfig.vmToken, '/api/campanas');
+        setCampaigns(Array.isArray(data) ? data : []);
+      }
+    } catch {}
+  }, [dbConfig]);
+
+  const loadIndicators = useCallback(async () => {
+    try {
+      if (IS_VM(dbConfig)) {
+        const data = await vmApiFetch(dbConfig.vmUrl, dbConfig.vmToken, '/api/jefe/indicadores');
+        setIndicators(data);
+      }
+    } catch {}
+  }, [dbConfig]);
+
   const reload = useCallback((type) => {
-    if (type === 'sys')      loadSys();
-    if (type === 'users')    { loadUsers(); loadUserList(); }
-    if (type === 'userList') loadUserList();
-    if (type === 'metrics')  loadMetrics();
-    if (type === 'all')      { loadSys(); loadUsers(); loadMetrics(); loadUserList(); }
-  }, [loadSys, loadUsers, loadMetrics, loadUserList]);
+    if (type === 'sys')       loadSys();
+    if (type === 'users')     { loadUsers(); loadUserList(); }
+    if (type === 'userList')  loadUserList();
+    if (type === 'metrics')   loadMetrics();
+    if (type === 'campaigns') loadCampaigns();
+    if (type === 'all')       { loadSys(); loadUsers(); loadMetrics(); loadUserList(); loadCampaigns(); loadIndicators(); }
+  }, [loadSys, loadUsers, loadMetrics, loadUserList, loadCampaigns, loadIndicators]);
 
   // Re-cargar todo cuando cambia el modo
   useEffect(() => {
@@ -1069,16 +1174,16 @@ export default function AdminPanel() {
         <nav className="sidebar-nav">
           <div className="sidebar-nav__section">SISTEMA</div>
           {NAV.map(n => (
-            <button key={n.id} className={`sidebar-nav__item ${page === n.id ? 'sidebar-nav__item--active' : ''}`} onClick={() => setPage(n.id)}>
+            <button type="button" key={n.id} className={`sidebar-nav__item ${page === n.id ? 'sidebar-nav__item--active' : ''}`} onClick={() => setPage(n.id)}>
               <span className="material-icons">{n.icon}</span>
               <span>{n.label}</span>
               {n.id === 'conexion' && <ModeBadge mode={dbConfig.mode} />}
             </button>
           ))}
           <div className="sidebar-nav__section" style={{ marginTop: 24 }}>ACCIONES</div>
-          <button className="sidebar-nav__item" onClick={handleOpenSupervisor}>
+          <button type="button" className="sidebar-nav__item" onClick={handleOpenSupervisor}>
             <span className="material-icons">open_in_new</span>
-            <span>Panel Supervisor</span>
+            <span>Panel Jefe de Area</span>
           </button>
         </nav>
 
@@ -1090,7 +1195,7 @@ export default function AdminPanel() {
               <div className="sidebar-user__role">Administrador</div>
             </div>
           </div>
-          <button className="btn-icon btn-icon--logout" onClick={handleLogout} title="Cerrar sesión">
+          <button type="button" className="btn-icon btn-icon--logout" onClick={handleLogout} title="Cerrar sesión">
             <span className="material-icons">logout</span>
           </button>
         </div>
@@ -1123,7 +1228,7 @@ export default function AdminPanel() {
         </header>
 
         <div className="admin-content">
-          {page === 'dashboard'  && <PageDashboard sysInfo={sysInfo} cpuHistory={cpuHistory} connUsers={connUsers} globalMetrics={globalMet} dbConfig={dbConfig} reload={reload} />}
+          {page === 'dashboard'  && <PageDashboard sysInfo={sysInfo} cpuHistory={cpuHistory} connUsers={connUsers} globalMetrics={globalMet} dbConfig={dbConfig} reload={reload} users={users} campaigns={campaigns} indicators={indicators} />}
           {page === 'conectados' && <PageConectados connUsers={connUsers} dbConfig={dbConfig} reload={reload} />}
           {page === 'usuarios'   && <PageUsuarios users={users} dbConfig={dbConfig} reload={reload} />}
           {page === 'conexion'   && <PageConexion dbConfig={dbConfig} onConfigChange={setDbConfig} />}

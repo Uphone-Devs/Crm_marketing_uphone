@@ -1,6 +1,7 @@
 ﻿import { useMemo } from 'react';
 import Modal from '../shared/Modal';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
+const _EMPTY_OBJ = {};
 
 /**
  * MetricDetailModal â€” Ranking comparativo de asesores por tipo de mÃ©trica.
@@ -11,7 +12,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
  *   - asesores: array de { id, nombre }
  *   - metricType: 'mph' | 'rotacion' | 'contactabilidad' | 'concurrencia' | 'ringtime'
  */
-export default function MetricDetailModal({ open, onClose, metricType, metricTitle, asesores, metricas = {}, metricasEquipo = null, rotDetalle = null }) {
+const COLOR_PALETTE = ['#00E5FF', '#2979FF', '#651FFF', '#00B0FF', '#1DE9B6'];
+
+export default function MetricDetailModal({ open, onClose, metricType, metricTitle, asesores, metricas = _EMPTY_OBJ, metricasEquipo = null, rotDetalle = null }) {
 
   const unitLabel = {
     rotacion: '%',
@@ -76,7 +79,7 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
     };
   }, [data]);
 
-  const colorPalette = ['#00E5FF', '#2979FF', '#651FFF', '#00B0FF', '#1DE9B6'];
+
 
   return (
     <Modal open={open} onClose={onClose} title={`Detalle por Asesor: ${metricTitle}`}>
@@ -85,21 +88,21 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
         {summaryStats && (
           <div style={{ display: 'flex', gap: 32, marginBottom: 20, padding: '12px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: 8 }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 11, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Total Equipo</div>
+              <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Total Equipo</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--color-primary)' }}>
-                {summaryStats.total} <span style={{ fontSize: 11, fontWeight: 400 }}>{unitLabel}</span>
+                {summaryStats.total} <span style={{ fontSize: 12, fontWeight: 400 }}>{unitLabel}</span>
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 11, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Promedio</div>
+              <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Promedio</div>
               <div style={{ fontSize: 22, fontWeight: 700 }}>
-                {summaryStats.avg} <span style={{ fontSize: 11, fontWeight: 400 }}>{unitLabel}</span>
+                {summaryStats.avg} <span style={{ fontSize: 12, fontWeight: 400 }}>{unitLabel}</span>
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 11, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>MÃ¡s Alto</div>
+              <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>MÃ¡s Alto</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: '#1DE9B6' }}>
-                {summaryStats.max} <span style={{ fontSize: 11, fontWeight: 400 }}>{unitLabel}</span>
+                {summaryStats.max} <span style={{ fontSize: 12, fontWeight: 400 }}>{unitLabel}</span>
               </div>
             </div>
           </div>
@@ -109,7 +112,7 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
           <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
             <BarChart data={data} layout="vertical" margin={{ top: 8, right: 72, left: 10, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis type="number" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 11 }} />
+              <XAxis type="number" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 12 }} />
               <YAxis dataKey="name" type="category" stroke="rgba(255,255,255,0.3)" tick={{ fill: 'var(--color-on-surface-variant)', fontSize: 12 }} width={80} />
               <Tooltip
                 cursor={{ fill: 'rgba(255,255,255,0.02)' }}
@@ -120,9 +123,9 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
                   return [ex ? `${main} Â· ${ex}` : main, props.payload.fullName];
                 }}
               />
-              <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={28} fill={colorPalette[0]}>
+              <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={28} fill={COLOR_PALETTE[0]}>
                 {data.map((_entry, index) => (
-                  <Cell key={`cell-${index}`} fill={colorPalette[index % colorPalette.length]} />
+                  <Cell key={`cell-${index}`} fill={COLOR_PALETTE[index % COLOR_PALETTE.length]} />
                 ))}
                 <LabelList
                   dataKey="value"

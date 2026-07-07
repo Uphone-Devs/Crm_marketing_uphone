@@ -70,7 +70,7 @@ export default function QuickConnect({ onConnected }) {
       <p className="section-title">Conexión Rápida</p>
 
       <div className="qc-buttons">
-        <button
+        <button type="button"
           id="btn-connect-usb"
           className="btn btn-success qc-btn"
           onClick={handleUSB}
@@ -82,7 +82,7 @@ export default function QuickConnect({ onConnected }) {
           }
         </button>
 
-        <button
+        <button type="button"
           id="btn-connect-wifi"
           className="btn btn-primary qc-btn"
           onClick={openWifiModal}
@@ -94,7 +94,7 @@ export default function QuickConnect({ onConnected }) {
           }
         </button>
 
-        <button
+        <button type="button"
           id="btn-disconnect"
           className="btn btn-ghost qc-btn btn-sm"
           onClick={handleDisconnect}
@@ -108,7 +108,7 @@ export default function QuickConnect({ onConnected }) {
       <Modal open={showWifiModal} onClose={() => setShowWifiModal(false)} title="Conectar por WiFi">
         <div className="wifi-modal-body">
           <label className="wifi-label">Dirección IP del dispositivo</label>
-          <input
+          <input aria-label="Dirección IP del dispositivo"
             id="input-wifi-ip"
             className="input"
             type="text"
@@ -116,12 +116,11 @@ export default function QuickConnect({ onConnected }) {
             value={ip}
             onChange={e => setIp(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleWifi()}
-            autoFocus
           />
           <p className="wifi-hint">El puerto 5555 se usará automáticamente.</p>
           <div className="wifi-actions">
-            <button className="btn btn-ghost" onClick={() => setShowWifiModal(false)}>Cancelar</button>
-            <button className="btn btn-primary" onClick={handleWifi}>Conectar</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowWifiModal(false)}>Cancelar</button>
+            <button type="button" className="btn btn-primary" onClick={handleWifi}>Conectar</button>
           </div>
         </div>
       </Modal>
@@ -130,7 +129,7 @@ export default function QuickConnect({ onConnected }) {
       <Modal open={showInfinixGuide} onClose={() => setShowInfinixGuide(false)} title="🔧 Guía INFINIX — Modo Desarrollador">
         <div className="infinix-guide">
           <p className="infinix-guide-text">{infinixGuide}</p>
-          <button className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={() => setShowInfinixGuide(false)}>
+          <button type="button" className="btn btn-primary" style={{ width: '100%', marginTop: 16 }} onClick={() => setShowInfinixGuide(false)}>
             Entendido
           </button>
         </div>

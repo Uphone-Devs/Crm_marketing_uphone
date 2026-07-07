@@ -6,7 +6,7 @@ const VU_BARS = 20;
 export default function AudioTransmitter() {
   const [activo, setActivo] = useState(false);
   const [volumen, setVolumen] = useState(80);
-  const [vuLevels, setVuLevels] = useState(Array(VU_BARS).fill(0));
+  const [vuLevels, setVuLevels] = useState(() => Array(VU_BARS).fill(0));
   const [error, setError] = useState(null);
   const [noSoportado, setNoSoportado] = useState(false);
   const audioCtxRef = useRef(null);
@@ -127,7 +127,7 @@ export default function AudioTransmitter() {
       )}
 
       <div className="audio-controls">
-        <button
+        <button type="button"
           id="btn-audio-toggle"
           className={`btn ${activo ? 'btn-danger' : 'btn-primary'} audio-toggle`}
           onClick={toggleAudio}
@@ -137,7 +137,7 @@ export default function AudioTransmitter() {
 
         <div className="volumen-control">
           <span className="volumen-label">🔊 {volumen}%</span>
-          <input
+          <input aria-label="Campo"
             id="slider-volumen"
             type="range"
             min="0"

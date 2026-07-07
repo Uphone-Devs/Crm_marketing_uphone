@@ -162,3 +162,14 @@ CREATE TABLE IF NOT EXISTS indicadores_datos (
   PRIMARY KEY (asesor_id, fecha, segmento),
   FOREIGN KEY (asesor_id) REFERENCES usuarios (id) ON DELETE CASCADE
 );
+
+-- ── Segmentos (Tramos) de Mensajes ───────────────────────────────
+CREATE TABLE IF NOT EXISTS segmentos_config (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  clave     TEXT UNIQUE NOT NULL,
+  etiqueta  TEXT NOT NULL,
+  color     TEXT NOT NULL,
+  icono     TEXT DEFAULT 'label',
+  creado_en TEXT DEFAULT (datetime('now', 'localtime'))
+);
+

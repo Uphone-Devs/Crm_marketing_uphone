@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+﻿import React, { useEffect, useState, useMemo } from 'react';
 import { todayLocalISO } from '../shared/timeUtils';
 
 function buildApiBase() {
@@ -22,6 +22,8 @@ async function vmReportDownload(apiBase, token, tipo, params) {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
+
+const _EMPTY_ARR = [];
 
 const CAT_COLOR = {
   'CONTACTO_EFECTIVO': { bg: 'rgba(0,230,118,0.15)', fg: '#00E676', label: 'Efectivo' },
@@ -47,7 +49,7 @@ const fmtDuracion = (seg) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId, asesores = [], campanas = [], onFiltersChange, onClose }) {
+export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId, asesores = _EMPTY_ARR, campanas = _EMPTY_ARR, onFiltersChange, onClose }) {
   const [registros, setRegistros] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState('');
@@ -221,9 +223,9 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <div>
-            <span style={{ fontSize: 10, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>SUPERVISOR Â· DETALLE</span>
+            <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>JEFE DE AREA · DETALLE</span>
             <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Contactabilidad por Hora</h3>
-            <p style={{ margin: '2px 0 0', fontSize: 11, opacity: 0.5 }}>
+            <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.5 }}>
               Cada gestiÃ³n con asesor, hora inicio/fin, duraciÃ³n y tipificaciÃ³n
               {filtroFecha && filtroFechaFin && filtroFecha !== filtroFechaFin
                 ? ` â€” ${filtroFecha} â†’ ${filtroFechaFin}`
@@ -233,7 +235,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                 : ''}
             </p>
           </div>
-          <button onClick={onClose} style={{
+          <button type="button" onClick={onClose} style={{
             background: 'transparent', border: 'none', color: 'inherit',
             cursor: 'pointer', display: 'flex', padding: 4,
           }}>
@@ -247,13 +249,13 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
           background: 'rgba(255,255,255,0.02)',
         }}>
-          <span style={{ fontSize: 9, fontWeight: 700, opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 12, verticalAlign: 'middle', marginRight: 3 }}>filter_alt</span>
             Filtrar
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Desde</span>
-            <input
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Desde</span>
+            <input aria-label="Desde"
               type="date"
               value={filtroFecha}
               onChange={(e) => {
@@ -262,43 +264,43 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                 if (!filtroFechaFin || filtroFechaFin < val) setFiltroFechaFin(val);
               }}
               style={{
-                padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>Hasta</span>
-            <input
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Hasta</span>
+            <input aria-label="Hasta"
               type="date"
               value={filtroFechaFin}
               min={filtroFecha || undefined}
               onChange={e => setFiltroFechaFin(e.target.value)}
               style={{
-                padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
           </div>
-          <button
+          <button type="button"
             onClick={() => { setFiltroFecha(todayLocalISO()); setFiltroFechaFin(todayLocalISO()); }}
             style={{
-              padding: '4px 8px', fontSize: 9, fontWeight: 700,
+              padding: '4px 8px', fontSize: 12, fontWeight: 700,
               background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
               color: 'var(--color-primary)', borderRadius: 6, cursor: 'pointer',
             }}
           >HOY</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10, opacity: 0.5 }}>CampaÃ±a</span>
+            <span style={{ fontSize: 12, opacity: 0.5 }}>CampaÃ±a</span>
             <select
               value={filtroCampana}
               onChange={e => setFiltroCampana(e.target.value)}
               style={{
-                padding: '5px 8px', fontSize: 11, minWidth: 140,
+                padding: '5px 8px', fontSize: 12, minWidth: 140,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             >
               <option value="">Todas</option>
@@ -306,10 +308,10 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
             </select>
           </div>
           {(filtroFecha || filtroCampana) && (
-            <button
+            <button type="button"
               onClick={() => { setFiltroFecha(''); setFiltroFechaFin(''); setFiltroCampana(''); }}
               style={{
-                padding: '5px 10px', fontSize: 10,
+                padding: '5px 10px', fontSize: 12,
                 background: 'rgba(255,80,80,0.1)', border: '1px solid rgba(255,80,80,0.25)',
                 color: '#ff8080', borderRadius: 6, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 3,
@@ -331,7 +333,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
               position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
               fontSize: 14, opacity: 0.4, pointerEvents: 'none',
             }}>search</span>
-            <input
+            <input aria-label="Campo"
               type="text"
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
@@ -339,7 +341,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
               style={{
                 width: '100%', padding: '5px 10px 5px 28px', fontSize: 12,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 6, color: 'inherit', outline: 'none',
+                borderRadius: 6, color: 'inherit',
               }}
             />
           </div>
@@ -378,16 +380,16 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
               <div>
-                <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.55, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.55, letterSpacing: 0.5, textTransform: 'uppercase' }}>
                   DistribuciÃ³n por Hora
                 </span>
-                <p style={{ margin: '2px 0 0', fontSize: 10, opacity: 0.4 }}>
+                <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.4 }}>
                   Click en una barra para filtrar por esa hora
                 </p>
               </div>
               {horaPico && horaPico.total > 0 && (
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>Pico</span>
+                  <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>Pico</span>
                   <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-primary)' }}>
                     {horaPico.hora} Â· {horaPico.total} gestiones
                   </div>
@@ -407,13 +409,13 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                   }}
                 >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="hora" tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.55)' }} interval={0} />
-                  <YAxis tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.55)' }} allowDecimals={false} />
+                  <XAxis dataKey="hora" tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.55)' }} interval={0} />
+                  <YAxis tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.55)' }} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: 8, fontSize: 11 }}
+                    contentStyle={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: 8, fontSize: 12 }}
                     cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                   />
-                  <Legend wrapperStyle={{ fontSize: 10 }} iconType="circle" />
+                  <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" />
                   <Bar dataKey="efectivos" stackId="a" fill="#00E676" name="Efectivos" radius={[3, 3, 0, 0]} cursor="pointer" />
                   <Bar dataKey="neutros" stackId="a" fill="#FBC02D" name="Neutros" cursor="pointer" />
                   <Bar dataKey="no_contactados" stackId="a" fill="#9E9E9E" name="No contactados" cursor="pointer" />
@@ -429,14 +431,14 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
             padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
             display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center',
           }}>
-            <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 700 }}>HORAS:</span>
+            <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700 }}>HORAS:</span>
             {distribHora.map(([h, n]) => {
               const activo = filtroHora === String(h);
               return (
-                <button key={h}
+                <button type="button" key={h}
                   onClick={() => setFiltroHora(activo ? '' : String(h))}
                   style={{
-                    padding: '2px 8px', fontSize: 10, fontWeight: 600,
+                    padding: '2px 8px', fontSize: 12, fontWeight: 600,
                     background: activo ? 'rgba(0,230,118,0.2)' : 'rgba(255,255,255,0.05)',
                     border: '1px solid ' + (activo ? 'rgba(0,230,118,0.4)' : 'rgba(255,255,255,0.08)'),
                     color: activo ? 'var(--color-primary)' : 'inherit',
@@ -462,7 +464,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
               <p style={{ marginTop: 8, fontSize: 12 }}>Sin gestiones para los filtros aplicados</p>
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left', position: 'sticky', top: 0 }}>
                   <th style={th}>Hora Inicio</th>
@@ -484,17 +486,17 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                   const rowKey = r.cdr_id != null ? `cdr-${r.cdr_id}` : `ext-${i}`;
                   return (
                     <tr key={rowKey} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{fmtHora(r.hora_inicio)}</span></td>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{fmtHora(r.hora_fin)}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_inicio)}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_fin)}</span></td>
                       <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtDuracion(r.duracion_seg)}</td>
                       <td style={td}>{r.asesor_nombre || 'â€”'}</td>
                       <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || 'â€”'}</td>
                       <td style={td}><span className="text-mono">{r.telefono || 'â€”'}</span></td>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 10 }}>{r.contrato || 'â€”'}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{r.contrato || 'â€”'}</span></td>
                       <td style={td}>{r.tipificacion_desc || 'â€”'}</td>
                       <td style={td}>
                         <span style={{
-                          fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
+                          fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
                           background: catStyle.bg, color: catStyle.fg, whiteSpace: 'nowrap',
                         }}>
                           {catStyle.label}
@@ -517,12 +519,12 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
   );
 }
 
-const th = { padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
+const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
 const td = { padding: '7px 10px', verticalAlign: 'middle' };
 const inputStyle = {
-  padding: '5px 8px', fontSize: 11,
+  padding: '5px 8px', fontSize: 12,
   background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 6, color: 'inherit', outline: 'none',
+  borderRadius: 6, color: 'inherit',
 };
 
 function Kpi({ label, value, color }) {
@@ -531,7 +533,7 @@ function Kpi({ label, value, color }) {
       padding: '6px 10px', borderRadius: 6, minWidth: 70,
       background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
     }}>
-      <div style={{ fontSize: 8, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
       <div style={{ fontSize: 14, fontWeight: 800, color: color || 'inherit' }}>{value}</div>
     </div>
   );

@@ -31,12 +31,67 @@ function formatTimer(seg) {
   return `${h}:${m}:${s}`;
 }
 
+function Kpi({ label, value, color }) {
+  return (
+    <div style={{
+      flex: '1 1 130px', minWidth: 110, padding: '8px 12px', borderRadius: 8,
+      background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+    }}>
+      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2, color: color || 'inherit' }}>{value}</div>
+    </div>
+  );
+}
+
+function SectionHeader({ icon, label }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      fontSize: 12, fontWeight: 700, opacity: 0.55,
+      textTransform: 'uppercase', letterSpacing: 0.6,
+      marginBottom: 8,
+    }}>
+      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{icon}</span>
+      {label}
+    </div>
+  );
+}
+
+function Field({ icon, label, value, mono, bold = 600, color }) {
+  return (
+    <div>
+      <span style={{ fontSize: 12, opacity: 0.5, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: 0.3 }}>
+        {icon && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{icon}</span>}
+        {label}
+      </span>
+      <span className={mono ? 'text-mono' : ''} style={{ display: 'block', fontSize: 12, fontWeight: bold, marginTop: 2, color: color || 'inherit' }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function playBeep() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.3);
+  } catch (e) { console.warn('BEEP fallido:', e); }
+}
+
 export default function AsesorPanel({ usuario, onLogout }) {
   // ── Estado de Navegación y Conectividad ──
   const [activePage, setActivePage] = useState('dashboard');
-  const [wsStatus, setWsStatus] = useState('DESCONECTADO');
+  const wsStatusRef = useRef('DESCONECTADO');
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
-  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '127.0.0.1');
+  const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.192');
   const wsActiveIpRef = useRef(wsIp);
   const adbErrorNotifiedRef = useRef(false);
 
@@ -61,10 +116,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   // ── Campaña y Contacto ──
   const [campana, setCampana] = useState(() => {
-    try { const s = sessionStorage.getItem('active_campaign'); return s ? JSON.parse(s) : null; }
+    try { const s = sessionStorage.getItem('active_campaign:v1'); return s ? JSON.parse(s) : null; }
     catch { return null; }
   });
-  const [showCampaignSelector, setShowCampaignSelector] = useState(!sessionStorage.getItem('active_campaign'));
+  const [showCampaignSelector, setShowCampaignSelector] = useState(!sessionStorage.getItem('active_campaign:v1'));
   const [dialingMode, setDialingMode] = useState('MANUAL');
   const [intentosConfig, setIntentosConfig] = useState(1);
   const [contactoActual, setContactoActual] = useState(null);
@@ -74,7 +129,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [cdrId, setCdrId] = useState(null);
   const [enLlamada, setEnLlamada] = useState(false);
   const [grabando, setGrabando] = useState(false);
-  const [ultimoAudioPath, setUltimoAudioPath] = useState('');
+  const ultimoAudioPathRef = useRef('');
   const [silenciado, setSilenciado] = useState(false);
   const [altavozActivo, setAltavozActivo] = useState(false);
   const [deviceGrabando, setDeviceGrabando] = useState(false);
@@ -172,7 +227,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // C2: limpia credenciales y vuelve al login cuando el token caduca.
   const handleUnauthorized = useCallback(() => {
     localStorage.removeItem('auth_token');
-    localStorage.removeItem('auth_user');
+    localStorage.removeItem('auth_user:v1');
     if (typeof onLogout === 'function') onLogout();
   }, [onLogout]);
 
@@ -336,6 +391,28 @@ export default function AsesorPanel({ usuario, onLogout }) {
           url = `${apiBase}/marcar-compromiso-incumplido`;
           options.method = 'POST';
           options.body = JSON.stringify({ cdrId: args[0] });
+          break;
+        case 'db:toggleContactoMensajeria':
+          url = `${apiBase}/contactos/${args[0]}/toggle-mensajeria`;
+          options.method = 'PATCH';
+          options.body = JSON.stringify({ tipo: args[1], estado: args[2] });
+          break;
+        case 'db:marcarLoteEnviado':
+          url = `${apiBase}/marcar-lote-enviado`;
+          options.method = 'POST';
+          options.body = JSON.stringify({ tipo: args[1], contactoIds: args[2] });
+          break;
+        case 'db:getLoteMensajeria':
+          url = `${apiBase}/cartera?campanaId=&tipo=${args[1] || ''}`;
+          break;
+        case 'db:getRankingGeneralAsesores':
+          url = `${apiBase}/ranking-general?fecha=${args[0] || ''}`;
+          break;
+        case 'db:getProyeccionMensual':
+          url = `${apiBase}/proyeccion-mensual`;
+          break;
+        case 'db:getIndicadoresCobranza':
+          url = `${apiBase}/indicadores-cobranza`;
           break;
         default:
           // C1: solo los canales de dispositivo/sistema (adb/audio/recorder/shell/app)
@@ -516,7 +593,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           try {
             const result = await window.api.invoke('recorder:stop');
             setGrabando(false);
-            if (result.success) setUltimoAudioPath(result.filePath);
+            if (result.success) ultimoAudioPathRef.current = result.filePath;
           } catch { /* ignorar */ }
         }
 
@@ -594,7 +671,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       wsRef.current = socket;
 
       socket.onopen = () => {
-        setWsStatus('CONECTADO');
+        wsStatusRef.current = 'CONECTADO';
         const est = estadoRef.current;
         const met = metricasRef.current;
 
@@ -656,7 +733,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       };
 
       socket.onclose = () => {
-        setWsStatus('DESCONECTADO');
+        wsStatusRef.current = 'DESCONECTADO';
         clearInterval(wsPingRef.current);
         if (wsRef.current === socket) {
           // Reintento amortiguado para evitar martilleo
@@ -665,7 +742,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       };
 
       socket.onerror = (err) => {
-        setWsStatus('ERROR');
+        wsStatusRef.current = 'ERROR';
       };
     } catch (err) {
       setTimeout(conectarWS, 5000);
@@ -705,7 +782,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               try {
                 const result = await window.api.invoke('recorder:stop');
                 setGrabando(false);
-                if (result.success) setUltimoAudioPath(result.filePath);
+                if (result.success) ultimoAudioPathRef.current = result.filePath;
               } catch { /* ignorar */ }
             }
             setShowTipificacion(true);
@@ -739,20 +816,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [callApi]);
 
-  const playBeep = () => {
-    try {
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const oscillator = audioCtx.createOscillator();
-      const gainNode = audioCtx.createGain();
-      oscillator.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // La
-      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-      oscillator.start();
-      oscillator.stop(audioCtx.currentTime + 0.3); // 300ms
-    } catch (e) { console.warn('BEEP fallido:', e); }
-  };
 
   const handleAvisoLocal = useCallback((data) => {
     const nombre = data.nombre_deudor || `#${data.contacto_id}`;
@@ -782,6 +845,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       { actionLabel: 'GESTIONAR', onClick: () => {
         setShowAgendamientoModal(false);
         cargarContactoAgendado(data.contacto_id);
+        setActivePage('dashboard');
       }}
     );
   }, [cargarContactoAgendado]);
@@ -869,12 +933,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         if (typeof data.tiempo_al_aire === 'number') setTiempoProductivoDB(data.tiempo_al_aire);
         if (typeof data.tiempo_muerto  === 'number') setTiempoImproductivoDB(data.tiempo_muerto);
         if (Array.isArray(data.marcaciones_detalle))  setMarcacionesDetalle(data.marcaciones_detalle);
-        if (typeof data.wsp_enviados          === 'number') setWspEnviados(data.wsp_enviados);
-        if (data.wsp_detalle)   setWspDetalle(data.wsp_detalle);
-        if (typeof data.sms_enviados          === 'number') setSmsEnviados(data.sms_enviados);
-        if (data.sms_detalle)   setSmsDetalle(data.sms_detalle);
-        if (typeof data.correos_enviados      === 'number') setCorreosEnviados(data.correos_enviados);
-        if (data.email_detalle) setEmailDetalle(data.email_detalle);
+        // wsp/sms/email detalle se calculan desde cartera — no sobreescribir con totales históricos del servidor
         if (typeof data.compromisos_cumplidos   === 'number') setCompCumplidos(data.compromisos_cumplidos);
         if (typeof data.compromisos_reagendados === 'number') setCompReagendados(data.compromisos_reagendados);
         if (typeof data.compromisos_incumplidos === 'number') setCompIncumplidos(data.compromisos_incumplidos);
@@ -1166,7 +1225,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   async function handleSelectCampaign(c) {
     setCampana(c);
-    sessionStorage.setItem('active_campaign', JSON.stringify(c));
+    sessionStorage.setItem('active_campaign:v1', JSON.stringify(c));
     setShowCampaignSelector(false);
     
     // Resetear las métricas visuales instantáneamente para que arranquen de 0 en la UI
@@ -1182,12 +1241,26 @@ export default function AsesorPanel({ usuario, onLogout }) {
     setTotalGestiones(0);
     setTotalCompromisos(0);
 
-    // Obtener progreso inicial inmediatamente
+    // Obtener progreso + métricas con el campanaId correcto inmediatamente
     try {
-      const p = await callApi('db:getProgresoCampana', c.id, usuario?.id);
-      if (p) setProgresoCampana(p);
+      const [p, metricaData] = await Promise.allSettled([
+        callApi('db:getProgresoCampana', c.id, usuario?.id),
+        callApi('db:getMetricasDia', usuario.id, null, { campanaId: c.id }),
+      ]);
+      if (p.status === 'fulfilled' && p.value) setProgresoCampana(p.value);
+      if (metricaData.status === 'fulfilled' && metricaData.value) {
+        const d = metricaData.value;
+        if (typeof d.total_marcaciones === 'number') setMarcaciones(d.total_marcaciones);
+        // wsp/sms/email detalle se calculan desde cartera — no sobreescribir con totales históricos del servidor
+        if (typeof d.cdrs_total       === 'number') setTotalGestiones(d.cdrs_total);
+        if (typeof d.total_compromisos=== 'number') setTotalCompromisos(d.total_compromisos);
+        if (typeof d.compromisos_cumplidos   === 'number') setCompCumplidos(d.compromisos_cumplidos);
+        if (typeof d.compromisos_reagendados === 'number') setCompReagendados(d.compromisos_reagendados);
+        if (typeof d.compromisos_incumplidos === 'number') setCompIncumplidos(d.compromisos_incumplidos);
+        if (Array.isArray(d.marcaciones_detalle)) setMarcacionesDetalle(d.marcaciones_detalle);
+      }
     } catch (e) {
-      console.warn('Error fetching initial campaign progress:', e);
+      console.warn('Error fetching initial campaign data:', e);
     }
   }
 
@@ -1221,7 +1294,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           notas,
           timestampFin: nowLocalISO(),
           resultado: tipificacion.descripcion,
-          urlGrabacion: ultimoAudioPath,
+          urlGrabacion: ultimoAudioPathRef.current,
           montoAcordado: montoAcordado ?? null,
         });
       } else {
@@ -1245,6 +1318,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
         await callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax);
         // Regla de negocio: cualquier tipificación = contacto GESTIONADO
         await callApi('db:marcarContactoGestionado', contactoSnapshot.id);
+        // Actualizar cartera en tiempo real sin reload
+        setCartera(prev => prev.map(x =>
+          x.id === contactoSnapshot.id ? { ...x, estado_marcacion: 'GESTIONADO' } : x
+        ));
 
         // Si existe agendamiento, registrarlo en la base de datos
         if (agendamiento) {
@@ -1411,7 +1488,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       <ToastContainer />
 
       <NavigationDrawer
-        role="asesor"
+        userRole="asesor"
         activePage={activePage}
         onNavigate={(page) => {
           setActivePage(page);
@@ -1438,11 +1515,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
             tiempoImproductivo: tiempoTotalImproductivo,
             marcaciones,
             marcacionesDetalle,
-            wspEnviados,
+            wspEnviados: Object.values(wspDetalle).reduce((a, b) => a + b, 0),
             wspDetalle,
-            smsEnviados,
+            smsEnviados: Object.values(smsDetalle).reduce((a, b) => a + b, 0),
             smsDetalle,
-            correosEnviados,
+            correosEnviados: Object.values(emailDetalle).reduce((a, b) => a + b, 0),
             emailDetalle,
             totalGestiones,
             totalCompromisos,
@@ -1459,12 +1536,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 <div>
                   <span className="text-label" style={{ opacity: 0.5 }}>BITÁCORA DEL ASESOR</span>
                   <h3 className="widget-title" style={{ marginTop: 4 }}>Historial de Gestiones</h3>
-                  <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 11 }}>
+                  <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
                     Todas tus gestiones, agrupadas por día
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button
+                  <button type="button"
                     className="btn btn-outline btn-sm"
                     style={{ padding: '4px 12px', fontSize: 12, height: 'auto' }}
                     onClick={handleDownloadExcel}
@@ -1492,7 +1569,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
                     fontSize: 16, opacity: 0.4, pointerEvents: 'none',
                   }}>search</span>
-                  <input
+                  <input aria-label="Campo"
                     type="text"
                     value={filtroTexto}
                     onChange={(e) => setFiltroTexto(e.target.value)}
@@ -1500,11 +1577,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     style={{
                       width: '100%', padding: '6px 28px 6px 30px', fontSize: 12,
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   />
                   {filtroTexto && (
-                    <button
+                    <button type="button"
                       onClick={() => setFiltroTexto('')}
                       title="Limpiar texto"
                       style={{
@@ -1518,36 +1595,36 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span className="text-label-sm" style={{ opacity: 0.5, fontSize: 10 }}>Desde</span>
-                  <input
+                  <span className="text-label-sm" style={{ opacity: 0.5, fontSize: 12 }}>Desde</span>
+                  <input aria-label="Desde"
                     type="date"
                     value={filtroDesde}
                     onChange={(e) => setFiltroDesde(e.target.value)}
                     style={{
-                      padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                      padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span className="text-label-sm" style={{ opacity: 0.5, fontSize: 10 }}>Hasta</span>
-                  <input
+                  <span className="text-label-sm" style={{ opacity: 0.5, fontSize: 12 }}>Hasta</span>
+                  <input aria-label="Hasta"
                     type="date"
                     value={filtroHasta}
                     onChange={(e) => setFiltroHasta(e.target.value)}
                     style={{
-                      padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                      padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   />
                 </div>
                 {(filtroTexto || filtroDesde || filtroHasta) && (
-                  <button
+                  <button type="button"
                     onClick={() => { setFiltroTexto(''); setFiltroDesde(''); setFiltroHasta(''); }}
                     style={{
-                      padding: '5px 10px', fontSize: 10, background: 'rgba(255,80,80,0.1)',
+                      padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
                       border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
                       borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
                     }}
@@ -1634,7 +1711,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 return entriesAll.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{
-                      fontSize: 11, opacity: 0.55, marginBottom: 4,
+                      fontSize: 12, opacity: 0.55, marginBottom: 4,
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
                       <span>
@@ -1643,10 +1720,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           : `${entriesAll.length} registros`}
                       </span>
                       {hayFiltros && entries.length > 0 && (
-                        <button
+                        <button type="button"
                           onClick={() => handleDownloadCsv(entries)}
                           style={{
-                            padding: '3px 9px', fontSize: 10,
+                            padding: '3px 9px', fontSize: 12,
                             background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
                             color: 'var(--color-primary)', borderRadius: 6, cursor: 'pointer',
                             display: 'flex', alignItems: 'center', gap: 3,
@@ -1671,13 +1748,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       const fechaPrev = idx > 0 ? extraerFecha(entries[idx - 1]) : null;
                       const showDateHeader = fechaActual !== fechaPrev;
                       const dateHeader = showDateHeader && (
-                        <div key={`dh-${idx}`} style={{
+                        <div key={`dh-${fechaActual}`} style={{
                           display: 'flex', alignItems: 'center', gap: 8,
                           marginTop: idx === 0 ? 0 : 12, marginBottom: 2,
                           padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.06)'
                         }}>
                           <span className="material-symbols-outlined" style={{ fontSize: 13, opacity: 0.4 }}>event</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', opacity: 0.55 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', opacity: 0.55 }}>
                             {fmtFechaDia(fechaActual)}
                           </span>
                         </div>
@@ -1697,9 +1774,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>
                                     {entry.nombre_deudor || 'Cliente'}
                                   </span>
-                                  <button
+                                  <button type="button"
                                     className="btn btn-outline btn-sm"
-                                    style={{ padding: '2px 9px', fontSize: 10, height: 'auto' }}
+                                    style={{ padding: '2px 9px', fontSize: 12, height: 'auto' }}
                                     onClick={() => { cargarContactoAgendado(entry.contacto_id); setActivePage('dashboard'); }}
                                     disabled={!entry.contacto_id}
                                   >
@@ -1709,30 +1786,30 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                   <span style={{
-                                    fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                                    fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                     background: 'rgba(255,152,0,0.18)', color: '#ffb74d',
                                   }}>
                                     📞 Llamada a referencia
                                   </span>
-                                  <span className="text-mono" style={{ fontSize: 10, opacity: 0.7, color: '#ffb74d' }}>
+                                  <span className="text-mono" style={{ fontSize: 12, opacity: 0.7, color: '#ffb74d' }}>
                                     {entry.telefono || entry.telefono_ref}
                                   </span>
                                   {entry.nombre_ref && (
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: '#fff', opacity: 0.85 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', opacity: 0.85 }}>
                                       {entry.nombre_ref}
                                     </span>
                                   )}
                                   {entry.parentesco && (
-                                    <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
+                                    <span style={{ fontSize: 12, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
                                       {entry.parentesco}
                                     </span>
                                   )}
-                                  <span className="text-mono" style={{ fontSize: 9, opacity: 0.4 }}>
+                                  <span className="text-mono" style={{ fontSize: 12, opacity: 0.4 }}>
                                     {fmtHora(entry.timestamp || entry.creado_en)}
                                   </span>
                                 </div>
                                 {entry.notas && (
-                                  <p style={{ fontSize: 11, opacity: 0.55, margin: '5px 0 0', lineHeight: 1.4 }}>
+                                  <p style={{ fontSize: 12, opacity: 0.55, margin: '5px 0 0', lineHeight: 1.4 }}>
                                     {entry.notas}
                                   </p>
                                 )}
@@ -1763,9 +1840,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   {g.nombre_deudor || g.nombre || 'Cliente'}
                                 </span>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <button
+                                  <button type="button"
                                     className="btn btn-outline btn-sm"
-                                    style={{ padding: '2px 9px', fontSize: 10, height: 'auto' }}
+                                    style={{ padding: '2px 9px', fontSize: 12, height: 'auto' }}
                                     onClick={(e) => { e.stopPropagation(); cargarContactoAgendado(g.contacto_id); setActivePage('dashboard'); }}
                                     disabled={!g.contacto_id}
                                   >
@@ -1779,23 +1856,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                                 <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                                  fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                   background: 'rgba(0,230,118,0.12)', color: 'var(--color-primary)',
                                 }}>
                                   {g.tipificacion_desc || g.resultado || 'Sin tipificación'}
                                 </span>
-                                <span className="text-mono" style={{ fontSize: 10, opacity: 0.55 }}>{g.telefono || '-'}</span>
+                                <span className="text-mono" style={{ fontSize: 12, opacity: 0.55 }}>{g.telefono || '-'}</span>
                                 {dur && (
-                                  <span style={{ fontSize: 9, opacity: 0.5, display: 'flex', alignItems: 'center', gap: 2 }}>
-                                    <span className="material-symbols-outlined" style={{ fontSize: 10 }}>timer</span>
+                                  <span style={{ fontSize: 12, opacity: 0.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>timer</span>
                                     {dur}
                                   </span>
                                 )}
-                                <span className="text-mono" style={{ fontSize: 9, opacity: 0.4 }}>
+                                <span className="text-mono" style={{ fontSize: 12, opacity: 0.4 }}>
                                   {fmtHora(g.hora_gestion || g.creado_en || g.hora)}
                                 </span>
                                 {gRefs.length > 0 && (
-                                  <span style={{ fontSize: 9, background: 'rgba(255,152,0,0.2)', color: '#ffb74d', padding: '1px 5px', borderRadius: 99 }}>
+                                  <span style={{ fontSize: 12, background: 'rgba(255,152,0,0.2)', color: '#ffb74d', padding: '1px 5px', borderRadius: 99 }}>
                                     {gRefs.length} ref
                                   </span>
                                 )}
@@ -1804,7 +1881,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   const agStr = fmtHora(agTs);
                                   if (!agTs || agStr === '-') return null;
                                   return (
-                                    <span style={{ fontSize: 9, background: 'rgba(0,150,255,0.15)', color: '#64b5f6', padding: '1px 5px', borderRadius: 99 }}>
+                                    <span style={{ fontSize: 12, background: 'rgba(0,150,255,0.15)', color: '#64b5f6', padding: '1px 5px', borderRadius: 99 }}>
                                       ⏰ {agStr}
                                     </span>
                                   );
@@ -1812,7 +1889,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               </div>
                               {g.notas && (
                                 <p style={{
-                                  fontSize: 11, opacity: 0.55, margin: '5px 0 0', lineHeight: 1.4,
+                                  fontSize: 12, opacity: 0.55, margin: '5px 0 0', lineHeight: 1.4,
                                   overflow: 'hidden', display: '-webkit-box',
                                   WebkitLineClamp: isOpen ? 10 : 2, WebkitBoxOrient: 'vertical'
                                 }}>
@@ -1825,32 +1902,32 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               <div style={{ background: 'rgba(255,255,255,0.02)', padding: '6px 14px 8px 22px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                                 {gRefs.length > 0 ? (
                                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                    <span style={{ fontSize: 9, opacity: 0.4, fontWeight: 700, marginBottom: 2 }}>LLAMADAS EXTERNAS</span>
+                                    <span style={{ fontSize: 12, opacity: 0.4, fontWeight: 700, marginBottom: 2 }}>LLAMADAS EXTERNAS</span>
                                     {gRefs.map((ref) => (
                                       <div key={`href-${ref.id}`} style={{
                                         display: 'flex', flexDirection: 'column', gap: 3,
                                         borderLeft: '2px solid rgba(255,152,0,0.4)', paddingLeft: 8
                                       }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                          <span style={{ fontSize: 10, fontWeight: 600, color: '#ffb74d' }}>
+                                          <span style={{ fontSize: 12, fontWeight: 600, color: '#ffb74d' }}>
                                             📞 {ref.telefono || ref.telefono_ref}
                                           </span>
                                           {ref.nombre_ref && (
-                                            <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85 }}>{ref.nombre_ref}</span>
+                                            <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>{ref.nombre_ref}</span>
                                           )}
                                           {ref.parentesco && (
-                                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
+                                            <span style={{ fontSize: 12, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
                                               {ref.parentesco}
                                             </span>
                                           )}
-                                          <span className="text-mono" style={{ fontSize: 9, opacity: 0.45, marginLeft: 'auto' }}>{fmtHora(ref.timestamp || ref.creado_en)}</span>
+                                          <span className="text-mono" style={{ fontSize: 12, opacity: 0.45, marginLeft: 'auto' }}>{fmtHora(ref.timestamp || ref.creado_en)}</span>
                                         </div>
-                                        {ref.notas && <p style={{ fontSize: 10, opacity: 0.6, margin: 0, lineHeight: 1.3 }}>{ref.notas}</p>}
+                                        {ref.notas && <p style={{ fontSize: 12, opacity: 0.6, margin: 0, lineHeight: 1.3 }}>{ref.notas}</p>}
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
-                                  <span style={{ fontSize: 10, opacity: 0.3, fontStyle: 'italic' }}>Sin llamadas externas registradas</span>
+                                  <span style={{ fontSize: 12, opacity: 0.3, fontStyle: 'italic' }}>Sin llamadas externas registradas</span>
                                 )}
                               </div>
                             )}
@@ -1873,20 +1950,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 <div>
                   <span className="text-label" style={{ opacity: 0.5 }}>ASESOR · CARTERA</span>
                   <h3 className="widget-title" style={{ marginTop: 4 }}>Cartera Asignada</h3>
-                  <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 11 }}>
-                    Clientes asignados por el supervisor. Selecciona uno para gestionarlo.
+                  <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
+                    Clientes asignados por el Jefe de Area. Selecciona uno para gestionarlo.
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span className="text-label-sm" style={{ color: 'var(--color-primary)' }}>
                     {cartera.length} clientes
                   </span>
-                  <button
+                  <button type="button"
                     className="btn btn-ghost btn-sm"
                     onClick={cargarCartera}
                     disabled={carteraLoading}
                     title="Actualizar orden de marcación"
-                    style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}
                   >
                     <span
                       className="material-symbols-outlined"
@@ -1908,15 +1985,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const enIntentos = cnt('EN_INTENTOS');
                 const agendados = cnt('AGENDADO');
                 const yaPago = cnt('YA_PAGO');
-                const Kpi = ({ label, value, color }) => (
-                  <div style={{
-                    flex: '1 1 130px', minWidth: 110, padding: '8px 12px', borderRadius: 8,
-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-                  }}>
-                    <div style={{ fontSize: 9, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>{label}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, marginTop: 2, color: color || 'inherit' }}>{value}</div>
-                  </div>
-                );
                 return (
                   <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                     <Kpi label="Total" value={total} color="var(--color-primary)" />
@@ -1933,8 +2001,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
               {(() => {
                 const countDias = (d) => cartera.filter(c => {
                   let meta = {};
-                  try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
-                  return String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
+                  try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                  return String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
                 }).length;
                 const gestionados = cartera.filter(c => c.estado_marcacion === 'GESTIONADO').length;
                 const chips = [
@@ -1947,7 +2015,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 return (
                   <div className="cartera-filters" style={{ marginBottom: 12, gap: 8 }}>
                     {chips.map(f => (
-                      <button 
+                      <button type="button" 
                         key={f.key} 
                         className={`cartera-filter-btn ${carteraFiltroDias === f.key ? 'active' : ''}`}
                         style={f.isGestionado && carteraFiltroDias === f.key ? { background: 'rgba(0,230,118,0.2)', color: 'var(--color-primary)', borderColor: 'var(--color-primary)' } : f.isGestionado ? { color: 'var(--color-primary)' } : {}}
@@ -1971,7 +2039,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)',
                     fontSize: 14, opacity: 0.4, pointerEvents: 'none',
                   }}>search</span>
-                  <input
+                  <input aria-label="Campo"
                     type="text"
                     value={carteraFiltro}
                     onChange={(e) => setCarteraFiltro(e.target.value)}
@@ -1979,19 +2047,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     style={{
                       width: '100%', padding: '6px 26px 6px 28px', fontSize: 12,
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>Estado</span>
+                  <span style={{ fontSize: 12, opacity: 0.5 }}>Estado</span>
                   <select
                     value={carteraEstado}
                     onChange={(e) => setCarteraEstado(e.target.value)}
                     style={{
-                      padding: '5px 8px', fontSize: 11,
+                      padding: '5px 8px', fontSize: 12,
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   >
                     <option value="TODOS">Todos</option>
@@ -2003,36 +2071,36 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   </select>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>Desde</span>
-                  <input
+                  <span style={{ fontSize: 12, opacity: 0.5 }}>Desde</span>
+                  <input aria-label="Ya pagó"
                     type="date"
                     value={carteraDesde}
                     onChange={(e) => setCarteraDesde(e.target.value)}
                     style={{
-                      padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                      padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>Hasta</span>
-                  <input
+                  <span style={{ fontSize: 12, opacity: 0.5 }}>Hasta</span>
+                  <input aria-label="Hasta"
                     type="date"
                     value={carteraHasta}
                     onChange={(e) => setCarteraHasta(e.target.value)}
                     style={{
-                      padding: '5px 8px', fontSize: 11, colorScheme: 'dark',
+                      padding: '5px 8px', fontSize: 12, colorScheme: 'dark',
                       background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: 6, color: 'inherit', outline: 'none',
+                      borderRadius: 6, color: 'inherit',
                     }}
                   />
                 </div>
                 {(carteraFiltro || carteraEstado !== 'TODOS' || carteraDesde || carteraHasta) && (
-                  <button
+                  <button type="button"
                     onClick={() => { setCarteraFiltro(''); setCarteraEstado('TODOS'); setCarteraDesde(''); setCarteraHasta(''); }}
                     style={{
-                      padding: '5px 10px', fontSize: 10, background: 'rgba(255,80,80,0.1)',
+                      padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
                       border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
                       borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3,
                     }}
@@ -2042,7 +2110,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   </button>
                 )}
                 <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-                  <button
+                  <button type="button"
                     onClick={async () => {
                       if (cartera.length === 0) return;
                       try {
@@ -2059,14 +2127,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       }
                     }}
                     className="btn btn-outline btn-sm"
-                    style={{ padding: '4px 10px', fontSize: 10, height: 'auto' }}
+                    style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
                     disabled={cartera.length === 0}
                     title="Descargar como Excel"
                   >
                     <span className="material-symbols-outlined" style={{ fontSize: 13 }}>table_view</span>
                     XLS
                   </button>
-                  <button
+                  <button type="button"
                     onClick={async () => {
                       if (cartera.length === 0) return;
                       try {
@@ -2083,7 +2151,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       }
                     }}
                     className="btn btn-outline btn-sm"
-                    style={{ padding: '4px 10px', fontSize: 10, height: 'auto' }}
+                    style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}
                     disabled={cartera.length === 0}
                     title="Descargar como CSV"
                   >
@@ -2113,8 +2181,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       if (c.estado_marcacion !== 'GESTIONADO') return false;
                     } else {
                       let meta = {};
-                      try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
-                      const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
+                      try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                      const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
                       if (dias !== carteraFiltroDias) return false;
                     }
                   }
@@ -2126,7 +2194,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   }
                   if (!txt) return true;
                   let meta = {};
-                  try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
+                  try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
                   const hay = [
                     c.nombre_deudor, c.cedula, c.telefono, c.producto,
                     meta['Nº CONTRATO'], meta['CONTRATO'], meta['NOMBRE CLIENTE'],
@@ -2165,22 +2233,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 });
                 return (
                   <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Turno de marcación">Turno</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Estado</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cliente</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cédula</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Teléfono</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Mora</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Días Mora</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Gestiones</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>RCS</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Última tipif.</th>
-                          <th style={{ padding: '8px 10px', fontSize: 10, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Turno de marcación">Turno</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Estado</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cliente</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cédula</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Teléfono</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Mora</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Días Mora</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Gestiones</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>RCS</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2190,9 +2257,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             ? ESTADO_STYLE_YA_PAGO_DECL
                             : (ESTADO_STYLE[c.estado_marcacion] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc', label: c.estado_marcacion || '—' });
                           let meta = {};
-                          try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
+                          try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
                           const mora = meta['VALOR EN MORA'] || c.monto_deuda;
-                          const diasMora = meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '';
+                          const diasMora = meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '';
                           const yaGestionado = c.estado_marcacion === 'GESTIONADO' || (c.estado_marcacion === 'YA_PAGO' && c.validado_pago === 1);
                           const turno = turnoMap.get(c.id);
                           const esSiguiente = turno === 1;
@@ -2211,19 +2278,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     border: esSiguiente ? '1px solid rgba(0,230,118,0.45)' : '1px solid rgba(255,255,255,0.08)',
                                     display: 'inline-flex', alignItems: 'center', gap: 3,
                                   }} title={esSiguiente ? 'Próximo cliente a marcar' : `Turno #${turno}`}>
-                                    {esSiguiente && <span className="material-symbols-outlined" style={{ fontSize: 11 }}>arrow_forward</span>}
+                                    {esSiguiente && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>arrow_forward</span>}
                                     {turno}
                                   </span>
                                 ) : (
-                                  <span style={{ opacity: 0.3, fontSize: 11 }}>—</span>
+                                  <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
                                 )}
                               </td>
                               <td style={{ padding: '8px 10px' }}>
                                 <span style={{
-                                  fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                                  fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                   background: est.bg, color: est.fg, whiteSpace: 'nowrap',
                                 }}>
-                                  {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 10, verticalAlign: 'middle', marginRight: 2 }}>check_circle</span>}
+                                  {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 12, verticalAlign: 'middle', marginRight: 2 }}>check_circle</span>}
                                   {est.label}
                                 </span>
                               </td>
@@ -2238,39 +2305,69 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                 <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                                  fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                   background: c.gestiones_count > 0 ? 'rgba(0,230,118,0.15)' : 'rgba(255,255,255,0.05)',
                                   color: c.gestiones_count > 0 ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
                                 }}>
                                   {c.gestiones_count || 0}
                                 </span>
                               </td>
-                              <td style={{ padding: '8px 10px', fontSize: 10, opacity: 0.7 }}>
-                                {c.ultima_tipificacion || <span style={{ opacity: 0.3, fontStyle: 'italic' }}>sin gestiones</span>}
-                              </td>
                               {['rcs','correo','wsp'].map(canal => {
                                 const statusKey = canal === 'wsp' ? 'whatsapp_status' : canal === 'rcs' ? 'rcs_status' : 'correo_status';
                                 const enviado = c[statusKey] === 'ENVIADO';
                                 const canalApi = canal === 'wsp' ? 'whatsapp' : canal;
+                                const esGestionado = c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'YA_PAGO';
+                                const bloqueado = enviado && esGestionado;
                                 return (
                                   <td key={canal} style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                    <button
-                                      title={enviado ? 'Enviado hoy' : `Marcar ${canal.toUpperCase()} como enviado`}
+                                    <button type="button"
+                                      title={bloqueado ? `${canal.toUpperCase()} fijo — cliente gestionado` : enviado ? `Desmarcar ${canal.toUpperCase()}` : `Marcar ${canal.toUpperCase()} como enviado`}
                                       onClick={async () => {
-                                        if (enviado) return;
+                                        if (bloqueado) return;
+                                        const nuevoEstado = enviado ? 'ACTIVO' : 'ENVIADO';
+                                        setCartera(prev => prev.map(x =>
+                                          x.id === c.id ? { ...x, [statusKey]: nuevoEstado } : x
+                                        ));
+                                        // Actualizar S0/S1/S2 top bar en tiempo real
+                                        let meta = {};
+                                        try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                                        const diasMora = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
+                                        const seg = diasMora >= 0 && diasMora <= 2 ? diasMora : null;
+                                        const delta = enviado ? -1 : +1;
+                                        if (seg !== null) {
+                                          if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + delta) }));
+                                          if (canal === 'correo') setEmailDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + delta) }));
+                                          if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + delta) }));
+                                        }
                                         try {
-                                          await callApi('db:marcarLoteEnviado', usuario.id, canalApi, [c.id]);
-                                          cargarCartera();
+                                          if (enviado) {
+                                            await callApi('db:toggleContactoMensajeria', c.id, canalApi, 'ACTIVO');
+                                          } else {
+                                            await callApi('db:marcarLoteEnviado', usuario.id, canalApi, [c.id]);
+                                          }
                                           fetchMetricasYEnviar();
-                                        } catch (e) { showToast('Error: ' + e.message, 'error'); }
+                                        } catch (e) {
+                                          setCartera(prev => prev.map(x =>
+                                            x.id === c.id ? { ...x, [statusKey]: enviado ? 'ENVIADO' : 'ACTIVO' } : x
+                                          ));
+                                          // Revertir contador si falla API
+                                          if (seg !== null) {
+                                            const revert = -delta;
+                                            if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + revert) }));
+                                            if (canal === 'correo') setEmailDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + revert) }));
+                                            if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + revert) }));
+                                          }
+                                          showToast('Error: ' + e.message, 'error');
+                                        }
                                       }}
                                       style={{
-                                        background: 'none', border: 'none', cursor: enviado ? 'default' : 'pointer',
+                                        background: 'none', border: 'none',
+                                        cursor: bloqueado ? 'not-allowed' : 'pointer',
                                         padding: 2, borderRadius: 4, display: 'inline-flex', alignItems: 'center',
-                                        transition: 'opacity 0.15s',
+                                        transition: 'opacity 0.15s', opacity: bloqueado ? 0.5 : 1,
                                       }}
-                                      onMouseEnter={e => { if (!enviado) e.currentTarget.querySelector('span').style.color = '#00e676'; }}
-                                      onMouseLeave={e => { if (!enviado) e.currentTarget.querySelector('span').style.color = 'rgba(255,255,255,0.2)'; }}
+                                      onMouseEnter={e => { if (!bloqueado && !enviado) e.currentTarget.querySelector('span').style.color = '#00e676'; if (!bloqueado && enviado) e.currentTarget.querySelector('span').style.color = '#ff5252'; }}
+                                      onMouseLeave={e => { if (!bloqueado && !enviado) e.currentTarget.querySelector('span').style.color = 'rgba(255,255,255,0.2)'; if (!bloqueado && enviado) e.currentTarget.querySelector('span').style.color = '#00e676'; }}
                                     >
                                       <span className="material-symbols-outlined" style={{ fontSize: 16, color: enviado ? '#00e676' : 'rgba(255,255,255,0.2)' }}>
                                         {enviado ? 'check_circle' : 'radio_button_unchecked'}
@@ -2283,7 +2380,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                                   <select 
                                     className="input-field" 
-                                    style={{ padding: '3px 6px', fontSize: 10, borderRadius: 4, height: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', outline: 'none', maxWidth: 100 }}
+                                    style={{ padding: '3px 6px', fontSize: 12, borderRadius: 4, height: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', maxWidth: 100 }}
                                     value=""
                                     onChange={(e) => {
                                       const val = e.target.value;
@@ -2317,9 +2414,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     <option value="volver_llamar">Volver a llamar</option>
                                     <option value="buzon_voz">Buzón de voz</option>
                                   </select>
-                                  <button
+                                  <button type="button"
                                     className="btn btn-outline btn-sm"
-                                    style={{ padding: '3px 8px', fontSize: 10, height: 'auto', color: '#64b5f6', borderColor: 'rgba(100,181,246,0.3)' }}
+                                    style={{ padding: '3px 8px', fontSize: 12, height: 'auto', color: '#64b5f6', borderColor: 'rgba(100,181,246,0.3)' }}
                                     onClick={() => { cargarContactoAgendado(c.id); setActivePage('dashboard'); }}
                                   >
                                     Promesa de pago
@@ -2345,8 +2442,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   // Conteo por días para los chips de filtro
                   const countDias = (d) => cartera.filter(c => {
                     let meta = {};
-                    try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
-                    return String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
+                    try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                    return String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
                   }).length;
 
                   // Base filtrada
@@ -2354,16 +2451,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   if (loteFiltroDias !== 'general') {
                     base = base.filter(c => {
                       let meta = {};
-                      try { meta = JSON.parse(c.metadata || '{}'); } catch (_) {}
-                      const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
+                      try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                      const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
                       return dias === String(loteFiltroDias);
                     });
                   }
                   if (loteOrdenMonto) {
                     base = base.sort((a, b) => {
                       let mA = {}, mB = {};
-                      try { mA = JSON.parse(a.metadata || '{}'); } catch (_) {}
-                      try { mB = JSON.parse(b.metadata || '{}'); } catch (_) {}
+                      try { mA = typeof a.metadata === 'string' ? JSON.parse(a.metadata || '{}') : (a.metadata || {}); } catch (_) {}
+                      try { mB = typeof b.metadata === 'string' ? JSON.parse(b.metadata || '{}') : (b.metadata || {}); } catch (_) {}
                       return parseFloat(mB['VALOR EN MORA'] || b.monto_deuda || 0) - parseFloat(mA['VALOR EN MORA'] || a.monto_deuda || 0);
                     });
                   }
@@ -2391,7 +2488,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   return (
                     <>
                       {/* Header */}
-                      <span className="text-label" style={{ opacity: 0.5, fontSize: 11, letterSpacing: '0.08em' }}>
+                      <span className="text-label" style={{ opacity: 0.5, fontSize: 12, letterSpacing: '0.08em' }}>
                         CAMPAÑAS MASIVAS ({isWsp ? 'WHATSAPP' : isRcs ? 'RCS' : 'CORREOS'})
                       </span>
                       <h2 style={{ margin: '4px 0 6px', fontSize: 26, fontWeight: 800 }}>
@@ -2403,10 +2500,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
                       {/* Filtros */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>DÍAS IMPAGO:</span>
+                        <span style={{ fontSize: 12, opacity: 0.6, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>DÍAS IMPAGO:</span>
                         <div className="cartera-filters">
                           {filterChips.map(f => (
-                            <button key={f.key} className={'cartera-filter-btn ' + (loteFiltroDias === f.key ? 'active' : '')} onClick={() => setLoteFiltroDias(f.key)}>
+                            <button type="button" key={f.key} className={'cartera-filter-btn ' + (loteFiltroDias === f.key ? 'active' : '')} onClick={() => setLoteFiltroDias(f.key)}>
                               {f.label}
                             </button>
                           ))}
@@ -2442,7 +2539,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
                                       <span style={{ fontWeight: 700, fontSize: 14 }}>Lote {lote.num}</span>
                                       <span style={{
-                                        fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                                        fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
                                         background: completado ? 'rgba(0,229,255,0.1)' : 'rgba(255,180,0,0.12)',
                                         color: completado ? 'var(--color-primary)' : '#ffb400',
                                         border: `1px solid ${completado ? 'rgba(0,229,255,0.25)' : 'rgba(255,180,0,0.25)'}`,
@@ -2457,12 +2554,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.08)', borderRadius: 2, overflow: 'hidden' }}>
                                         <div style={{ height: '100%', background: 'var(--color-primary)', width: lote.pct + '%' }} />
                                       </div>
-                                      <span style={{ fontSize: 11, opacity: 0.45, flexShrink: 0, minWidth: 32 }}>{lote.pct}%</span>
+                                      <span style={{ fontSize: 12, opacity: 0.45, flexShrink: 0, minWidth: 32 }}>{lote.pct}%</span>
                                     </div>
                                   </div>
 
                                   {/* Botones */}
-                                  <button
+                                  <button type="button"
                                     className="btn btn-outline"
                                     style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 0.85, display: 'flex', alignItems: 'center', gap: 6 }}
                                     onClick={() => copiarLoteTelefonos(lote.num, lote.clients)}
@@ -2470,7 +2567,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
                                     COPIAR
                                   </button>
-                                  <button
+                                  <button type="button"
                                     className={completado ? 'btn btn-ghost' : 'btn btn-primary'}
                                     style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
                                     disabled={completado}
@@ -2528,7 +2625,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     {progresoCampana && progresoCampana.total > 0 && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginLeft: 'auto', marginRight: 16 }}>
                         <div style={{ textAlign: 'right' }}>
-                          <span className="text-label-xs" style={{ display: 'block', opacity: 0.4, fontSize: 8 }}>AVANCE CAMPAÑA</span>
+                          <span className="text-label-xs" style={{ display: 'block', opacity: 0.4, fontSize: 12 }}>AVANCE CAMPAÑA</span>
                           <span className="text-mono" style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-primary)' }}>
                             {progresoCampana.gestionados} / {progresoCampana.total}
                           </span>
@@ -2545,7 +2642,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       </div>
                     )}
 
-                    <button 
+                    <button type="button" 
                       className="btn-crm"
                       onClick={() => {/* TODO: abrir CRM */}}
                     >
@@ -2568,7 +2665,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       || m['SALDO PENDIENTE'] || '';
                     const montoTotalRaw = m['MONTO TOTAL'] || m['DEUDA TOTAL'] || m['VALOR TOTAL']
                       || m['SALDO TOTAL'] || (contactoActual.monto_deuda != null ? String(contactoActual.monto_deuda) : '');
-                    const diasImpago = m['DIAS IMPAGO'] || m['DIAS EN INPAGO'] || '0';
+                    const diasImpago = m['DIAS IMPAGO'] || m['DIAS EN MORA'] || m['DIAS EN INPAGO'] || m['DIAS MORA'] || '0';
                     const parseMonto = (v) => {
                       if (v == null) return 0;
                       const s = String(v).replace(/[^\d.,-]/g, '').trim();
@@ -2618,29 +2715,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     const tieneProducto = distribuidor || fechaVentaRaw || modelo;
                     const esRefinanciado = String(m['CONTRATO REFINANCIADO'] || '').toUpperCase().includes('REFIN');
 
-                    const SectionHeader = ({ icon, label }) => (
-                      <div style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        fontSize: 9, fontWeight: 700, opacity: 0.55,
-                        textTransform: 'uppercase', letterSpacing: 0.6,
-                        marginBottom: 8,
-                      }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{icon}</span>
-                        {label}
-                      </div>
-                    );
-                    const Field = ({ icon, label, value, mono, bold = 600, color }) => (
-                      <div>
-                        <span style={{ fontSize: 9, opacity: 0.5, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, letterSpacing: 0.3 }}>
-                          {icon && <span className="material-symbols-outlined" style={{ fontSize: 11 }}>{icon}</span>}
-                          {label}
-                        </span>
-                        <span className={mono ? 'text-mono' : ''} style={{ display: 'block', fontSize: 12, fontWeight: bold, marginTop: 2, color: color || 'inherit' }}>
-                          {value}
-                        </span>
-                      </div>
-                    );
-
                     return (
                     <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 14 }}>
 
@@ -2649,46 +2723,46 @@ export default function AsesorPanel({ usuario, onLogout }) {
                         <h3 className="text-headline-sm" style={{ marginBottom: 6 }}>{nombre}</h3>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                           <span style={{
-                            fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 99,
+                            fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 99,
                             background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                           }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 11, opacity: 0.6 }}>description</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 12, opacity: 0.6 }}>description</span>
                             <span style={{ opacity: 0.5 }}>CONTRATO</span>
                             <span className="text-mono" style={{ fontWeight: 800 }}>{contrato}</span>
                           </span>
                           <span style={{
-                            fontSize: 10, fontWeight: 600, padding: '3px 9px', borderRadius: 99,
+                            fontSize: 12, fontWeight: 600, padding: '3px 9px', borderRadius: 99,
                             background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)',
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                           }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 11, opacity: 0.6 }}>badge</span>
+                            <span className="material-symbols-outlined" style={{ fontSize: 12, opacity: 0.6 }}>badge</span>
                             <span style={{ opacity: 0.5 }}>CI</span>
                             <span className="text-mono" style={{ fontWeight: 800 }}>{cedula}</span>
                           </span>
                           {empresa && (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '3px 9px', borderRadius: 99, fontSize: 10, fontWeight: 700,
+                              padding: '3px 9px', borderRadius: 99, fontSize: 12, fontWeight: 700,
                               letterSpacing: 0.4, textTransform: 'uppercase',
                               background: esTec ? 'rgba(255,152,0,0.15)' : 'rgba(33,150,243,0.15)',
                               color: esTec ? '#ffb74d' : '#64b5f6',
                               border: `1px solid ${esTec ? 'rgba(255,152,0,0.3)' : 'rgba(33,150,243,0.3)'}`,
                             }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>business</span>
+                              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>business</span>
                               {empresa}
                             </span>
                           )}
                           {esRefinanciado && (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
-                              padding: '3px 9px', borderRadius: 99, fontSize: 10, fontWeight: 700,
+                              padding: '3px 9px', borderRadius: 99, fontSize: 12, fontWeight: 700,
                               letterSpacing: 0.4, textTransform: 'uppercase',
                               background: 'rgba(255,193,7,0.15)',
                               color: '#ffc107',
                               border: '1px solid rgba(255,193,7,0.35)',
                             }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 11 }}>autorenew</span>
+                              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>autorenew</span>
                               Refinanciado
                             </span>
                           )}
@@ -2709,13 +2783,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             background: `linear-gradient(135deg, ${bg}, transparent)`,
                             border: `1px solid ${border}`,
                           }}>
-                            <div style={{ fontSize: 7.5, opacity: 0.75, fontWeight: 700, letterSpacing: 0.4, color, textTransform: 'uppercase', marginBottom: 2 }}>
+                            <div style={{ fontSize: 12.5, opacity: 0.75, fontWeight: 700, letterSpacing: 0.4, color, textTransform: 'uppercase', marginBottom: 2 }}>
                               {label}
                             </div>
                             <div style={{ fontSize: 18, fontWeight: 800, color, lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {value}
                             </div>
-                            <div style={{ fontSize: 8, opacity: 0.45, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            <div style={{ fontSize: 12, opacity: 0.45, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {sub}
                             </div>
                           </div>
@@ -2754,7 +2828,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       )}
 
                       <div className="call-actions-bar">
-                        <button 
+                        <button type="button" 
                           className="call-btn call-btn--dial"
                           onClick={() => handleDial(contactoActual)}
                           disabled={!contactoActual.telefono || enLlamada}
@@ -2762,7 +2836,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <span className="material-symbols-outlined">call</span>
                           MARCAR
                         </button>
-                        <button 
+                        <button type="button" 
                           className="call-btn call-btn--hangup"
                           onClick={handleHangup}
                           disabled={!enLlamada}
@@ -2770,7 +2844,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <span className="material-symbols-outlined">call_end</span>
                           COLGAR
                         </button>
-                        <button 
+                        <button type="button" 
                           className={`call-btn ${silenciado ? 'call-btn--hold-active' : 'call-btn--hold'}`}
                           onClick={handleToggleMute}
                           disabled={!enLlamada}
@@ -2778,7 +2852,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <span className="material-symbols-outlined">{silenciado ? 'mic_off' : 'mic'}</span>
                           {silenciado ? 'CON VOZ' : 'SILENCIAR'}
                         </button>
-                        <button 
+                        <button type="button" 
                           className={`call-btn ${altavozActivo ? 'call-btn--speaker-active' : 'call-btn--speaker'}`}
                           onClick={handleToggleSpeaker}
                           disabled={!enLlamada}
@@ -2786,7 +2860,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <span className="material-symbols-outlined">{altavozActivo ? 'volume_up' : 'volume_off'}</span>
                           ALTAVOZ
                         </button>
-                        <button 
+                        <button type="button" 
                           className={`call-btn ${deviceGrabando ? 'call-btn--record-active' : 'call-btn--record'}`}
                           onClick={handleRecordOnDevice}
                           disabled={!enLlamada}
@@ -2832,6 +2906,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     if (canal === 'WSP')   setWspEnviados(prev => prev + 1);
                     if (canal === 'SMS')   setSmsEnviados(prev => prev + 1);
                     if (canal === 'EMAIL') setCorreosEnviados(prev => prev + 1);
+                    // Actualizar detalle por segmento (TRAMO_0→0, TRAMO_1→1, TRAMO_2→2)
+                    const prod = (contactoActual?.producto || '').toUpperCase();
+                    const seg = prod.includes('TRAMO_0') ? 0 : prod.includes('TRAMO_1') ? 1 : prod.includes('TRAMO_2') ? 2 : null;
+                    if (seg !== null) {
+                      if (canal === 'WSP')   setWspDetalle(prev => ({ ...prev, [seg]: (prev[seg] || 0) + 1 }));
+                      if (canal === 'SMS')   setSmsDetalle(prev => ({ ...prev, [seg]: (prev[seg] || 0) + 1 }));
+                      if (canal === 'EMAIL') setEmailDetalle(prev => ({ ...prev, [seg]: (prev[seg] || 0) + 1 }));
+                    }
                   }}
                 />
 
@@ -2894,22 +2976,22 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 >
                                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span style={{
-                                      fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                                      fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                       background: 'rgba(0,230,118,0.12)', color: 'var(--color-primary)',
                                     }}>
                                       {cdr.tipificacion_desc || 'Sin tipificación'}
                                     </span>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                       {dur && (
-                                        <span style={{ fontSize: 9, opacity: 0.55, display: 'flex', alignItems: 'center', gap: 2 }}>
-                                          <span className="material-symbols-outlined" style={{ fontSize: 10 }}>timer</span>
+                                        <span style={{ fontSize: 12, opacity: 0.55, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>timer</span>
                                           {dur}
                                         </span>
                                       )}
-                                      <span className="text-mono" style={{ fontSize: 9, opacity: 0.4 }}>{fmtHora(cdr.timestamp)}</span>
-                                      <span className="text-mono" style={{ fontSize: 9, opacity: 0.3 }}>{fmtFecha(cdr.timestamp)}</span>
+                                      <span className="text-mono" style={{ fontSize: 12, opacity: 0.4 }}>{fmtHora(cdr.timestamp)}</span>
+                                      <span className="text-mono" style={{ fontSize: 12, opacity: 0.3 }}>{fmtFecha(cdr.timestamp)}</span>
                                       {cdrRefs.length > 0 && (
-                                        <span style={{ fontSize: 9, background: 'rgba(255,152,0,0.2)', color: '#ffb74d', padding: '1px 5px', borderRadius: 99 }}>
+                                        <span style={{ fontSize: 12, background: 'rgba(255,152,0,0.2)', color: '#ffb74d', padding: '1px 5px', borderRadius: 99 }}>
                                           {cdrRefs.length} ref
                                         </span>
                                       )}
@@ -2920,14 +3002,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   </div>
                                   {cdr.notas && (
                                     <p style={{
-                                      fontSize: 11, opacity: 0.6, margin: 0, lineHeight: 1.4,
+                                      fontSize: 12, opacity: 0.6, margin: 0, lineHeight: 1.4,
                                       overflow: 'hidden', display: '-webkit-box',
                                       WebkitLineClamp: isOpen ? 10 : 2, WebkitBoxOrient: 'vertical'
                                     }}>
                                       {cdr.notas}
                                     </p>
                                   )}
-                                  <span style={{ fontSize: 9, opacity: 0.25 }}>{cdr.asesor_nombre || ''}</span>
+                                  <span style={{ fontSize: 12, opacity: 0.25 }}>{cdr.asesor_nombre || ''}</span>
                                 </div>
 
                                 {/* ── Sub-gestiones expandidas ── */}
@@ -2939,23 +3021,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         borderLeft: '2px solid rgba(255,152,0,0.4)', paddingLeft: 8
                                       }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                          <span style={{ fontSize: 10, fontWeight: 600, color: '#ffb74d' }}>
+                                          <span style={{ fontSize: 12, fontWeight: 600, color: '#ffb74d' }}>
                                             📞 {ref.telefono_ref}
                                           </span>
                                           {ref.nombre_ref && (
-                                            <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85 }}>{ref.nombre_ref}</span>
+                                            <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>{ref.nombre_ref}</span>
                                           )}
                                           {ref.parentesco && (
-                                            <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
+                                            <span style={{ fontSize: 12, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
                                               {ref.parentesco}
                                             </span>
                                           )}
-                                          <span className="text-mono" style={{ fontSize: 9, opacity: 0.45, marginLeft: 'auto' }}>
+                                          <span className="text-mono" style={{ fontSize: 12, opacity: 0.45, marginLeft: 'auto' }}>
                                             {fmtHora(ref.timestamp)}
                                           </span>
                                         </div>
                                         {ref.notas && (
-                                          <p style={{ fontSize: 10, opacity: 0.6, margin: 0, lineHeight: 1.3 }}>
+                                          <p style={{ fontSize: 12, opacity: 0.6, margin: 0, lineHeight: 1.3 }}>
                                             {ref.notas}
                                           </p>
                                         )}
@@ -2971,23 +3053,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           {orphanRefs.length > 0 && (
                             <div style={{ borderRadius: 8, border: '1px solid rgba(255,152,0,0.15)', overflow: 'hidden' }}>
                               <div style={{ padding: '5px 12px', background: 'rgba(255,152,0,0.05)' }}>
-                                <span style={{ fontSize: 9, opacity: 0.5, fontWeight: 700 }}>LLAMADAS A REFERENCIAS SIN GESTIÓN TIPIFICADA</span>
+                                <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700 }}>LLAMADAS A REFERENCIAS SIN GESTIÓN TIPIFICADA</span>
                               </div>
                               {orphanRefs.map((ref) => (
                                 <div key={`orphan-${ref.id}`} style={{ padding: '6px 12px 6px 20px', borderLeft: '2px solid rgba(255,152,0,0.3)', display: 'flex', flexDirection: 'column', gap: 2 }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 10, fontWeight: 600, color: '#ffb74d' }}>📞 {ref.telefono_ref}</span>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: '#ffb74d' }}>📞 {ref.telefono_ref}</span>
                                     {ref.nombre_ref && (
-                                      <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.85 }}>{ref.nombre_ref}</span>
+                                      <span style={{ fontSize: 12, fontWeight: 600, opacity: 0.85 }}>{ref.nombre_ref}</span>
                                     )}
                                     {ref.parentesco && (
-                                      <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
+                                      <span style={{ fontSize: 12, padding: '1px 6px', borderRadius: 10, background: 'rgba(100,181,246,0.15)', color: '#64b5f6', fontWeight: 600 }}>
                                         {ref.parentesco}
                                       </span>
                                     )}
-                                    <span className="text-mono" style={{ fontSize: 9, opacity: 0.4, marginLeft: 'auto' }}>{fmtHora(ref.timestamp)}</span>
+                                    <span className="text-mono" style={{ fontSize: 12, opacity: 0.4, marginLeft: 'auto' }}>{fmtHora(ref.timestamp)}</span>
                                   </div>
-                                  {ref.notas && <p style={{ fontSize: 10, opacity: 0.55, margin: 0, lineHeight: 1.3 }}>{ref.notas}</p>}
+                                  {ref.notas && <p style={{ fontSize: 12, opacity: 0.55, margin: 0, lineHeight: 1.3 }}>{ref.notas}</p>}
                                 </div>
                               ))}
                             </div>
@@ -3024,7 +3106,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--color-primary)', opacity: 0.8 }}>
                         person_pin_circle
                       </span>
-                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.5 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.5 }}>
                         Estado Asesor
                       </span>
                     </div>
@@ -3052,7 +3134,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 700, color, lineHeight: 1.2 }}>{estadoActual.nombre}</div>
-                            <div style={{ fontSize: 11, opacity: 0.5, marginTop: 1 }}>estado actual</div>
+                            <div style={{ fontSize: 12, opacity: 0.5, marginTop: 1 }}>estado actual</div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'monospace', color, letterSpacing: 1 }}>
@@ -3060,7 +3142,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 2 }}>
                               <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}`, animation: 'pulse 1.5s infinite' }} />
-                              <span style={{ fontSize: 9, color, opacity: 0.7, letterSpacing: 0.5 }}>ACTIVO</span>
+                              <span style={{ fontSize: 12, color, opacity: 0.7, letterSpacing: 0.5 }}>ACTIVO</span>
                             </div>
                           </div>
                         </div>
@@ -3076,7 +3158,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                         const color = colorMap[estado.id] || '#ffffff';
                         const acum = tiemposAcumulados[estado.id] || 0;
                         return (
-                          <button
+                          <button type="button"
                             key={estado.id}
                             onClick={() => handleEstadoChange(estado)}
                             style={{
@@ -3097,7 +3179,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               <span className="material-symbols-outlined" style={{ fontSize: 15, color: `${color}aa` }}>{estado.icon}</span>
                             </div>
                             <span style={{ flex: 1, fontSize: 12, textAlign: 'left', fontWeight: 500 }}>{estado.nombre}</span>
-                            <span style={{ fontSize: 11, fontFamily: 'monospace', opacity: acum > 0 ? 0.6 : 0.25 }}>
+                            <span style={{ fontSize: 12, fontFamily: 'monospace', opacity: acum > 0 ? 0.6 : 0.25 }}>
                               {formatTimer(acum)}
                             </span>
                           </button>
@@ -3129,16 +3211,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
               </p>
               
               <div style={{ marginBottom: 24 }}>
-                 <label className="text-label-sm" style={{ opacity: 0.6 }}>IP DEL SUPERVISOR (WEBSOCKET)</label>
+                 <label className="text-label-sm" style={{ opacity: 0.6 }}>IP DEL JEFE DE ÁREA (WEBSOCKET)</label>
                  <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                    <input 
+                    <input aria-label="Campo" 
                       type="text" 
                       className="input" 
                       value={wsIp}
                       onChange={e => setWsIp(e.target.value)}
                       placeholder="Ej: 192.168.1.100"
                     />
-                    <button 
+                    <button type="button" 
                       className="btn btn-primary"
                       onClick={() => {
                         localStorage.setItem('uphone_ws_ip', wsIp);
@@ -3187,12 +3269,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 12, marginBottom: 10 }}>
-            <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowAgendamientoModal(false)}>
+            <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowAgendamientoModal(false)}>
               IGNORAR
             </button>
-            <button className="btn btn-primary" style={{ flex: 2, padding: '16px' }} onClick={() => {
+            <button type="button" className="btn btn-primary" style={{ flex: 2, padding: '16px' }} onClick={() => {
               setShowAgendamientoModal(false);
               cargarContactoAgendado(agendamientoData.contacto_id);
+              setActivePage('dashboard');
             }}>
               <span className="material-symbols-outlined" style={{ marginRight: 8 }}>phone_callback</span>
               GESTIONAR AHORA
@@ -3213,7 +3296,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       <Modal open={showWifiModal} onClose={() => setShowWifiModal(false)} title="Conectar por WiFi">
         <div style={{ padding: '1rem' }}>
           <label className="text-label-sm" style={{ opacity: 0.6, display: 'block', marginBottom: 8 }}>Dirección IP del dispositivo celular</label>
-          <input
+          <input aria-label="Dirección IP del dispositivo celular"
             id="input-asesor-wifi-ip"
             className="input"
             type="text"
@@ -3221,13 +3304,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
             value={wifiIp}
             onChange={e => setWifiIp(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleConnectWifi()}
-            autoFocus
             style={{ width: '100%', marginBottom: 8 }}
           />
           <p className="text-body-sm" style={{ opacity: 0.4, marginBottom: 16 }}>El puerto 5555 se configurará automáticamente.</p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button className="btn btn-ghost" onClick={() => setShowWifiModal(false)}>Cancelar</button>
-            <button className="btn btn-primary" onClick={handleConnectWifi}>Conectar</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setShowWifiModal(false)}>Cancelar</button>
+            <button type="button" className="btn btn-primary" onClick={handleConnectWifi}>Conectar</button>
           </div>
         </div>
       </Modal>

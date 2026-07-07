@@ -23,13 +23,13 @@ async function main() {
     { nombre: 'Asesor_9',     email: 'asesor9@uphone.local',     rol: 'asesor' },
   ];
 
-  for (const userData of usuarios) {
-    await prisma.usuario.upsert({
+  await Promise.all(usuarios.map(userData =>
+    prisma.usuario.upsert({
       where: { email: userData.email },
       update: {},
       create: { ...userData, passwordHash },
-    });
-  }
+    })
+  ));
   console.log(`  ✅ ${usuarios.length} usuarios creados`);
 
   // ── 2. Tipificaciones base ────────────────────────────────
@@ -44,13 +44,13 @@ async function main() {
     { codigo: 'NEGOCIACION', descripcion: 'En negociación activa',                  requiereAgd: true },
   ];
 
-  for (const tipData of tipificaciones) {
-    await prisma.tipificacion.upsert({
+  await Promise.all(tipificaciones.map(tipData =>
+    prisma.tipificacion.upsert({
       where: { codigo: tipData.codigo },
       update: {},
       create: tipData,
-    });
-  }
+    })
+  ));
   console.log(`  ✅ ${tipificaciones.length} tipificaciones creadas`);
 
   // ── 3. Campaña de prueba con 50 contactos ─────────────────

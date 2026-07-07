@@ -97,7 +97,7 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
   return (
     <>
       <div className="metrics-overview">
-        {cards.map((card, i) => {
+        {cards.map((card) => {
           const clickable = !!(card.detalleKey && onCardClick) || !!(card.navKey && onNavigate);
           const handleClick = clickable
             ? () => card.navKey ? onNavigate(card.navKey) : onCardClick(card.detalleKey)
@@ -105,7 +105,7 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
           const navIcon = card.navKey ? 'arrow_forward' : 'open_in_new';
           return (
             <div
-              key={i}
+              key={card.label}
               className={`mo-card mo-card--${card.color}${card.highlight ? ' mo-card--highlight' : ''}`}
               onClick={handleClick}
               style={clickable ? { cursor: 'pointer', position: 'relative' } : undefined}
@@ -133,12 +133,12 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
         <>
           <div style={{ margin: '16px 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)', opacity: 0.7 }}>verified</span>
-            <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.5 }}>Recuperación de Cartera (Validado)</span>
+            <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.5 }}>Recuperación de Cartera (Validado)</span>
             <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
           </div>
           <div className="metrics-overview">
-            {validacionCards.map((card, i) => (
-              <div key={i} className={`mo-card mo-card--${card.color}${card.highlight ? ' mo-card--highlight' : ''}`}>
+            {validacionCards.map((card) => (
+              <div key={card.label} className={`mo-card mo-card--${card.color}${card.highlight ? ' mo-card--highlight' : ''}`}>
                 <div className="mo-card__header">
                   <span className={`material-symbols-outlined mo-card__icon mo-card__icon--${card.color}`}>
                     {card.icon}
@@ -159,17 +159,17 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
                   {validacion.porEmpresa.map((e, i) => {
                     const pct = validacion.montoValidado > 0 ? Math.round((e.monto / validacion.montoValidado) * 100) : 0;
                     return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, minWidth: 90, opacity: 0.85 }}>
+                      <div key={e.empresa || i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, minWidth: 90, opacity: 0.85 }}>
                           {e.empresa || 'Sin empresa'}
                         </span>
                         <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                           <div style={{ width: `${pct}%`, height: '100%', background: 'var(--color-primary)', borderRadius: 2 }} />
                         </div>
-                        <span className="text-mono" style={{ fontSize: 11, fontWeight: 700, opacity: 0.85, minWidth: 110, textAlign: 'right', color: 'var(--color-primary)' }}>
+                        <span className="text-mono" style={{ fontSize: 12, fontWeight: 700, opacity: 0.85, minWidth: 110, textAlign: 'right', color: 'var(--color-primary)' }}>
                           ${Number(e.monto || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
-                        <span style={{ fontSize: 9, opacity: 0.4, minWidth: 28 }}>{e.total}ct</span>
+                        <span style={{ fontSize: 12, opacity: 0.4, minWidth: 28 }}>{e.total}ct</span>
                       </div>
                     );
                   })}
