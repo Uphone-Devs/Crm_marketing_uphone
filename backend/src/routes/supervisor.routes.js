@@ -54,6 +54,24 @@ async function resolveContactoWhere(q) {
   return { id: { in: ids.length ? ids : [-1] } };
 }
 
+// Convierte el where de Prisma a fragmento SQL raw para contactos
+function buildContactoRawWhere(cWhere) {
+  if (cWhere.id?.in?.length) {
+    return Prisma.sql`AND id IN (${Prisma.join(cWhere.id.in.map(id => Prisma.sql`${id}`))})`;
+  }
+  if (cWhere.campanaId) return Prisma.sql`AND campana_id = ${cWhere.campanaId}`;
+  return Prisma.sql``;
+}
+function buildCdrContactoRawWhere(cWhere) {
+  if (cWhere.id?.in?.length) {
+    return Prisma.sql`AND c.id IN (${Prisma.join(cWhere.id.in.map(id => Prisma.sql`${id}`))})`;
+  }
+  if (cWhere.campanaId) return Prisma.sql`AND c.campana_id = ${cWhere.campanaId}`;
+  return Prisma.sql``;
+}
+
+const DIAS_SEG_EXPR = `COALESCE(NULLIF(metadata->>'DIAS IMPAGO',''),NULLIF(metadata->>'DIAS EN MORA',''),NULLIF(metadata->>'DIAS MORA',''))`;
+
 async function getAsesorIdsDelEquipo(user) {
   if (user.rol === 'admin') return null; // null = todos
   const asesores = await db.usuario.findMany({
@@ -589,10 +607,63 @@ router.get('/jefe/indicadores', async (req, res, next) => {
     const pct_recuperacion     = total_valor > 0 ? (valor_cobrado / total_valor) * 100 : 0;
     const pct_recuperacion_und = total_und   > 0 ? (unidades_cobradas / total_und) * 100 : 0;
 
+    const rawWhere = buildContactoRawWhere(where);
+    const cdrWhere = buildCdrContactoRawWhere(where);
+
+    const [contactSegs, pmpSegs] = await Promise.all([
+      db.$queryRaw(Prisma.sql`
+        SELECT
+          CAST(${Prisma.raw(DIAS_SEG_EXPR)} AS INTEGER) AS segmento,
+          SUM(CASE WHEN NOT ya_pago THEN COALESCE(monto_deuda,0) ELSE 0 END)::float AS valor_vencido,
+          SUM(CASE WHEN ya_pago     THEN COALESCE(monto_deuda,0) ELSE 0 END)::float AS valor_cobrado,
+          COUNT(CASE WHEN NOT ya_pago THEN 1 END)::int AS unidades_vencidas,
+          COUNT(CASE WHEN ya_pago     THEN 1 END)::int AS unidades_cobradas
+        FROM contactos
+        WHERE ${Prisma.raw(DIAS_SEG_EXPR)} ~ '^[0-2]$'
+        ${rawWhere}
+        GROUP BY segmento ORDER BY segmento
+      `),
+      db.$queryRaw(Prisma.sql`
+        SELECT
+          CAST(${Prisma.raw('COALESCE(NULLIF(c.metadata->>\'DIAS IMPAGO\',\'\'),NULLIF(c.metadata->>\'DIAS EN MORA\',\'\'),NULLIF(c.metadata->>\'DIAS MORA\',\'\'))')} AS INTEGER) AS segmento,
+          COUNT(*)::int AS promesas
+        FROM cdrs cd
+        JOIN contactos c ON cd.contacto_id = c.id
+        JOIN tipificaciones t ON cd.tipificacion_id = t.id
+        WHERE t.codigo = 'PMP'
+        AND ${Prisma.raw('COALESCE(NULLIF(c.metadata->>\'DIAS IMPAGO\',\'\'),NULLIF(c.metadata->>\'DIAS EN MORA\',\'\'),NULLIF(c.metadata->>\'DIAS MORA\',\'\'))')} ~ '^[0-2]$'
+        ${cdrWhere}
+        GROUP BY segmento
+      `),
+    ]);
+
+    const pmpMap = {};
+    for (const r of pmpSegs) pmpMap[String(r.segmento)] = Number(r.promesas);
+
+    const porSegmento = contactSegs.map(r => {
+      const s = Number(r.segmento);
+      const vv = Number(r.valor_vencido);
+      const vc = Number(r.valor_cobrado);
+      const uv = Number(r.unidades_vencidas);
+      const uc = Number(r.unidades_cobradas);
+      const total_val = vv + vc;
+      const total_und = uv + uc;
+      return {
+        segmento: s,
+        valor_vencido: vv, valor_cobrado: vc,
+        diferencia_monetaria: vv - vc,
+        pct_recuperacion: total_val > 0 ? (vc / total_val) * 100 : 0,
+        unidades_vencidas: uv, unidades_cobradas: uc,
+        diferencia_unidades: uv - uc,
+        pct_recuperacion_und: total_und > 0 ? (uc / total_und) * 100 : 0,
+        promesas: pmpMap[String(s)] || 0,
+      };
+    });
+
     res.json({
       global: { valor_vencido, valor_cobrado, unidades_vencidas, unidades_cobradas,
                 diferencia_monetaria, diferencia_unidades, pct_recuperacion, pct_recuperacion_und },
-      porSegmento: [],
+      porSegmento,
     });
   } catch (err) { next(err); }
 });
@@ -640,9 +711,44 @@ router.get('/jefe/top-asesores', async (req, res, next) => {
 
     const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
 
+    const cdrRawWhere = buildCdrContactoRawWhere(cWhere);
+    const C_DIAS = `COALESCE(NULLIF(c.metadata->>'DIAS IMPAGO',''),NULLIF(c.metadata->>'DIAS EN MORA',''),NULLIF(c.metadata->>'DIAS MORA',''))`;
+
     const result = await Promise.all(asesores.map(async (a) => {
-      const total_gestiones = await db.cdr.count({ where: { usuarioId: a.id, ...cdrContacto } });
-      return { asesor: a.nombre, total_gestiones, segmentos: {} };
+      const [total_gestiones, segRows] = await Promise.all([
+        db.cdr.count({ where: { usuarioId: a.id, ...cdrContacto } }),
+        db.$queryRaw(Prisma.sql`
+          SELECT
+            CAST(${Prisma.raw(C_DIAS)} AS INTEGER) AS segmento,
+            COUNT(*)::int AS gestiones,
+            COUNT(CASE WHEN t.codigo = 'PMP'    THEN 1 END)::int AS promesas,
+            COUNT(CASE WHEN cd.resultado = 'CUMPL'   THEN 1 END)::int AS cumplidas,
+            COUNT(CASE WHEN cd.resultado = 'INCUMP'  THEN 1 END)::int AS vencidas
+          FROM cdrs cd
+          JOIN contactos c ON cd.contacto_id = c.id
+          LEFT JOIN tipificaciones t ON cd.tipificacion_id = t.id
+          WHERE cd.usuario_id = ${a.id}
+          AND ${Prisma.raw(C_DIAS)} ~ '^[0-2]$'
+          ${cdrRawWhere}
+          GROUP BY segmento ORDER BY segmento
+        `),
+      ]);
+
+      const segmentos = {
+        '0': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
+        '1': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
+        '2': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
+      };
+      for (const r of segRows) {
+        const s = String(r.segmento);
+        if (segmentos[s]) {
+          segmentos[s].gestiones = Number(r.gestiones);
+          segmentos[s].promesas  = Number(r.promesas);
+          segmentos[s].cumplidas = Number(r.cumplidas);
+          segmentos[s].vencidas  = Number(r.vencidas);
+        }
+      }
+      return { asesor: a.nombre, total_gestiones, segmentos };
     }));
 
     result.sort((a, b) => b.total_gestiones - a.total_gestiones);

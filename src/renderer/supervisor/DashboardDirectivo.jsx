@@ -107,6 +107,7 @@ function AvanceCartera({ avance, gestiones, total }) {
 export default function DashboardDirectivo({ apiBase, token }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(null);
+  const initialLoadDone = React.useRef(false);
 
   const [metaMensualData, setMetaMensualData] = useState(null);
   const [indicadores,     setIndicadores]     = useState(null);
@@ -128,9 +129,9 @@ export default function DashboardDirectivo({ apiBase, token }) {
   const hdr = { Authorization: `Bearer ${token}` };
   const json = { ...hdr, 'Content-Type': 'application/json' };
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (showSpinner = true) => {
     if (!apiBase) return;
-    setLoading(true);
+    if (showSpinner && !initialLoadDone.current) setLoading(true);
     setError(null);
     try {
       const q = new URLSearchParams();
@@ -159,15 +160,21 @@ export default function DashboardDirectivo({ apiBase, token }) {
       setTopAsesores(await rTop.json());
       setMorosidad(await rMor.json());
       setTendencia(await rTend.json());
+      initialLoadDone.current = true;
     } catch (err) {
-      setError(err.message);
+      if (!initialLoadDone.current) setError(err.message);
     } finally {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBase, token, campanaId, grupo, distribuidor, numeroCuota]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    initialLoadDone.current = false;
+    fetchData(true);
+    const interval = setInterval(() => fetchData(false), 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
 
   const handleGuardarMeta = async () => {
     const val = parseFloat(inputMeta);

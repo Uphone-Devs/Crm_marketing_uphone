@@ -946,14 +946,19 @@ function getCarteraAsesor(asesorId, campanaId = null) {
 
   if (contactos.length === 0) return [];
 
-  // PASO 2: gestiones_count (agregado por contacto)
+  // PASO 2: gestiones_count — solo contactos de la cartera actual (no historial de campañas anteriores)
   const gestionesMap = new Map();
-  db.prepare(`
-    SELECT contacto_id, COUNT(*) as n
-    FROM cdrs
-    WHERE usuario_id = ?
-    GROUP BY contacto_id
-  `).all(asesorId).forEach(r => gestionesMap.set(r.contacto_id, r.n));
+  const ids = contactos.map(c => c.id);
+  if (ids.length > 0) {
+    const ph = ids.map(() => '?').join(',');
+    db.prepare(`
+      SELECT contacto_id, COUNT(*) as n
+      FROM cdrs
+      WHERE usuario_id = ?
+      AND contacto_id IN (${ph})
+      GROUP BY contacto_id
+    `).all(asesorId, ...ids).forEach(r => gestionesMap.set(r.contacto_id, r.n));
+  }
 
   // PASO 3: última tipificación por contacto (un solo query agregado)
   const ultimasMap = new Map();
@@ -1096,6 +1101,7 @@ function getBitacoraAsesor(asesorId, limite = 500) {
         ? "COALESCE(ct.nombre_deudor, c.snapshot_nombre) AS nombre_deudor, COALESCE(ct.telefono, c.snapshot_telefono) AS telefono"
         : "ct.nombre_deudor, ct.telefono"
       },
+      ct.cedula,
       ${horaBase} AS hora_gestion,
       ${hasDuracionSeg
         ? `COALESCE(c.duracion_seg, CASE WHEN c.timestamp_fin IS NOT NULL THEN CAST((julianday(c.timestamp_fin) - julianday(c.timestamp_inicio)) * 86400 AS INTEGER) ELSE NULL END) AS duracion_seg`
