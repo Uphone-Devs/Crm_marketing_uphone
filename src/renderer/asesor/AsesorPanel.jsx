@@ -137,6 +137,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // ── Tipificación y Historial ──
   const [showTipificacion, setShowTipificacion] = useState(false);
   const [tipifInicial, setTipifInicial] = useState(null);
+  const [tipificacionesCache, setTipificacionesCache] = useState([]);
   const [historialGestiones, setHistorialGestiones] = useState([]);
   const [totalGestiones, setTotalGestiones] = useState(0);
   const [totalCompromisos, setTotalCompromisos] = useState(0);
@@ -961,6 +962,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
     return () => clearInterval(refreshInterval);
   }, [fetchMetricas]);
 
+  // Cargar tipificaciones al montar — cache para guardar sin abrir diálogo
+  useEffect(() => {
+    callApi('db:getTipificaciones').then(data => {
+      if (Array.isArray(data)) setTipificacionesCache(data);
+    }).catch(() => {});
+  }, [callApi]);
+
   // Tiempo real: actualizar métricas al instante cuando se marca un lote enviado
   useEffect(() => {
     const removeListener = window.api?.on?.('ws:message', (data) => {
@@ -1264,9 +1272,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }
 
-  async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado }) {
-    // Captura snapshot antes de operaciones asíncronas (evita stale closure)
-    const contactoSnapshot = contactoActual;
+  async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado, _contacto }) {
+    // _contacto override evita race condition cuando se llama sin abrir diálogo
+    const contactoSnapshot = _contacto || contactoActual;
 
     try {
       // Resolver CDR activo. Si no existe (fallo silencioso en insertCdr durante el dial
@@ -2376,50 +2384,70 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   </td>
                                 );
                               })}
-                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-                                  <select 
-                                    className="input-field" 
-                                    style={{ padding: '3px 6px', fontSize: 12, borderRadius: 4, height: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', maxWidth: 100 }}
+                              <td style={{ padding: '6px 10px', textAlign: 'center', minWidth: 148 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                                  {/* Selector tipificación */}
+                                  <select
                                     value=""
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       if (!val) return;
                                       const codeMap = {
-                                        cuelga: 'CUE',
-                                        no_contesta: 'NC',
-                                        referencia: 'REF',
-                                        equivocado: 'EQ',
-                                        suspendido: 'SUS',
-                                        negativa_pago: 'NEG',
-                                        promesa_pago: 'PMP',
-                                        tercero: 'TER',
-                                        volver_llamar: 'VOL_CALL',
-                                        buzon_voz: 'BUZON'
+                                        cuelga: 'CUE', no_contesta: 'NC', referencia: 'REF',
+                                        equivocado: 'EQ', suspendido: 'SUS', negativa_pago: 'NEG',
+                                        promesa_pago: 'PMP', tercero: 'TER', volver_llamar: 'VOL_CALL', buzon_voz: 'BUZON',
                                       };
-                                      setContactoActual(c);
-                                      setTipifInicial(codeMap[val] || val);
-                                      setShowTipificacion(true);
+                                      const code = codeMap[val] || val;
+                                      if (code === 'PMP') {
+                                        // PMP: abre diálogo para fecha/monto/notas
+                                        setContactoActual(c);
+                                        setTipifInicial('PMP');
+                                        setShowTipificacion(true);
+                                      } else {
+                                        // Resto: guardar directo sin diálogo
+                                        const tipif = tipificacionesCache.find(t => t.codigo === code);
+                                        if (!tipif) { showToast('Tipificación no encontrada: ' + code, 'error'); return; }
+                                        handleSaveTipificacion({
+                                          tipificacionId: tipif.id,
+                                          notas: '',
+                                          tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion },
+                                          agendamiento: null,
+                                          montoAcordado: null,
+                                          _contacto: c,
+                                        });
+                                      }
+                                    }}
+                                    style={{
+                                      width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6,
+                                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)',
+                                      color: 'rgba(255,255,255,0.75)', cursor: 'pointer', outline: 'none',
+                                      appearance: 'none', textAlign: 'center',
                                     }}
                                   >
-                                    <option value="" disabled>Tipificar...</option>
-                                    <option value="cuelga">Cuelga</option>
-                                    <option value="no_contesta">No contesta</option>
-                                    <option value="referencia">Referencia</option>
-                                    <option value="equivocado">Equivocado</option>
-                                    <option value="suspendido">Suspendido</option>
-                                    <option value="negativa_pago">Negativa de pago</option>
-                                    <option value="promesa_pago">Promesa de pago</option>
-                                    <option value="tercero">Tercero</option>
-                                    <option value="volver_llamar">Volver a llamar</option>
-                                    <option value="buzon_voz">Buzón de voz</option>
+                                    <option value="" disabled style={{ background: '#1e1e1e' }}>⚡ Tipificar...</option>
+                                    <option value="cuelga" style={{ background: '#1e1e1e' }}>Cuelga</option>
+                                    <option value="no_contesta" style={{ background: '#1e1e1e' }}>No contesta</option>
+                                    <option value="referencia" style={{ background: '#1e1e1e' }}>Referencia</option>
+                                    <option value="equivocado" style={{ background: '#1e1e1e' }}>Equivocado</option>
+                                    <option value="suspendido" style={{ background: '#1e1e1e' }}>Suspendido</option>
+                                    <option value="negativa_pago" style={{ background: '#1e1e1e' }}>Negativa de pago</option>
+                                    <option value="promesa_pago" style={{ background: '#1e1e1e' }}>Promesa de pago</option>
+                                    <option value="tercero" style={{ background: '#1e1e1e' }}>Tercero</option>
+                                    <option value="volver_llamar" style={{ background: '#1e1e1e' }}>Volver a llamar</option>
+                                    <option value="buzon_voz" style={{ background: '#1e1e1e' }}>Buzón de voz</option>
                                   </select>
+                                  {/* Botón PMP */}
                                   <button type="button"
-                                    className="btn btn-outline btn-sm"
-                                    style={{ padding: '3px 8px', fontSize: 12, height: 'auto', color: '#64b5f6', borderColor: 'rgba(100,181,246,0.3)' }}
-                                    onClick={() => { cargarContactoAgendado(c.id); setActivePage('dashboard'); }}
+                                    onClick={() => { setContactoActual(c); setTipifInicial('PMP'); setShowTipificacion(true); }}
+                                    style={{
+                                      width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6, fontWeight: 700,
+                                      background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
+                                      color: '#00e676', cursor: 'pointer', letterSpacing: '0.04em',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                                    }}
                                   >
-                                    Promesa de pago
+                                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>payments</span>
+                                    PROMESA DE PAGO
                                   </button>
                                 </div>
                               </td>
@@ -2562,7 +2590,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   <button type="button"
                                     className="btn btn-outline"
                                     style={{ fontSize: 12, padding: '7px 16px', opacity: completado ? 0.35 : 0.85, display: 'flex', alignItems: 'center', gap: 6 }}
-                                    onClick={() => copiarLoteTelefonos(lote.num, lote.clients)}
+                                    onClick={() => {
+                                      const skCopy = isWsp ? 'whatsapp_status' : isRcs ? 'rcs_status' : 'correo_status';
+                                      const pendientes = lote.clients.filter(c => c[skCopy] !== 'ENVIADO');
+                                      copiarLoteTelefonos(lote.num, pendientes);
+                                    }}
                                   >
                                     <span className="material-symbols-outlined" style={{ fontSize: 15 }}>content_copy</span>
                                     COPIAR
@@ -3326,7 +3358,33 @@ export default function AsesorPanel({ usuario, onLogout }) {
         callApi={callApi}
       />
 
-      {/* TipificacionDialog se renderiza inline en la main-column (ver arriba) */}
+      {/* TipificacionDialog modal para cartera y otras páginas (no dashboard) */}
+      {activePage !== 'dashboard' && (
+        <TipificacionDialog
+          open={showTipificacion}
+          mode="modal"
+          tipifInicial={tipifInicial}
+          onSave={handleSaveTipificacion}
+          onCancel={() => { setShowTipificacion(false); setTipifInicial(null); }}
+          contacto={contactoActual}
+          asesorNombre={usuario.nombre}
+          asesorId={usuario.id}
+          callApi={callApi}
+          onAltDialed={handleAltDialed}
+          onExternalDial={handleExternalDial}
+          onAccionRapida={(canal) => {
+            let meta = {};
+            try { meta = typeof contactoActual?.metadata === 'string' ? JSON.parse(contactoActual.metadata || '{}') : (contactoActual?.metadata || {}); } catch (_) {}
+            const dias = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
+            const seg = dias >= 0 && dias <= 2 ? dias : null;
+            if (seg !== null) {
+              if (canal === 'SMS')   setSmsDetalle(p => ({ ...p, [seg]: (p[seg] || 0) + 1 }));
+              if (canal === 'WSP')   setWspDetalle(p => ({ ...p, [seg]: (p[seg] || 0) + 1 }));
+              if (canal === 'EMAIL') setEmailDetalle(p => ({ ...p, [seg]: (p[seg] || 0) + 1 }));
+            }
+          }}
+        />
+      )}
       {/* ── Modal WiFi IP ── */}
       <Modal open={showWifiModal} onClose={() => setShowWifiModal(false)} title="Conectar por WiFi">
         <div style={{ padding: '1rem' }}>
