@@ -255,7 +255,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           break;
         case 'db:getSiguienteContacto':
           // args[0]=campanaId, args[1]=asesorId
-          url = `${apiBase}/campanas/${args[0]}/siguiente`;
+          url = `${apiBase}/campanas/${args[0]}/siguiente?asesorId=${args[1] || usuario.id}`;
           break;
         case 'db:insertCdr':
           url = `${apiBase}/cdrs`;
@@ -798,45 +798,51 @@ export default function AsesorPanel({ usuario, onLogout }) {
   }, [enLlamada, grabando]);
 
   // ── LISTENERS DE AGENDAMIENTO ──
-  const cargarContactoAgendado = useCallback(async (contactoId) => {
+  const cargarContactoAgendado = useCallback(async (contactoId, abrirPMP = false) => {
     try {
       const contacto = await callApi('db:getContactoById', contactoId);
       if (contacto) {
         if (contacto.metadata && typeof contacto.metadata === 'string') {
           try { contacto.metadata = JSON.parse(contacto.metadata); } catch { /* ignorar */ }
         }
-        // Resetear estado de contacto para permitir nueva gestión
         setContactoActual(contacto);
         setCdrId(null);
         intentosContactoRef.current = 0;
-        showToast(`Contacto ${contacto.nombre_deudor || contacto.telefono} cargado`, 'success');
+        if (abrirPMP) {
+          setTipifInicial('PMP');
+          setShowTipificacion(true);
+        } else {
+          showToast(`Contacto ${contacto.nombre_deudor || contacto.telefono} cargado`, 'success');
+        }
       } else {
-        showToast('Contacto no encontrado en la base', 'warning');
+        showToast('Contacto no encontrado en la base de datos', 'warning');
       }
     } catch (err) {
-      showToast('Error al cargar contacto agendado', 'error');
+      showToast('Error al cargar contacto agendado: ' + (err?.message || err), 'error');
     }
   }, [callApi]);
 
 
   const handleAvisoLocal = useCallback((data) => {
     const nombre = data.nombre_deudor || `#${data.contacto_id}`;
-    const tipoLabel = (data.tipo_agendamiento || data.tipo) === 'PMP' ? 'Compromiso de pago' : 'Volver a llamar';
+    const esPMP = (data.tipo_agendamiento || data.tipo) === 'PMP';
+    const tipoLabel = esPMP ? 'Compromiso de pago' : 'Volver a llamar';
 
     playBeep();
     showToast(
       `En 5 min: ${tipoLabel} — ${nombre}`,
       'warning', 0,
-      { actionLabel: 'VER CLIENTE', onClick: () => cargarContactoAgendado(data.contacto_id) }
+      { actionLabel: 'VER CLIENTE', onClick: () => cargarContactoAgendado(data.contacto_id, esPMP) }
     );
   }, [cargarContactoAgendado]);
 
   const handleEjecutarLocal = useCallback((data) => {
     const nombre = data.nombre_deudor || `#${data.contacto_id}`;
-    const tipoLabel = (data.tipo_agendamiento || data.tipo) === 'PMP' ? 'Compromiso de pago' : 'Volver a llamar';
+    const esPMP = (data.tipo_agendamiento || data.tipo) === 'PMP';
+    const tipoLabel = esPMP ? 'Compromiso de pago' : 'Volver a llamar';
 
     playBeep();
-    setTimeout(playBeep, 500); // Doble beep para ejecución
+    setTimeout(playBeep, 500);
 
     setAgendamientoData(data);
     setShowAgendamientoModal(true);
@@ -846,8 +852,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       'success', 0,
       { actionLabel: 'GESTIONAR', onClick: () => {
         setShowAgendamientoModal(false);
-        cargarContactoAgendado(data.contacto_id);
-        setActivePage('dashboard');
+        cargarContactoAgendado(data.contacto_id, esPMP);
       }}
     );
   }, [cargarContactoAgendado]);
@@ -3378,8 +3383,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
             </button>
             <button type="button" className="btn btn-primary" style={{ flex: 2, padding: '16px' }} onClick={() => {
               setShowAgendamientoModal(false);
-              cargarContactoAgendado(agendamientoData.contacto_id);
-              setActivePage('dashboard');
+              const esPMPModal = (agendamientoData?.tipo_agendamiento || agendamientoData?.tipo) === 'PMP';
+              cargarContactoAgendado(agendamientoData.contacto_id, esPMPModal);
             }}>
               <span className="material-symbols-outlined" style={{ marginRight: 8 }}>phone_callback</span>
               GESTIONAR AHORA
