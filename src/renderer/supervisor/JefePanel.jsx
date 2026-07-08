@@ -716,6 +716,9 @@ export default function JefePanel({ usuario, onLogout }) {
     let cdrsNeutrosTotal = 0;
     let cdrsNoContactadosTotal = 0;
     let cdrsSinTipificarTotal = 0;
+    let compCumplidosTotal = 0;
+    let compReagendadosTotal = 0;
+    let compIncumplidosTotal = 0;
     let totalConectados = 0;
     asesores.forEach(a => {
       const m = metricas[a.id] || {};
@@ -737,6 +740,9 @@ export default function JefePanel({ usuario, onLogout }) {
       cdrsNeutrosTotal       += m.cdrs_neutros        || 0;
       cdrsNoContactadosTotal += m.cdrs_no_contactados || 0;
       cdrsSinTipificarTotal  += m.cdrs_sin_tipificar  || 0;
+      compCumplidosTotal     += m.compromisos_cumplidos   || 0;
+      compReagendadosTotal   += m.compromisos_reagendados || 0;
+      compIncumplidosTotal   += m.compromisos_incumplidos || 0;
     });
     const tasaRecuperacion = moraTotal > 0 ? Math.round((montoComprometido / moraTotal) * 10000) / 100 : 0;
     return {
@@ -759,6 +765,9 @@ export default function JefePanel({ usuario, onLogout }) {
       cdrsNeutrosTotal,
       cdrsNoContactadosTotal,
       cdrsSinTipificarTotal,
+      compCumplidosTotal,
+      compReagendadosTotal,
+      compIncumplidosTotal,
       detalleAsesores: asesores.map(a => ({
         asesor: a,
         metricas: metricas[a.id] || {

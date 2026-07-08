@@ -152,6 +152,72 @@ function getCampanas() {
   return db.prepare("SELECT id, nombre, descripcion, fecha_inicio, fecha_fin, supervisor_id, estado FROM campanas WHERE estado = 'activa' ORDER BY id DESC").all();
 }
 
+function getMetaDiariaCampanas() {
+  const db = getDb();
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  // Migrar columna si falta
+  try {
+    const cols = db.prepare("PRAGMA table_info(campanas)").all().map(c => c.name);
+    if (!cols.includes('meta_diaria')) {
+      db.prepare("ALTER TABLE campanas ADD COLUMN meta_diaria REAL NOT NULL DEFAULT 0").run();
+    }
+  } catch (_) {}
+
+  // Intentar query con monto_acordado
+  try {
+    const colsCdr = db.prepare("PRAGMA table_info(cdrs)").all().map(c => c.name);
+    if (colsCdr.includes('monto_acordado')) {
+      const rows = db.prepare(`
+        SELECT c.id, c.nombre, c.estado, COALESCE(c.meta_diaria, 0) AS meta_diaria,
+               COALESCE(SUM(CASE WHEN substr(cdr.creado_en,1,10) = ?
+                                  AND cdr.monto_acordado IS NOT NULL
+                                 THEN CAST(cdr.monto_acordado AS REAL) ELSE 0 END), 0) AS cobrado_hoy
+        FROM campanas c
+        LEFT JOIN contactos ct ON ct.campana_id = c.id
+        LEFT JOIN cdrs cdr     ON cdr.contacto_id = ct.id
+        WHERE c.estado = 'activa'
+        GROUP BY c.id
+        ORDER BY c.id DESC
+      `).all(hoy);
+      return rows.map(r => ({
+        ...r,
+        cobrado_hoy: r.cobrado_hoy || 0,
+        pct_cumplimiento: r.meta_diaria > 0
+          ? Math.round((r.cobrado_hoy / r.meta_diaria) * 10000) / 100
+          : 0,
+      }));
+    }
+  } catch (err) {
+    console.warn('[getMetaDiariaCampanas] query completa falló:', err.message);
+  }
+
+  // Fallback: solo campañas sin cobrado
+  try {
+    const rows = db.prepare(`
+      SELECT c.id, c.nombre, c.estado, COALESCE(c.meta_diaria, 0) AS meta_diaria,
+             0 AS cobrado_hoy
+      FROM campanas c
+      WHERE c.estado = 'activa'
+      ORDER BY c.id DESC
+    `).all();
+    return rows.map(r => ({
+      ...r,
+      cobrado_hoy: 0,
+      pct_cumplimiento: 0,
+    }));
+  } catch (err) {
+    console.warn('[getMetaDiariaCampanas] fallback falló:', err.message);
+    return [];
+  }
+}
+
+function setMetaDiariaCampana(campanaId, valor) {
+  const db = getDb();
+  db.prepare("UPDATE campanas SET meta_diaria = ? WHERE id = ?").run(parseFloat(valor) || 0, Number(campanaId));
+  return { ok: true };
+}
+
 function getCampanasPorAsesor(asesorId) {
   const db = getDb();
   const idNum = Number(asesorId);
@@ -655,11 +721,13 @@ function getProgresoAsesor(asesorId, opts = {}) {
 
 function getProgresoCampana(campanaId, asesorId) {
   const db = getDb();
-  // Filtrar por asesor si se provee — evita mostrar el total de campaña cuando hay distribución
+  const hoy = _todayLocalISO();
+  // Progreso DIARIO: solo contactos asignados HOY (fecha_asignacion o creado_en como fallback)
+  const dateExpr = "date(COALESCE(fecha_asignacion, creado_en), 'localtime') = ?";
   const filtro = asesorId
-    ? 'campana_id = ? AND (asignado_a = ? OR asignado_a IS NULL)'
-    : 'campana_id = ?';
-  const params = asesorId ? [campanaId, asesorId] : [campanaId];
+    ? `campana_id = ? AND (asignado_a = ? OR asignado_a IS NULL) AND ${dateExpr}`
+    : `campana_id = ? AND ${dateExpr}`;
+  const params = asesorId ? [campanaId, asesorId, hoy] : [campanaId, hoy];
   const total      = db.prepare(`SELECT COUNT(*) as c FROM contactos WHERE ${filtro}`).get(...params).c;
   const gestionados = db.prepare(`SELECT COUNT(*) as c FROM contactos WHERE ${filtro} AND estado_marcacion = 'GESTIONADO'`).get(...params).c;
   return { total, gestionados };
@@ -972,10 +1040,11 @@ function getCarteraAsesor(asesorId, campanaId = null) {
   db.prepare(`
     SELECT cdrs.contacto_id, t.descripcion, t.codigo, ${tsCol} AS ts
     FROM cdrs
-    LEFT JOIN tipificaciones t ON cdrs.tipificacion_id = t.id
+    JOIN tipificaciones t ON cdrs.tipificacion_id = t.id
     WHERE cdrs.id IN (
       SELECT MAX(id) FROM cdrs
       WHERE contacto_id IN (SELECT id FROM contactos WHERE asignado_a = ?)
+        AND tipificacion_id IS NOT NULL
       GROUP BY contacto_id
     )
   `).all(asesorId).forEach(r => ultimasMap.set(r.contacto_id, r));
@@ -3476,6 +3545,7 @@ module.exports = {
   // Campañas
   getCampanas, getCampanasPorAsesor, getCampanaById, getContactoById, getSiguienteContacto, insertCampana, insertContactos,
   getCampaignSummary, getCampanasDashboard, deleteCampana, deleteContactosPorAsesorEnCampana,
+  getMetaDiariaCampanas, setMetaDiariaCampana,
   // CDRs
   insertCdr, updateCdr, marcarContactoGestionado, marcarYaPagoDeclarado, eliminarCompromiso, confirmarPagoCompromiso, reagendarCompromiso, marcarCompromisoIncumplido, incrementarIntentoContacto, resetearIntentosContacto, getCdrsByUsuario, getSubGestionesByAsesor, getSubGestionesByContacto, buscarContactoPorCedula, getAllReferencias, getCdrsByContacto, insertSubGestion, getAllCdrs, getCdrsGestiones, getBitacoraAsesor, getRefsBitacora, getCarteraAsesor, getCarteraEquipo, setOrdenMarcacionBatch,
   // Tipificaciones

@@ -298,13 +298,12 @@
 /* ── Sección 3 charts ── */
 .dd-section-charts3 {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
 
-@media (max-width: 1100px) {
-  .dd-section-charts3 { grid-template-columns: 1fr 1fr; }
-  .dd-chart-gauge     { grid-column: 1 / -1; }
+@media (max-width: 900px) {
+  .dd-section-charts3 { grid-template-columns: 1fr; }
 }
 
 /* ── Gauge ── */

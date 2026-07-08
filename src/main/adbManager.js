@@ -435,6 +435,48 @@ async function sendSMS(phoneNumber, messageStr) {
 }
 
 /**
+ * Abre WhatsApp en el celular vía intent ADB para el número dado.
+ * El número debe ser internacional sin '+' (ej: 593987654321).
+ */
+async function openWhatsApp(phoneNumber, messageText) {
+  try {
+    const devicesOut = await runAdb(['devices']);
+    const devices = parseDevices(devicesOut);
+    if (devices.length === 0) throw new Error('Sin celular detectado (USB/WIFI)');
+    const serial = devices[0].serial;
+    const clean = String(phoneNumber).replace(/\D/g, '');
+    const scrcpyFolder = getScrcpyFolderPath();
+    const adbCmd = scrcpyFolder ? path.join(scrcpyFolder, 'adb.exe') : 'adb';
+    const normalizedMsg = String(messageText || '').replace(/\r\n|\r|\n/g, ' ').trim();
+    const url = normalizedMsg
+      ? `whatsapp://send?phone=${clean}&text=${encodeURIComponent(normalizedMsg)}`
+      : `whatsapp://send?phone=${clean}`;
+    const fullCmd = `am start -a android.intent.action.VIEW -d '${url}'`;
+    const args = ['-s', serial, 'shell', fullCmd];
+    const result = await new Promise((resolve) => {
+      const proc = spawn(adbCmd, args, {
+        shell: false,
+        env: { ...process.env, PATH: scrcpyFolder ? (scrcpyFolder + ';' + process.env.PATH) : process.env.PATH },
+      });
+      let stdout = '', stderr = '';
+      proc.stdout.on('data', d => { stdout += d.toString(); });
+      proc.stderr.on('data', d => { stderr += d.toString(); });
+      const timer = setTimeout(() => { try { proc.kill(); } catch {} resolve({ code: -1, stdout, stderr, timeout: true }); }, 5000);
+      proc.on('close', code => { clearTimeout(timer); resolve({ code, stdout, stderr }); });
+      proc.on('error', err => { clearTimeout(timer); resolve({ code: -1, stdout, stderr: err.message }); });
+    });
+    if (result.timeout) throw new Error('Timeout abriendo WhatsApp en el dispositivo');
+    if (result.code !== 0 && !result.stdout.includes('Starting:')) {
+      throw new Error(result.stderr || `adb salió con código ${result.code}`);
+    }
+    return { success: true, phone: clean };
+  } catch (err) {
+    console.error('[ADB] openWhatsApp error:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Cuelga la llamada activa usando KEYCODE_ENDCALL (6).
  * Universalmente soportado en Android.
  */
@@ -704,4 +746,5 @@ module.exports = {
   checkCallStatus,
   isScrcpyRunning,
   sendSMS,
+  openWhatsApp,
 };

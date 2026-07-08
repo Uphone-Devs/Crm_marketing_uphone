@@ -32,6 +32,15 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
       color: 'primary',
     },
     {
+      icon: 'task_alt',
+      label: 'Gestiones',
+      value: (metricas.cdrsTotalEquipo ?? 0).toLocaleString(),
+      sub: (metricas.totalCompromisosEquipo ?? 0) > 0
+        ? `${metricas.totalCompromisosEquipo} compromisos`
+        : null,
+      color: 'primary',
+    },
+    {
       icon: 'schedule',
       label: 'Tiempo al Aire',
       value: formatTiempo(metricas.tiempoAlAireSeg),
@@ -61,6 +70,20 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
       highlight: true,
       detalleKey: 'RECAUDADO',
     },
+  ];
+
+  const hayCanales = (metricas.wspEnviadosTotal ?? 0) + (metricas.smsEnviadosTotal ?? 0) + (metricas.correosEnviadosTotal ?? 0) > 0;
+  const canalCards = [
+    { icon: 'chat', label: 'WhatsApp', value: (metricas.wspEnviadosTotal ?? 0).toLocaleString(), color: 'primary' },
+    { icon: 'sms', label: 'SMS', value: (metricas.smsEnviadosTotal ?? 0).toLocaleString(), color: 'secondary' },
+    { icon: 'mail', label: 'Correo', value: (metricas.correosEnviadosTotal ?? 0).toLocaleString(), color: 'secondary' },
+  ];
+
+  const hayCompromisos = (metricas.compCumplidosTotal ?? 0) + (metricas.compReagendadosTotal ?? 0) + (metricas.compIncumplidosTotal ?? 0) > 0;
+  const compCards = [
+    { icon: 'check_circle', label: 'Cumplidos', value: (metricas.compCumplidosTotal ?? 0).toLocaleString(), color: 'primary', highlight: true },
+    { icon: 'event_repeat', label: 'Reagendados', value: (metricas.compReagendadosTotal ?? 0).toLocaleString(), color: 'secondary' },
+    { icon: 'cancel', label: 'Incumplidos', value: (metricas.compIncumplidosTotal ?? 0).toLocaleString(), color: 'danger' },
   ];
 
   const validacionCards = validacion ? [
@@ -128,6 +151,50 @@ function MetricsOverview({ metricas, validacion, onCardClick, onNavigate }) {
           );
         })}
       </div>
+
+      {/* ── Canales de Contacto ── */}
+      {hayCanales && (
+        <>
+          <div style={{ margin: '16px 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)', opacity: 0.7 }}>forum</span>
+            <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.5 }}>Canales de Contacto</span>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
+          </div>
+          <div className="metrics-overview">
+            {canalCards.map((card) => (
+              <div key={card.label} className={`mo-card mo-card--${card.color}`}>
+                <div className="mo-card__header">
+                  <span className={`material-symbols-outlined mo-card__icon mo-card__icon--${card.color}`}>{card.icon}</span>
+                  <span className="mo-card__label">{card.label}</span>
+                </div>
+                <div className="mo-card__value">{card.value}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ── Estado de Compromisos ── */}
+      {hayCompromisos && (
+        <>
+          <div style={{ margin: '16px 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)', opacity: 0.7 }}>assignment_turned_in</span>
+            <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.5 }}>Estado de Compromisos</span>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' }} />
+          </div>
+          <div className="metrics-overview">
+            {compCards.map((card) => (
+              <div key={card.label} className={`mo-card mo-card--${card.color}${card.highlight ? ' mo-card--highlight' : ''}`}>
+                <div className="mo-card__header">
+                  <span className={`material-symbols-outlined mo-card__icon mo-card__icon--${card.color}`}>{card.icon}</span>
+                  <span className="mo-card__label">{card.label}</span>
+                </div>
+                <div className="mo-card__value">{card.value}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
       {validacionCards.length > 0 && (
         <>

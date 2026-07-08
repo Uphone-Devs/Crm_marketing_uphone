@@ -219,42 +219,45 @@
 .asesor-stat-box {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 4px 8px;
+  gap: 2px;
+  padding: 6px 12px 6px 10px;
   background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.05);
   border-radius: 6px;
-  min-width: 90px;
+  min-width: 88px;
 }
 
-.asesor-stat-box__total {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+.asesor-stat-box__label {
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+  line-height: 1;
 }
 
 .asesor-stat-box__count {
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 800;
-  color: rgba(180,200,180,0.6);
-  line-height: 1;
+  line-height: 1.1;
 }
 
 .asesor-stat-box__detail {
   display: flex;
-  gap: 4px;
+  gap: 5px;
   font-size: 9px;
-  opacity: 0.55;
+  color: rgba(255,255,255,0.4);
   align-items: center;
+  margin-top: 1px;
 }
 
 .asesor-stat-box__detail b {
   font-weight: 700;
-  color: rgba(200,220,200,0.8);
+  color: rgba(255,255,255,0.7);
 }
 
 .asesor-stat-box__sep {
-  opacity: 0.3;
+  opacity: 0.2;
+  font-size: 8px;
 }
 
 .asesor-stats-totals {

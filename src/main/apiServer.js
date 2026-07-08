@@ -47,10 +47,11 @@ const {
   // Panel Jefe de Cobranza
   getIndicadoresCobranza, getProductividadJefe, getTopAsesoresJefe,
   getMorosidadPorDistribuidor, getRecaudacionSemanal, getProyeccionMensual,
+  getMetaDiariaCampanas, setMetaDiariaCampana,
   // Mensajes Broadcast
   insertMensajeBroadcast, deleteMensajeBroadcast, getMensajesBroadcast,
 } = require('./database/queries');
-const { getConnectedAsesores, getConnectedClients, initWebSocket, broadcastToAll } = require('./wsServer');
+const { getConnectedAsesores, getConnectedClients, initWebSocket, broadcastToAll, broadcastToAsesor } = require('./wsServer');
 const { loginRateLimitKey } = require('./security/rateLimitKeys');
 
 let ReportGenerator = null;
@@ -253,6 +254,8 @@ function initApiServer(port = 3001) {
       if (!asesorId || !Array.isArray(contactos))
         return res.status(400).json({ error: 'asesorId y contactos[] requeridos' });
       const count = insertContactos(parseInt(req.params.id), asesorId, contactos);
+      // Notificar al asesor en tiempo real para que recargue su cartera sin reiniciar
+      try { broadcastToAsesor(asesorId, { tipo: 'CARTERA_ASIGNADA', campanaId: parseInt(req.params.id) }); } catch (_) {}
       res.json({ success: true, count });
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
@@ -1185,6 +1188,28 @@ function initApiServer(port = 3001) {
       const { setConfig } = require('./database/queries');
       setConfig('meta_mensual_usd', String(parseFloat(meta)));
       res.json({ ok: true, meta: parseFloat(meta) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  // GET /api/jefe/meta-diaria-campanas
+  app.get('/api/jefe/meta-diaria-campanas', requireAuth, requireSupervisorOrAdmin, (req, res) => {
+    try {
+      const data = getMetaDiariaCampanas();
+      return res.json(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('[API] /jefe/meta-diaria-campanas error:', err.message, err.stack);
+      return res.json([]); // nunca 500 — retorna array vacío
+    }
+  });
+
+  // POST /api/jefe/meta-diaria-campana  { campanaId, valor }
+  app.post('/api/jefe/meta-diaria-campana', requireAuth, requireSupervisorOrAdmin, (req, res) => {
+    try {
+      const { campanaId, valor } = req.body;
+      if (!campanaId || isNaN(parseFloat(valor))) {
+        return res.status(400).json({ error: 'campanaId y valor requeridos' });
+      }
+      res.json(setMetaDiariaCampana(campanaId, valor));
     } catch (err) { res.status(500).json({ error: err.message }); }
   });
 

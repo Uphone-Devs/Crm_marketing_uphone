@@ -67,6 +67,12 @@ function AdvisorCard({ asesor, estadoWS, metricas, tiempoEnEstado, configMarcaci
           <span className="adv-card__metric-label">Marcaciones</span>
         </div>
         <div className="adv-card__metric">
+          <span className="adv-card__metric-value" style={{ color: 'var(--color-primary)' }}>
+            {metricas?.cdrs_total ?? metricas?.total_gestiones ?? 0}
+          </span>
+          <span className="adv-card__metric-label">Gestiones</span>
+        </div>
+        <div className="adv-card__metric">
           <span className="adv-card__metric-value" style={{ color: hayFiltroProgreso ? '#64b5f6' : 'var(--color-secondary)' }}>
             {progresoFiltrado
               ? `${progresoFiltrado.gestionados ?? 0} / ${progresoFiltrado.total ?? 0}`
@@ -92,6 +98,22 @@ function AdvisorCard({ asesor, estadoWS, metricas, tiempoEnEstado, configMarcaci
             {metricas?.ratio_productividad ?? 0}%
           </span>
           <span className="adv-card__metric-label">Productividad</span>
+        </div>
+        <div className="adv-card__metric">
+          <span className="adv-card__metric-value" style={{ color: '#29b6f6' }}>
+            {(metricas?.wsp_enviados ?? 0) + (metricas?.sms_enviados ?? 0) + (metricas?.correos_enviados ?? 0)}
+          </span>
+          <span className="adv-card__metric-label" title={`WSP:${metricas?.wsp_enviados ?? 0} SMS:${metricas?.sms_enviados ?? 0} Mail:${metricas?.correos_enviados ?? 0}`}>
+            Mensajes
+          </span>
+        </div>
+        <div className="adv-card__metric">
+          <span className="adv-card__metric-value" style={{ color: '#00e676' }}>
+            {metricas?.compromisos_cumplidos ?? 0}
+            <span style={{ opacity: 0.4, fontSize: 10 }}> / {metricas?.compromisos_reagendados ?? 0} / </span>
+            <span style={{ color: '#ff5252', fontSize: 12 }}>{metricas?.compromisos_incumplidos ?? 0}</span>
+          </span>
+          <span className="adv-card__metric-label">Comp. C/R/I</span>
         </div>
       </div>
 
