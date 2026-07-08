@@ -67,7 +67,7 @@ const CODIGOS_CONFIRMABLES  = new Set(['PMP', 'AB_PARC', 'PEND_COMP']);
 const CODIGOS_REAGENDABLES  = new Set(['PMP', 'AB_PARC', 'PEND_COMP', 'VOL_CALL']);
 const CODIGOS_INCUMPLIBLES  = new Set(['PMP', 'AB_PARC', 'PEND_COMP']);
 
-export default function AsesorCompromisos({ usuario, onGestionar, callApi, showToast, onCompromisoAction }) {
+export default function AsesorCompromisos({ usuario, onGestionar, callApi, showToast, onCompromisoAction, highlightCdrId, onHighlightConsumed }) {
   const hoy = todayLocalISO();
   const [fecha, setFecha] = useState(hoy);
   const [tipoFiltro, setTipoFiltro] = useState('');
@@ -115,6 +115,18 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   };
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, usuario?.id]);
+
+  // Auto-expandir fila cuando viene highlight desde alerta 5-min
+  useEffect(() => {
+    if (!highlightCdrId) return;
+    setExpandedId(highlightCdrId);
+    onHighlightConsumed?.();
+    // Scroll al elemento después de render
+    setTimeout(() => {
+      const el = document.getElementById(`cmp-row-${highlightCdrId}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  }, [highlightCdrId]); // eslint-disable-line
 
 
   const filtrados = useMemo(() => {
@@ -422,11 +434,14 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                 return (
                   <React.Fragment key={`cmp-${r.cdr_id}`}>
                     <tr
+                      id={`cmp-row-${r.cdr_id}`}
                       onClick={() => setExpandedId(isOpen ? null : r.cdr_id)}
                       style={{
                         cursor: 'pointer',
                         borderTop: '1px solid rgba(255,255,255,0.04)',
-                        background: rowBg,
+                        background: isOpen && highlightCdrId === r.cdr_id
+                          ? 'rgba(255,193,7,0.1)'
+                          : rowBg,
                       }}
                     >
                       {/* Hora llamada */}
