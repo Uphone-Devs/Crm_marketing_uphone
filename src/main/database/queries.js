@@ -733,8 +733,10 @@ function getProgresoCampana(campanaId, asesorId) {
   return { total, gestionados };
 }
 
-function updateCdr(id, { tipificacionId, timestampFin, duracionSeg, resultado, urlGrabacion, notas, montoAcordado }) {
+function updateCdr(id, { tipificacionId, timestampFin, duracionSeg, resultado, urlGrabacion, notas, montoAcordado, scheduledDatetime }) {
   const db = getDb();
+  const cdrCols = db.prepare("PRAGMA table_info(cdrs)").all().map(c => c.name);
+  const hasScheduled = cdrCols.includes('scheduled_datetime');
 
   // timestampFin viene del renderer en UTC (new Date().toISOString()).
   // Convertir a hora local para alinear con timestamp_inicio que ya es local.
@@ -744,6 +746,7 @@ function updateCdr(id, { tipificacionId, timestampFin, duracionSeg, resultado, u
         : timestampFin)
     : _nowLocalISO();
 
+  const schedCol = hasScheduled ? ', scheduled_datetime = COALESCE(?, scheduled_datetime)' : '';
   const updateCdrStmt = db.prepare(`
     UPDATE cdrs SET
       tipificacion_id = COALESCE(?, tipificacion_id),
@@ -753,11 +756,15 @@ function updateCdr(id, { tipificacionId, timestampFin, duracionSeg, resultado, u
       url_grabacion = COALESCE(?, url_grabacion),
       notas = COALESCE(?, notas),
       monto_acordado = COALESCE(?, monto_acordado)
+      ${schedCol}
     WHERE id = ?
   `);
 
-  updateCdrStmt.run(tipificacionId, tsFin, duracionSeg, resultado, urlGrabacion, notas,
-    montoAcordado != null ? Number(montoAcordado) : null, id);
+  const args = [tipificacionId, tsFin, duracionSeg, resultado, urlGrabacion, notas,
+    montoAcordado != null ? Number(montoAcordado) : null];
+  if (hasScheduled) args.push(scheduledDatetime || null);
+  args.push(id);
+  updateCdrStmt.run(...args);
 
   // M-016: vincular sub-gestiones huérfanas (cdr_id IS NULL) del mismo
   // contacto+asesor del día actual al CDR recién tipificado
@@ -1838,12 +1845,13 @@ function getCompromisosEquipo(fecha = null, asesorId = null, opts = {}) {
 
   // Detección dinámica de columnas (tolerancia a esquemas viejos/nuevos)
   const cdrCols = db.prepare("PRAGMA table_info(cdrs)").all().map(c => c.name);
-  const hasCreado    = cdrCols.includes('creado_en');
-  const hasTsInicio  = cdrCols.includes('timestamp_inicio');
-  const hasMonto     = cdrCols.includes('monto_acordado');
-  const hasDuracion  = cdrCols.includes('duracion_seg');
-  const hasResultado = cdrCols.includes('resultado');
-  const hasNotas     = cdrCols.includes('notas');
+  const hasCreado       = cdrCols.includes('creado_en');
+  const hasTsInicio     = cdrCols.includes('timestamp_inicio');
+  const hasMonto        = cdrCols.includes('monto_acordado');
+  const hasDuracion     = cdrCols.includes('duracion_seg');
+  const hasResultado    = cdrCols.includes('resultado');
+  const hasNotas        = cdrCols.includes('notas');
+  const hasScheduled    = cdrCols.includes('scheduled_datetime');
 
   // Columna de tiempo a usar (preferir timestamp_inicio, fallback creado_en)
   const horaCol = hasTsInicio ? 'c.timestamp_inicio'
@@ -1893,10 +1901,11 @@ function getCompromisosEquipo(fecha = null, asesorId = null, opts = {}) {
       c.contacto_id,
       c.usuario_id,
       ${horaCol}    AS hora_gestion,
-      ${hasDuracion  ? 'c.duracion_seg'  : 'NULL AS duracion_seg'},
-      ${hasMonto     ? 'c.monto_acordado': 'NULL AS monto_acordado'},
-      ${hasNotas     ? 'c.notas'         : 'NULL AS notas'},
-      ${hasResultado ? 'c.resultado'     : 'NULL AS resultado'},
+      ${hasDuracion  ? 'c.duracion_seg'     : 'NULL AS duracion_seg'},
+      ${hasMonto     ? 'c.monto_acordado'   : 'NULL AS monto_acordado'},
+      ${hasNotas     ? 'c.notas'            : 'NULL AS notas'},
+      ${hasResultado ? 'c.resultado'        : 'NULL AS resultado'},
+      ${hasScheduled ? 'c.scheduled_datetime' : 'NULL AS scheduled_datetime'},
       t.codigo      AS tipificacion_codigo,
       t.descripcion AS tipificacion_desc
     FROM cdrs c
@@ -1950,8 +1959,13 @@ function getCompromisosEquipo(fecha = null, asesorId = null, opts = {}) {
       c.empresa = snap?.snapshot_empresa || null;
     }
 
-    const ag = c.contacto_id ? getAg.get(c.contacto_id, c.usuario_id) : null;
-    c.fecha_promesa = ag ? ag.fecha_hora : null;
+    // scheduled_datetime en CDR tiene prioridad; fallback a agendamientos
+    if (c.scheduled_datetime) {
+      c.fecha_promesa = c.scheduled_datetime;
+    } else {
+      const ag = c.contacto_id ? getAg.get(c.contacto_id, c.usuario_id) : null;
+      c.fecha_promesa = ag ? ag.fecha_hora : null;
+    }
   }
 
   return cdrs;

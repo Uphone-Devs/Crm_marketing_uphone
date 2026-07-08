@@ -92,6 +92,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // ── Estado de Navegación y Conectividad ──
   const [activePage, setActivePage] = useState('dashboard');
   const wsStatusRef = useRef('DESCONECTADO');
+  const alertadosPmpRef = useRef(new Set()); // CDR IDs ya alertados (5-min aviso)
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
   const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.82');
   const wsActiveIpRef = useRef(wsIp);
@@ -1034,6 +1035,42 @@ export default function AsesorPanel({ usuario, onLogout }) {
     };
   }, [conectarWS]); // conectarWS ahora es estable
 
+  // 🔔 POLLING 5-MIN ALERT: avisa cuando un PMP está por vencer (desde cualquier tab)
+  useEffect(() => {
+    if (!usuario?.id) return;
+    const CINCO_MIN_MS = 5 * 60 * 1000;
+
+    const checkPmps = async () => {
+      try {
+        const hoy = todayLocalISO();
+        const data = await callApi('db:getCompromisosEquipo', hoy, Number(usuario.id), { incluirVolCall: false });
+        if (!Array.isArray(data)) return;
+        const now = new Date();
+        data.forEach(r => {
+          if (r.tipificacion_codigo !== 'PMP') return;
+          if (r.resultado === 'COMP_CUM' || r.resultado === 'INCUMP') return;
+          if (!r.fecha_promesa) return;
+          if (alertadosPmpRef.current.has(r.cdr_id)) return;
+          const promesaTs = new Date(String(r.fecha_promesa).replace(' ', 'T'));
+          if (isNaN(promesaTs.getTime())) return;
+          const msLeft = promesaTs - now;
+          if (msLeft > 0 && msLeft <= CINCO_MIN_MS) {
+            alertadosPmpRef.current.add(r.cdr_id);
+            handleAvisoLocal({
+              contacto_id:    r.contacto_id,
+              nombre_deudor:  r.nombre_deudor,
+              tipo_agendamiento: 'PMP',
+            });
+          }
+        });
+      } catch { /* silencioso */ }
+    };
+
+    checkPmps();
+    const timer = setInterval(checkPmps, 30_000);
+    return () => clearInterval(timer);
+  }, [usuario?.id, callApi, handleAvisoLocal]); // eslint-disable-line
+
   // ⏰ CRONÓMETRO Y LATIDO DE MÉTRICAS (Independiente de la red)
   useEffect(() => {
     const timerInterval = setInterval(() => {
@@ -1581,6 +1618,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
           resultado: tipificacion.descripcion,
           urlGrabacion: ultimoAudioPathRef.current,
           montoAcordado: montoAcordado ?? null,
+          scheduledDatetime: agendamiento
+            ? `${agendamiento.fecha}T${agendamiento.hora}:00`
+            : undefined,
         }));
       } else {
         console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
@@ -2728,10 +2768,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       };
                                       const code = codeMap[val] || val;
                                       if (code === 'PMP') {
-                                        setContactoActual(c); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true);
+                                        setContactoActual(c); setCdrId(null); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true);
                                       } else {
                                         const tipif = tipificacionesCache.find(t => t.codigo === code);
-                                        if (!tipif) { setContactoActual(c); setTipifInicial(code); setTipifMarcaLlamada(true); setShowTipificacion(true); return; }
+                                        if (!tipif) { setContactoActual(c); setCdrId(null); setTipifInicial(code); setTipifMarcaLlamada(true); setShowTipificacion(true); return; }
                                         setTipifSelects(prev => ({ ...prev, [c.id]: val }));
                                         handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true });
                                       }
@@ -2758,7 +2798,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   </select>
                                   {!tipifSelects[c.id] && (
                                     <button type="button"
-                                      onClick={() => { setContactoActual(c); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true); }}
+                                      onClick={() => { setContactoActual(c); setCdrId(null); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true); }}
                                       style={{
                                         width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6, fontWeight: 700,
                                         background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',

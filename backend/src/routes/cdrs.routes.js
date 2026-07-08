@@ -46,6 +46,10 @@ router.patch('/:id', async (req, res, next) => {
     if (body.snapshotCedula != null) data.snapshotCedula = body.snapshotCedula;
     if (body.snapshotTelefono != null) data.snapshotTelefono = body.snapshotTelefono;
     if (body.snapshotEmpresa != null) data.snapshotEmpresa = body.snapshotEmpresa;
+    if (body.scheduledDatetime || body.scheduled_datetime) {
+      const sd = body.scheduledDatetime || body.scheduled_datetime;
+      data.scheduledDatetime = new Date(sd);
+    }
 
     const updated = await db.cdr.update({ where: { id: parseInt(req.params.id) }, data });
     res.json(updated);
