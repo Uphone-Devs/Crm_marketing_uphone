@@ -499,6 +499,156 @@ async function openWhatsApp(phoneNumber, messageText) {
 }
 
 /**
+ * Busca un nodo en la UI del celular y lo presiona. Sin caché (la UI de chat cambia).
+ * @param {RegExp} matchRegex — patrón que debe cumplir el nodo
+ * @param {RegExp|null} excludeRegex — patrón que descarta el nodo (ej: videollamada)
+ */
+async function findAndTapNode(serial, matchRegex, excludeRegex = null) {
+  try {
+    await runAdbShell(['-s', serial, 'shell', 'uiautomator', 'dump', '/sdcard/window_dump.xml'], 6000);
+    const res = await runAdbShell(['-s', serial, 'shell', 'cat', '/sdcard/window_dump.xml']);
+    if (!res.output) return false;
+    const nodes = res.output.match(/<node[^>]*>/g);
+    if (!nodes) return false;
+    for (const node of nodes) {
+      if (matchRegex.test(node) && !(excludeRegex && excludeRegex.test(node))) {
+        const bounds = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
+        if (bounds) {
+          const cx = Math.floor((parseInt(bounds[1]) + parseInt(bounds[3])) / 2);
+          const cy = Math.floor((parseInt(bounds[2]) + parseInt(bounds[4])) / 2);
+          await runAdbShell(['-s', serial, 'shell', 'input', 'tap', cx, cy]);
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Intenta llamada de voz WhatsApp DIRECTA vía el proveedor de contactos.
+ * Solo funciona si el número está guardado como contacto con WhatsApp sincronizado.
+ * Es el método más confiable: lanza la llamada sin tocar la UI.
+ * @returns {boolean} true si la llamada se lanzó
+ */
+async function tryDirectWspCall(serial, intlNumber) {
+  try {
+    const res = await runAdbShell([
+      '-s', serial, 'shell',
+      `content query --uri content://com.android.contacts/data --projection _id:data1 --where "mimetype='vnd.android.cursor.item/vnd.com.whatsapp.voip.call'"`,
+    ], 8000);
+    if (!res.output || res.output.includes('No result found')) return false;
+
+    // Últimos 9 dígitos = número nacional significativo (Ecuador)
+    const target = intlNumber.slice(-9);
+    let dataId = null;
+    const rows = res.output.split(/\r?\n/);
+    for (const row of rows) {
+      const m = row.match(/_id=(\d+),\s*data1=(.*)$/);
+      if (!m) continue;
+      const rowDigits = m[2].replace(/\D/g, '');
+      if (rowDigits.endsWith(target)) { dataId = m[1]; break; }
+    }
+    if (!dataId) return false;
+
+    console.log(`[ADB] Contacto WhatsApp encontrado (data id=${dataId}) — llamada directa`);
+    const call = await runAdbShell([
+      '-s', serial, 'shell',
+      `am start -a android.intent.action.VIEW -d content://com.android.contacts/data/${dataId} -t "vnd.android.cursor.item/vnd.com.whatsapp.voip.call" -p com.whatsapp`,
+    ], 6000);
+    return !!(call.output && call.output.includes('Starting:'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Realiza una LLAMADA DE VOZ por WhatsApp en el celular del slot indicado.
+ *
+ * Estrategia A (directa): si el número está guardado como contacto, lanza la
+ * llamada vía content provider — sin tocar la UI, 100% confiable.
+ * Estrategia B (UI): abre el chat → busca el botón de llamada de voz con
+ * patrones priorizados y reintentos → lo presiona → confirma popup "Llamar".
+ *
+ * @param {string} phoneNumber — nacional (09...) o internacional (593...)
+ * @param {number} deviceIndex — slot del celular (default 1 = Celular 2)
+ */
+async function whatsappCall(phoneNumber, deviceIndex = 1) {
+  try {
+    const devices = await getSortedDevices();
+    if (devices.length === 0) throw new Error('Sin celular detectado (USB/WIFI)');
+    if (deviceIndex >= devices.length) {
+      throw new Error(`Celular ${deviceIndex + 1} no conectado (solo hay ${devices.length} dispositivo${devices.length === 1 ? '' : 's'})`);
+    }
+    const serial = devices[deviceIndex].serial;
+
+    // Normalizar a formato internacional Ecuador (593...)
+    let clean = String(phoneNumber).replace(/\D/g, '');
+    if (clean.startsWith('0')) clean = '593' + clean.slice(1);
+    else if (!clean.startsWith('593') && clean.length === 9) clean = '593' + clean;
+
+    console.log(`[ADB] Llamada WhatsApp a ${clean} en dispositivo ${serial} (slot ${deviceIndex + 1})...`);
+
+    // ── Estrategia A: llamada directa vía contacto sincronizado ──
+    const directa = await tryDirectWspCall(serial, clean);
+    if (directa) {
+      console.log('[ADB] Llamada WhatsApp lanzada vía intent directo (contacto)');
+      return { success: true, phone: clean, deviceIndex, serial, method: 'contact_intent' };
+    }
+
+    // ── Estrategia B: abrir chat + tocar botón de llamada ──
+    await runAdbShell(['-s', serial, 'shell', `am start -a android.intent.action.VIEW -d 'whatsapp://send?phone=${clean}'`], 5000);
+
+    // Patrones priorizados: resource-id exacto primero, content-desc después
+    const patrones = [
+      /resource-id="com\.whatsapp:id\/menuitem_call"/i,
+      /voice.?call|audio.?call|llamada de voz/i,
+      /content-desc="[^"]*llama[^"]*"/i,
+      /content-desc="[^"]*\bcall\b[^"]*"/i,
+    ];
+
+    let tapped = false;
+    for (let intento = 0; intento < 4 && !tapped; intento++) {
+      // 1er intento: esperar carga del chat; siguientes: dar tiempo a que termine animación
+      await new Promise(r => setTimeout(r, intento === 0 ? 2500 : 1500));
+      for (const pat of patrones) {
+        tapped = await findAndTapNode(serial, pat, /video/i);
+        if (tapped) {
+          console.log(`[ADB] Botón de llamada WSP tocado (patrón: ${pat}, intento ${intento + 1})`);
+          break;
+        }
+      }
+    }
+
+    if (!tapped) {
+      console.warn('[ADB] No se encontró el botón de llamada WSP tras 4 intentos');
+      return {
+        success: false,
+        chatOpened: true,
+        error: 'Chat abierto, pero no se encontró el botón de llamada. Toque el teléfono en el celular.',
+      };
+    }
+
+    // Popup de confirmación "¿Llamar a +593...?" (números no guardados) — reintentar 2 veces
+    for (let i = 0; i < 2; i++) {
+      await new Promise(r => setTimeout(r, 1200));
+      const confirmado = await findAndTapNode(serial, /text="(Llamar|LLAMAR|Call|CALL)"/, /video|cancel|mensaje/i);
+      if (confirmado) {
+        console.log('[ADB] Popup de confirmación "Llamar" confirmado');
+        break;
+      }
+    }
+
+    return { success: true, phone: clean, deviceIndex, serial, method: 'ui_tap' };
+  } catch (err) {
+    console.error('[ADB] whatsappCall error:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * Cuelga la llamada activa usando KEYCODE_ENDCALL (6).
  * Universalmente soportado en Android.
  */
@@ -769,4 +919,5 @@ module.exports = {
   isScrcpyRunning,
   sendSMS,
   openWhatsApp,
+  whatsappCall,
 };

@@ -44,6 +44,7 @@ const {
   checkCallStatus,
   sendSMS,
   openWhatsApp,
+  whatsappCall,
 } = require('./adbManager');
 const metricsManager = require('./metricsManager');
 const { startCapture, stopCapture, isCapturing } = require('./audioManager');
@@ -148,6 +149,7 @@ function registerIpcHandlers() {
   ipcMain.handle('adb:stopAll', async () => { stopAll(); return { success: true }; });
   ipcMain.handle('adb:sendSMS', async (event, phoneNumber, message) => sendSMS(phoneNumber, message));
   ipcMain.handle('adb:openWhatsApp', async (event, phoneNumber, message) => openWhatsApp(phoneNumber, message));
+  ipcMain.handle('adb:whatsappCall', async (event, phoneNumber, deviceIndex) => whatsappCall(phoneNumber, deviceIndex == null ? 1 : deviceIndex));
   ipcMain.handle('adb:stop', async () => { stopAll(); return { success: true }; });
 
   // ── AUDIO ──────────────────────────────────────────────
