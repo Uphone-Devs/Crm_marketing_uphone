@@ -21,16 +21,6 @@ const TIPO_COLOR = {
 };
 
 const fmt$ = (n) => n != null ? `$${Number(n).toFixed(2)}` : '—';
-const fmtFechaHora = (ts) => {
-  if (!ts || typeof ts !== 'string') return '—';
-  try {
-    const d = new Date(ts.replace(' ', 'T'));
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleString('es-EC', {
-      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
-    });
-  } catch { return '—'; }
-};
 const fmtHora = (ts) => {
   if (!ts || typeof ts !== 'string') return '—';
   try {
@@ -38,6 +28,27 @@ const fmtHora = (ts) => {
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch { return '—'; }
+};
+// Retorna { dayLabel, time, urgent } para mostrar "HOY 14:30", "MÑN 09:00", "08 Jul 10:00"
+const fmtPromesaInfo = (ts) => {
+  if (!ts || typeof ts !== 'string') return null;
+  try {
+    const d = new Date(ts.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return null;
+    const now = new Date();
+    const todayStr = now.toDateString();
+    const tmwStr   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toDateString();
+    const time = d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const msLeft = d - now;
+    const isToday = d.toDateString() === todayStr;
+    return {
+      dayLabel: isToday ? 'HOY' : d.toDateString() === tmwStr ? 'MÑN'
+        : d.toLocaleDateString('es-EC', { day: '2-digit', month: 'short' }),
+      time,
+      urgent: isToday && msLeft > 0 && msLeft < 2 * 3600000,
+      isPast:  isToday && msLeft < 0,
+    };
+  } catch { return null; }
 };
 
 /**
@@ -104,6 +115,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   };
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, usuario?.id]);
+
 
   const filtrados = useMemo(() => {
     const txt = textoFiltro.trim().toLowerCase();
@@ -272,12 +284,12 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   return (
     <div className="widget-card" style={{ maxWidth: 1200, margin: '0 auto' }}>
       <div className="widget-header" style={{ marginBottom: 12 }}>
-        <div>
-          <span className="text-label" style={{ opacity: 0.5 }}>ASESOR · MIS COMPROMISOS</span>
-          <h3 className="widget-title" style={{ marginTop: 4 }}>Compromisos y Recalls</h3>
-          <p className="text-body-sm" style={{ opacity: 0.4, marginTop: 2, fontSize: 12 }}>
-            Tus compromisos de pago (PMP, Pago Realizado, Abono Parcial, Pendiente Comprobante) y "Volver a Llamar"
-          </p>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#64b5f6', marginTop: 2, opacity: 0.85 }}>handshake</span>
+          <div>
+            <span className="text-label" style={{ opacity: 0.45, fontSize: 11 }}>GESTOR · MIS COMPROMISOS</span>
+            <h3 className="widget-title" style={{ marginTop: 2, fontSize: 16 }}>Compromisos y Recalls</h3>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button"
@@ -364,11 +376,11 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
 
       {/* KPI cards */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <KpiCard label="Total registros" value={filtrados.length} color="var(--color-primary)" />
-        <KpiCard label="Compromisos PMP" value={cntPMP} color="#64b5f6" />
-        <KpiCard label="Pagos realizados" value={cntPago} color="var(--color-primary)" />
-        <KpiCard label="Volver a llamar" value={cntVolCall} color="#ff8a65" />
-        <KpiCard label="Suma comprometida" value={fmt$(totalMonto)} color="var(--color-primary)" />
+        <KpiCard label="Total registros"   value={filtrados.length}  color="rgba(255,255,255,0.7)" icon="format_list_bulleted" />
+        <KpiCard label="Compromisos PMP"   value={cntPMP}            color="#64b5f6"                icon="handshake" />
+        <KpiCard label="Pagos realizados"  value={cntPago}           color="var(--color-primary)"  icon="payments" />
+        <KpiCard label="Volver a llamar"   value={cntVolCall}        color="#ff8a65"               icon="phone_callback" />
+        <KpiCard label="Suma comprometida" value={fmt$(totalMonto)}  color="var(--color-primary)"  icon="attach_money" accent />
       </div>
 
       {/* Tabla */}
@@ -387,13 +399,12 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
-                <th style={th}>Hora</th>
+                <th style={th}>Hora llamada</th>
                 <th style={th}>Cliente</th>
-                <th style={th}>Tel.</th>
-                <th style={th}>Empresa</th>
-                <th style={th}>Tipo</th>
+                <th style={th}>Hora comprometida</th>
+                <th style={th}>Fecha de pago</th>
                 <th style={{ ...th, textAlign: 'right' }}>Monto</th>
-                <th style={th}>Fecha promesa</th>
+                <th style={th}>Nota</th>
                 <th style={th}></th>
               </tr>
             </thead>
@@ -402,6 +413,12 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                 const isOpen = expandedId === r.cdr_id;
                 const esIncumplido = r.tipificacion_codigo === 'INCUMP' || r.resultado === 'INCUMP';
                 const color = TIPO_COLOR[r.tipificacion_codigo] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc' };
+                const promesa = fmtPromesaInfo(r.fecha_promesa);
+                const rowBg = esIncumplido
+                  ? 'rgba(244,67,54,0.04)'
+                  : promesa?.urgent  ? 'rgba(255,193,7,0.06)'
+                  : promesa?.isPast  ? 'rgba(244,67,54,0.04)'
+                  : undefined;
                 return (
                   <React.Fragment key={`cmp-${r.cdr_id}`}>
                     <tr
@@ -409,47 +426,63 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                       style={{
                         cursor: 'pointer',
                         borderTop: '1px solid rgba(255,255,255,0.04)',
-                        background: esIncumplido ? 'rgba(244,67,54,0.04)' : undefined,
+                        background: rowBg,
                       }}
                     >
-                      <td style={td}><span className="text-mono">{fmtHora(r.hora_gestion)}</span></td>
-                      <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || '—'}</td>
-                      <td style={td}><span className="text-mono">{r.telefono || '—'}</span></td>
-                      <td style={td}>
-                        {r.empresa
-                          ? <span style={{ fontSize: 12, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,255,255,0.06)', opacity: 0.8 }}>{r.empresa}</span>
-                          : '—'}
-                      </td>
-                      <td style={td}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: color.bg, color: color.fg }}>
+                      {/* Hora llamada */}
+                      <td style={td}><span className="text-mono" style={{ fontSize: 13, letterSpacing: 0.5 }}>{fmtHora(r.hora_gestion)}</span></td>
+                      {/* Cliente */}
+                      <td style={{ ...td, fontWeight: 600 }}>
+                        <div>{r.nombre_deudor || '—'}</div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: color.bg, color: color.fg }}>
                             {TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc}
                           </span>
                           {r.resultado === 'COMP_CUM' && (
-                            <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(0,230,118,0.15)', color: 'var(--color-primary)' }}>
-                              PAGADO
-                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(0,230,118,0.15)', color: 'var(--color-primary)' }}>PAGADO</span>
                           )}
                           {r.resultado === 'REAG' && r.tipificacion_codigo !== 'INCUMP' && (
-                            <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'rgba(255,152,0,0.15)', color: '#ffcc02' }}>
-                              REAGENDADO
-                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,152,0,0.15)', color: '#ffcc02' }}>REAGENDADO</span>
                           )}
                         </div>
                       </td>
+                      {/* Hora comprometida */}
+                      <td style={td}>
+                        {promesa ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{
+                              fontWeight: 700, fontSize: 14, fontFamily: 'monospace',
+                              color: promesa.isPast ? '#ef9a9a' : promesa.urgent ? '#ffd54f' : '#64b5f6',
+                            }}>{promesa.time}</span>
+                            {promesa.urgent && <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#ffd54f' }}>schedule</span>}
+                            {promesa.isPast  && <span className="material-symbols-outlined" style={{ fontSize: 13, color: '#ef9a9a' }}>alarm_off</span>}
+                          </div>
+                        ) : <span style={{ opacity: 0.3 }}>—</span>}
+                      </td>
+                      {/* Fecha de pago */}
+                      <td style={td}>
+                        {promesa ? (
+                          <span style={{
+                            fontSize: 11, fontWeight: 800, letterSpacing: 0.6, padding: '2px 7px', borderRadius: 4,
+                            background: promesa.isPast  ? 'rgba(244,67,54,0.2)'
+                                      : promesa.urgent ? 'rgba(255,193,7,0.2)'
+                                      : 'rgba(100,181,246,0.15)',
+                            color:      promesa.isPast  ? '#ef9a9a'
+                                      : promesa.urgent ? '#ffd54f'
+                                      : '#64b5f6',
+                          }}>{promesa.dayLabel}</span>
+                        ) : <span style={{ opacity: 0.3 }}>—</span>}
+                      </td>
+                      {/* Monto */}
                       <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>
                         {r.monto_acordado != null
                           ? <span style={{ color: 'var(--color-primary)' }}>{fmt$(r.monto_acordado)}</span>
-                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 12 }}>sin capturar</span>}
+                          : <span style={{ color: '#ff9800', fontStyle: 'italic', fontSize: 12 }}>—</span>}
                       </td>
-                      <td style={td}>
-                        {r.fecha_promesa
-                          ? (
-                            <div style={{ color: '#64b5f6', fontSize: 12, lineHeight: 1.2 }}>
-                              <span style={{ fontWeight: 700 }}>Promesa para las {fmtHora(r.fecha_promesa)}</span><br/>
-                              <span style={{ opacity: 0.8 }}>en segmento {r.dias_mora != null ? r.dias_mora : '0'}</span>
-                            </div>
-                          )
+                      {/* Nota */}
+                      <td style={{ ...td, maxWidth: 200 }}>
+                        {r.notas
+                          ? <span style={{ fontSize: 11, opacity: 0.75, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{r.notas}</span>
                           : <span style={{ opacity: 0.3 }}>—</span>}
                       </td>
                       <td style={{ ...td, textAlign: 'right' }}>
@@ -460,19 +493,15 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                     </tr>
                     {isOpen && (
                       <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                        <td colSpan={8} style={{ padding: '10px 14px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, fontSize: 12 }}>
-                            <Detail label="Cédula" value={r.cedula || '—'} mono />
-                            <Detail label="Contrato" value={r.contrato || '—'} mono />
+                        <td colSpan={7} style={{ padding: '10px 14px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, fontSize: 12 }}>
+                            <Detail label="Teléfono"       value={r.telefono  || '—'} mono />
+                            <Detail label="Cédula"         value={r.cedula    || '—'} mono />
+                            <Detail label="Contrato"       value={r.contrato  || '—'} mono />
+                            {r.empresa && <Detail label="Empresa" value={r.empresa} />}
                             <Detail label="Mora del cliente" value={r.valor_mora != null ? fmt$(r.valor_mora) : '—'} />
                             <Detail label="Duración llamada" value={r.duracion_seg ? `${Math.floor(r.duracion_seg/60)}:${(r.duracion_seg%60).toString().padStart(2,'0')}` : '—'} mono />
                           </div>
-                          {r.notas && (
-                            <div style={{ marginTop: 8, padding: '8px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 6, fontSize: 12, lineHeight: 1.4, opacity: 0.85 }}>
-                              <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700 }}>NOTAS</span>
-                              <p style={{ margin: '4px 0 0' }}>{r.notas}</p>
-                            </div>
-                          )}
                           {/* Formulario de reagendamiento */}
                           {reagendaFormId === r.cdr_id && (
                             <div style={{
@@ -717,16 +746,21 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
 const th = { padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.4 };
 const td = { padding: '8px 10px', verticalAlign: 'middle' };
 
-function KpiCard({ label, value, color, warn }) {
+function KpiCard({ label, value, color, warn, icon, accent }) {
   return (
     <div style={{
-      flex: '1 1 160px', minWidth: 140,
+      flex: '1 1 150px', minWidth: 130,
       padding: '10px 14px', borderRadius: 8,
-      background: warn ? 'rgba(255,152,0,0.08)' : 'rgba(255,255,255,0.03)',
-      border: '1px solid ' + (warn ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.06)'),
+      background: accent ? 'rgba(0,230,118,0.06)' : warn ? 'rgba(255,152,0,0.08)' : 'rgba(255,255,255,0.03)',
+      border: '1px solid ' + (accent ? 'rgba(0,230,118,0.18)' : warn ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.06)'),
     }}>
-      <div style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, marginTop: 4, color: color || 'inherit' }}>{value}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+        {icon && (
+          <span className="material-symbols-outlined" style={{ fontSize: 14, color: color || 'inherit', opacity: 0.7 }}>{icon}</span>
+        )}
+        <div style={{ fontSize: 11, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
+      </div>
+      <div style={{ fontSize: 21, fontWeight: 800, color: color || 'inherit', lineHeight: 1 }}>{value}</div>
     </div>
   );
 }

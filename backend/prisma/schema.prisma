@@ -173,7 +173,8 @@ model Cdr {
   notas             String?
   canal             Canal         @default(llamada)
   creadoEn          DateTime      @default(now()) @map("creado_en")
-  montoAcordado     Decimal?      @map("monto_acordado") @db.Decimal(12, 2)
+  montoAcordado       Decimal?      @map("monto_acordado") @db.Decimal(12, 2)
+  scheduledDatetime   DateTime?     @map("scheduled_datetime")
   snapshotNombre    String?       @map("snapshot_nombre")
   snapshotCedula    String?       @map("snapshot_cedula")
   snapshotTelefono  String?       @map("snapshot_telefono")

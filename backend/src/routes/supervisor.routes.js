@@ -1557,7 +1557,11 @@ router.get('/indicadores-cobranza', async (req, res, next) => {
 router.get('/tipificaciones', async (req, res, next) => {
   try {
     const tips = await db.tipificacion.findMany({ orderBy: { id: 'asc' } });
-    res.json(tips);
+    // Normalizar a snake_case para compatibilidad con frontend (usa requiere_agd)
+    res.json(tips.map(t => ({
+      ...t,
+      requiere_agd: t.requiereAgd,
+    })));
   } catch (err) { next(err); }
 });
 
@@ -1698,11 +1702,14 @@ router.get('/mis-compromisos', async (req, res, next) => {
         co.cedula,
         co.telefono,
         co.metadata,
-        (
-          SELECT ag.fecha_hora FROM agendamientos ag
-          WHERE ag.contacto_id = c.contacto_id AND ag.asesor_id = c.usuario_id
-            AND ag.estado != 'cancelado'
-          ORDER BY ag.id DESC LIMIT 1
+        COALESCE(
+          c.scheduled_datetime,
+          (
+            SELECT ag.fecha_hora FROM agendamientos ag
+            WHERE ag.contacto_id = c.contacto_id AND ag.asesor_id = c.usuario_id
+              AND ag.estado != 'cancelado'
+            ORDER BY ag.id DESC LIMIT 1
+          )
         ) AS fecha_promesa
       FROM cdrs c
       JOIN tipificaciones t ON c.tipificacion_id = t.id
