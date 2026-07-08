@@ -228,7 +228,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
 
   const handleIncumplido = async (e, cdrId) => {
     e.stopPropagation();
-    if (!window.confirm('¿Marcar este compromiso como incumplido? El contacto volverá a PENDIENTE.')) return;
+    if (!window.confirm('¿Marcar este compromiso como incumplido? El cliente volverá a tu cartera asignada como PENDIENTE para volver a gestionarlo.')) return;
     setIncumpGuardandoId(cdrId);
     try {
       const fn = callApi || ((ch, ...a) => window.api.invoke(ch, ...a));
