@@ -88,11 +88,33 @@ function playBeep() {
   } catch (e) { console.warn('BEEP fallido:', e); }
 }
 
+function playAlertBeep() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    // 3 pitidos: do-mi-sol ascendente, gain 0.4
+    [0, 0.22, 0.44].forEach((offset, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime([660, 784, 988][i], t + offset);
+      gain.gain.setValueAtTime(0, t + offset);
+      gain.gain.linearRampToValueAtTime(0.4, t + offset + 0.04);
+      gain.gain.linearRampToValueAtTime(0, t + offset + 0.18);
+      osc.start(t + offset);
+      osc.stop(t + offset + 0.2);
+    });
+  } catch (e) { console.warn('ALERT BEEP fallido:', e); }
+}
+
 export default function AsesorPanel({ usuario, onLogout }) {
   // ── Estado de Navegación y Conectividad ──
   const [activePage, setActivePage] = useState('dashboard');
   const wsStatusRef = useRef('DESCONECTADO');
   const alertadosPmpRef = useRef(new Set()); // CDR IDs ya alertados (5-min aviso)
+  const [highlightCdrId, setHighlightCdrId] = useState(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
   const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.82');
   const wsActiveIpRef = useRef(wsIp);
@@ -1056,11 +1078,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
           const msLeft = promesaTs - now;
           if (msLeft > 0 && msLeft <= CINCO_MIN_MS) {
             alertadosPmpRef.current.add(r.cdr_id);
-            handleAvisoLocal({
-              contacto_id:    r.contacto_id,
-              nombre_deudor:  r.nombre_deudor,
-              tipo_agendamiento: 'PMP',
-            });
+            const nombre = r.nombre_deudor || `#${r.contacto_id}`;
+            playAlertBeep();
+            showToast(
+              `En 5 min: Compromiso de pago — ${nombre}`,
+              'warning', 0,
+              { actionLabel: 'VER CLIENTE', onClick: () => { setActivePage('compromisos'); setHighlightCdrId(r.cdr_id); } }
+            );
           }
         });
       } catch { /* silencioso */ }
@@ -3065,6 +3089,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
               showToast={showToast}
               onGestionar={(contactoId) => { cargarContactoAgendado(contactoId, false, true); }}
               onCompromisoAction={fetchMetricasYEnviar}
+              highlightCdrId={highlightCdrId}
+              onHighlightConsumed={() => setHighlightCdrId(null)}
             />
           ) : activePage === 'dashboard' ? (
             <div className="asesor-layout-grid">
