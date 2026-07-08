@@ -210,9 +210,10 @@ async function getDeviceStats() {
 
     const devicesOut = await runAdbWithTimeout(['devices', '-l'], 3000);
     const devices = parseDevices(devicesOut);
-    
+    devices.sort((a, b) => a.serial.localeCompare(b.serial));
+
     if (devices.length === 0) {
-      return { connected: false, scrcpyActive: false };
+      return { connected: false, scrcpyActive: false, deviceCount: 0 };
     }
 
     const serial = devices[0].serial;
@@ -221,15 +222,17 @@ async function getDeviceStats() {
     try {
       await runAdbWithTimeout(['-s', serial, 'shell', 'echo', 'OK'], 2000);
     } catch {
-      return { connected: false, scrcpyActive };
+      return { connected: false, scrcpyActive, deviceCount: 0 };
     }
 
     return {
       connected: true, // El dispositivo está conectado y responde
-      deviceReady: true,       
+      deviceReady: true,
       scrcpyActive,
       serial,
       model: devices[0].model,
+      deviceCount: devices.length,
+      devices: devices.map(d => ({ serial: d.serial, model: d.model, isWifi: d.isWifi })),
     };
   } catch (err) {
     return { connected: false, scrcpyActive: false };
@@ -337,25 +340,44 @@ pause`;
 // CONTROL DE LLAMADAS
 // ═══════════════════════════════════════════════════════════════
 
-async function dial(phoneNumber) {
+/**
+ * Devuelve los dispositivos conectados con orden estable (por serial).
+ * Garantiza que el slot 0 = Celular 1 y slot 1 = Celular 2 no cambien
+ * entre invocaciones mientras ambos sigan conectados.
+ */
+async function getSortedDevices() {
+  const devicesOut = await runAdb(['devices']);
+  const devices = parseDevices(devicesOut);
+  devices.sort((a, b) => a.serial.localeCompare(b.serial));
+  return devices;
+}
+
+/**
+ * Marca un número en el celular del slot indicado.
+ * @param {string} phoneNumber
+ * @param {number} deviceIndex — 0 = Celular 1 (default), 1 = Celular 2
+ */
+async function dial(phoneNumber, deviceIndex = 0) {
   try {
-    const devicesOut = await runAdb(['devices']);
-    const devices = parseDevices(devicesOut);
-    
+    const devices = await getSortedDevices();
+
     if (devices.length === 0) {
       throw new Error('Sin celular detectado (USB/WIFI)');
     }
-    
-    const serial = devices[0].serial;
+    if (deviceIndex >= devices.length) {
+      throw new Error(`Celular ${deviceIndex + 1} no conectado (solo hay ${devices.length} dispositivo${devices.length === 1 ? '' : 's'})`);
+    }
+
+    const serial = devices[deviceIndex].serial;
     const cleanNumber = phoneNumber.replace(/\D/g, '');
-    
-    console.log(`[ADB] Marcando a ${cleanNumber} en dispositivo ${serial}...`);
-    
+
+    console.log(`[ADB] Marcando a ${cleanNumber} en dispositivo ${serial} (slot ${deviceIndex + 1})...`);
+
     const start = Date.now();
     await runAdb(['-s', serial, 'shell', 'am', 'start', '-a', 'android.intent.action.CALL', '-d', `tel:${cleanNumber}`]);
     const latency = Date.now() - start;
-    
-    return { success: true, latency, phoneNumber: cleanNumber };
+
+    return { success: true, latency, phoneNumber: cleanNumber, deviceIndex, serial };
   } catch (err) {
     console.error('[ADB] Fallo en marcación:', err.message);
     return { success: false, error: err.message };

@@ -116,6 +116,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const alertadosPmpRef = useRef(new Set()); // CDR IDs ya alertados (5-min aviso)
   const [highlightCdrId, setHighlightCdrId] = useState(null);
   const [isDeviceConnected, setIsDeviceConnected] = useState(false);
+  const [adbDeviceCount, setAdbDeviceCount] = useState(0);
   const [wsIp, setWsIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.82');
   const wsActiveIpRef = useRef(wsIp);
   const adbErrorNotifiedRef = useRef(false);
@@ -636,13 +637,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario.id, contactoActual, cdrId, grabando, enLlamada, dialingMode, intentosConfig, enviarMetricasWS, callApi]);
 
-  const handleAdbMarcar = useCallback(async (contacto) => {
+  const handleAdbMarcar = useCallback(async (contacto, deviceIndex = 0) => {
     const telefono = typeof contacto === 'string' ? contacto : contacto?.telefono;
     if (!telefono) return;
     let tel = telefono;
     if (!tel.startsWith('0')) tel = '0' + tel;
     try {
-      const res = await window.api.invoke('adb:dial', tel);
+      const res = await window.api.invoke('adb:dial', tel, deviceIndex);
       if (res.success) {
         setMarcaciones(prev => prev + 1);
         let cdrIdLocal = null;
@@ -657,10 +658,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
           } catch { /* no bloquea */ }
         }
         setCarteraLlamada({ contacto: typeof contacto === 'object' ? contacto : { telefono }, cdrId: cdrIdLocal });
-        showToast(`Marcando ${tel}...`, 'success');
+        showToast(`Marcando ${tel} (Cel ${deviceIndex + 1})...`, 'success');
         enviarMetricasWS();
       } else {
-        showToast('Sin conexión ADB — verifica depuración USB', 'warning');
+        showToast(res.error || 'Sin conexión ADB — verifica depuración USB', 'warning');
       }
     } catch {
       showToast('Error ADB — verifica depuración USB', 'error');
@@ -1118,11 +1119,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
       try {
         const stats = await window.api.invoke('adb:getDeviceStats');
         setIsDeviceConnected(!!stats.connected);
+        setAdbDeviceCount(stats.deviceCount || 0);
         if (!!stats.connected) {
           adbErrorNotifiedRef.current = false; // Reset when connected
         }
       } catch (err) {
         setIsDeviceConnected(false);
+        setAdbDeviceCount(0);
         if (!adbErrorNotifiedRef.current) {
           showToast('Dispositivo ADB desconectado o no encontrado.', 'error');
           adbErrorNotifiedRef.current = true;
@@ -2585,7 +2588,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
-                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={isDeviceConnected ? 'Marcar vía ADB (dispositivo conectado)' : 'Marcar vía ADB (sin dispositivo)'}>📱</th>
+                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={isDeviceConnected ? 'Marcar vía ADB — Celular 1 (conectado)' : 'Marcar vía ADB — Celular 1 (sin dispositivo)'}>📱1</th>
+                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={adbDeviceCount >= 2 ? 'Marcar vía ADB — Celular 2 (conectado)' : 'Marcar vía ADB — Celular 2 (sin dispositivo)'}>📱2</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2836,13 +2840,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   )}
                                 </div>
                               </td>
-                              {/* ── Columna ADB opcional — siempre visible y activa ── */}
+                              {/* ── Columna ADB Celular 1 — siempre visible y activa ── */}
                               <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                                   <button
                                     type="button"
-                                    title={`Marcar ${c.telefono} vía ADB${isDeviceConnected ? '' : ' (verificar depuración USB)'}`}
-                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c); }}
+                                    title={`Marcar ${c.telefono} vía ADB — Celular 1${isDeviceConnected ? '' : ' (verificar depuración USB)'}`}
+                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, 0); }}
                                     style={{
                                       width: 32, height: 32, borderRadius: 8,
                                       border: '1px solid rgba(100,181,246,0.35)',
@@ -2855,12 +2859,40 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   >
                                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_forwarded</span>
                                   </button>
-                                  {/* Indicador de estado ADB */}
+                                  {/* Indicador de estado ADB Cel 1 */}
                                   <div style={{
                                     width: 6, height: 6, borderRadius: '50%',
                                     background: isDeviceConnected ? '#00e676' : '#ff5252',
                                     boxShadow: isDeviceConnected ? '0 0 4px #00e676' : 'none',
-                                  }} title={isDeviceConnected ? 'ADB conectado' : 'ADB desconectado'} />
+                                  }} title={isDeviceConnected ? 'Celular 1 conectado' : 'Celular 1 desconectado'} />
+                                </div>
+                              </td>
+                              {/* ── Columna ADB Celular 2 — prototipo doble marcación ── */}
+                              <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                  <button
+                                    type="button"
+                                    title={`Marcar ${c.telefono} vía ADB — Celular 2${adbDeviceCount >= 2 ? '' : ' (no conectado)'}`}
+                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, 1); }}
+                                    style={{
+                                      width: 32, height: 32, borderRadius: 8,
+                                      border: '1px solid rgba(186,104,200,0.35)',
+                                      background: 'rgba(186,104,200,0.10)',
+                                      color: '#ba68c8',
+                                      cursor: 'pointer',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      transition: 'all 0.2s',
+                                      opacity: adbDeviceCount >= 2 ? 1 : 0.45,
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_forwarded</span>
+                                  </button>
+                                  {/* Indicador de estado ADB Cel 2 */}
+                                  <div style={{
+                                    width: 6, height: 6, borderRadius: '50%',
+                                    background: adbDeviceCount >= 2 ? '#00e676' : '#ff5252',
+                                    boxShadow: adbDeviceCount >= 2 ? '0 0 4px #00e676' : 'none',
+                                  }} title={adbDeviceCount >= 2 ? 'Celular 2 conectado' : 'Celular 2 desconectado'} />
                                 </div>
                               </td>
                             </tr>
