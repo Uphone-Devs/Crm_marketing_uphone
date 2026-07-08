@@ -137,7 +137,7 @@ function registerIpcHandlers() {
   ipcMain.handle('adb:getROI', async () => {
     return metricsManager.calculateROI();
   });
-  ipcMain.handle('adb:dial', async (event, num) => dial(num));
+  ipcMain.handle('adb:dial', async (event, num, deviceIndex) => dial(num, deviceIndex || 0));
   ipcMain.handle('adb:hangup', async () => hangup());
   ipcMain.handle('adb:toggleHold', async () => toggleHold());
   ipcMain.handle('adb:toggleMute', async () => toggleMute());
