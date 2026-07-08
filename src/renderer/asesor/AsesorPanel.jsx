@@ -230,6 +230,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraHasta, setCarteraHasta] = useState('');
   const [contactoInfoPopup, setContactoInfoPopup] = useState(null);
   const [carteraLlamada, setCarteraLlamada] = useState(null);
+  // Distintivo por celular: qué contacto está marcando cada slot ADB. { 0: contactoId|null, 1: contactoId|null }
+  const [llamadaActivaPorCel, setLlamadaActivaPorCel] = useState({ 0: null, 1: null });
   const [tipifMarcaLlamada, setTipifMarcaLlamada] = useState(false);
   const [tipifSelects, setTipifSelects] = useState({}); // { contactoId: 'no_contesta' | 'cuelga' | ... }
   const TIP_CODE_TO_VAL = { CUE:'cuelga', NC:'no_contesta', NEG:'negativa_pago', REF:'referencia', EQ:'equivocado', SUS:'suspendido', PMP:'promesa_pago', TER:'tercero', VOL_CALL:'volver_llamar', BUZON:'buzon_voz' };
@@ -662,6 +664,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
           } catch { /* no bloquea */ }
         }
         setCarteraLlamada({ contacto: typeof contacto === 'object' ? contacto : { telefono }, cdrId: cdrIdLocal });
+        // Distintivo por celular: marcar este contacto en el slot usado (reemplaza al anterior de ese slot)
+        const contactoId = typeof contacto === 'object' ? contacto?.id : null;
+        if (contactoId) setLlamadaActivaPorCel(prev => ({ ...prev, [deviceIndex]: contactoId }));
         showToast(esWspCall ? `Llamando por WhatsApp ${tel} (Cel 2)...` : `Marcando ${tel} (Cel ${deviceIndex + 1})...`, 'success');
         enviarMetricasWS();
       } else {
@@ -673,15 +678,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
   }, [showToast, callApi, usuario.id, enviarMetricasWS]);
 
   const handleCarteraHangup = useCallback(async () => {
+    // Solo colgar. La tipificación es MANUAL vía el select/botón de la columna LLAMADA — NO abrir diálogo.
     try { await window.api.invoke('adb:hangup'); } catch { /* ignorar */ }
-    if (carteraLlamada) {
-      setContactoActual(carteraLlamada.contacto);
-      setCdrId(carteraLlamada.cdrId);
-      setCarteraLlamada(null);
-      setTipifMarcaLlamada(false); // marcación ya fue contada al marcar
-      setShowTipificacion(true);
-    }
-  }, [carteraLlamada]);
+    setCarteraLlamada(null);
+  }, []);
 
   async function handleHangup() {
     try {
@@ -1724,6 +1724,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
       if (contactoSnapshot?.id) {
         const tipifVal = TIP_CODE_TO_VAL[tipificacion.codigo];
         if (tipifVal) setTipifSelects(prev => ({ ...prev, [contactoSnapshot.id]: tipifVal }));
+        // Limpiar distintivo de llamada: ya se tipificó, la llamada dejó de estar "en curso"
+        setLlamadaActivaPorCel(prev => {
+          const next = { ...prev };
+          if (next[0] === contactoSnapshot.id) next[0] = null;
+          if (next[1] === contactoSnapshot.id) next[1] = null;
+          return next;
+        });
       }
       setDashRefreshTrigger(p => p + 1);
       fetchMetricasYEnviar();
@@ -2610,13 +2617,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           const turno = turnoMap.get(c.id);
                           const esSiguiente = turno === 1;
                           const esPMP = tipifSelects[c.id] === 'promesa_pago';
+                          const llamadoCel1 = llamadaActivaPorCel[0] === c.id;
+                          const llamadoCel2 = llamadaActivaPorCel[1] === c.id;
                           return (
                             <tr key={`crt-${c.id}`}
                               onClick={(e) => { if (e.target.closest('button, select')) return; setContactoInfoPopup(c); }}
                               style={{
                                 borderTop: '1px solid rgba(255,255,255,0.04)',
-                                background: esPMP ? 'rgba(0,230,118,0.09)' : esSiguiente ? 'rgba(0,230,118,0.06)' : undefined,
-                                borderLeft: esPMP ? '3px solid rgba(0,230,118,0.55)' : undefined,
+                                background: llamadoCel1
+                                  ? 'rgba(100,181,246,0.14)'
+                                  : llamadoCel2
+                                    ? 'rgba(171,71,188,0.16)'
+                                    : esPMP ? 'rgba(0,230,118,0.09)' : esSiguiente ? 'rgba(0,230,118,0.06)' : undefined,
+                                borderLeft: llamadoCel1
+                                  ? '3px solid #64b5f6'
+                                  : llamadoCel2
+                                    ? '3px solid #ab47bc'
+                                    : esPMP ? '3px solid rgba(0,230,118,0.55)' : undefined,
                                 cursor: 'pointer',
                               }}>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
@@ -2646,7 +2663,31 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   {est.label}
                                 </span>
                               </td>
-                              <td style={{ padding: '8px 10px', fontWeight: 600 }}>{c.nombre_deudor || '—'}</td>
+                              <td style={{ padding: '8px 10px', fontWeight: 600 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                  <span>{c.nombre_deudor || '—'}</span>
+                                  {llamadoCel1 && (
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 800, padding: '1px 7px', borderRadius: 99,
+                                      background: 'rgba(100,181,246,0.22)', color: '#64b5f6',
+                                      border: '1px solid rgba(100,181,246,0.5)', whiteSpace: 'nowrap',
+                                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                                    }} title="Llamado desde Celular 1">
+                                      <span className="material-symbols-outlined" style={{ fontSize: 11 }}>smartphone</span>Cel 1
+                                    </span>
+                                  )}
+                                  {llamadoCel2 && (
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 800, padding: '1px 7px', borderRadius: 99,
+                                      background: 'rgba(171,71,188,0.22)', color: '#ce93d8',
+                                      border: '1px solid rgba(171,71,188,0.5)', whiteSpace: 'nowrap',
+                                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                                    }} title="Llamado por WhatsApp desde Celular 2">
+                                      <span className="material-symbols-outlined" style={{ fontSize: 11 }}>perm_phone_msg</span>Cel 2 WSP
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
                               <td style={{ padding: '8px 10px' }}><span className="text-mono">{c.cedula || '—'}</span></td>
                               <td style={{ padding: '8px 10px' }}><span className="text-mono">{c.telefono || '—'}</span></td>
                               <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--color-danger)' }}>
@@ -2880,9 +2921,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, 1); }}
                                     style={{
                                       width: 32, height: 32, borderRadius: 8,
-                                      border: '1px solid rgba(37,211,102,0.35)',
-                                      background: 'rgba(37,211,102,0.10)',
-                                      color: '#25D366',
+                                      border: '1px solid rgba(171,71,188,0.35)',
+                                      background: 'rgba(171,71,188,0.10)',
+                                      color: '#ce93d8',
                                       cursor: 'pointer',
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                                       transition: 'all 0.2s',
@@ -3124,7 +3165,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               callApi={callApi}
               showToast={showToast}
               onGestionar={(contactoId) => { cargarContactoAgendado(contactoId, false, true); }}
-              onCompromisoAction={fetchMetricasYEnviar}
+              onCompromisoAction={async () => { await fetchMetricasYEnviar(); await cargarCartera(); }}
               highlightCdrId={highlightCdrId}
               onHighlightConsumed={() => setHighlightCdrId(null)}
             />
@@ -4089,7 +4130,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
             }}
           >
             <span className="material-symbols-outlined" style={{ fontSize: 16 }}>call_end</span>
-            COLGAR Y TIPIFICAR
+            COLGAR
           </button>
         </div>
       )}
