@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS campanas (
   fecha_inicio TEXT,
   fecha_fin    TEXT,
   supervisor_id INTEGER REFERENCES usuarios(id),
-  estado      TEXT    NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa','pausada','finalizada'))
+  estado      TEXT    NOT NULL DEFAULT 'activa' CHECK(estado IN ('activa','pausada','finalizada')),
+  meta_diaria REAL    NOT NULL DEFAULT 0
 );
 
 -- ── Contactos (deudores asignados a campañas) ───────────────

@@ -278,26 +278,66 @@ router.post('/config', requireRole('supervisor', 'jefe_area', 'admin'), async (r
 });
 
 // ── GET /api/cartera-equipo — Cartera asignada del equipo completo ───────────
+// Devuelve array PLANO con asesor_nombre por fila (mismo formato que local SQLite).
 router.get('/cartera-equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const whereU = { rol: 'asesor', estado: 'activo' };
-    if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
+    const rows = await db.$queryRaw`
+      SELECT
+        ct.id,
+        ct.cedula,
+        ct.nombre_deudor,
+        ct.telefono,
+        CAST(ct.monto_deuda AS DOUBLE PRECISION) AS monto_deuda,
+        ct.producto,
+        ct.metadata::text        AS metadata,
+        ct.estado_marcacion,
+        ct.intentos_realizados,
+        ct.ya_pago,
+        ct.campana_id,
+        ct.asignado_a,
+        ct.whatsapp_status,
+        ct.rcs_status,
+        ct.correo_status,
+        ct.validado_pago,
+        ct.orden_marcacion,
+        ct.fecha_asignacion,
+        u.nombre                 AS asesor_nombre,
+        cmp.nombre               AS campana_nombre,
+        cmp.fecha_inicio         AS campana_fecha,
+        COUNT(cdr.id)::int       AS gestiones_count,
+        (SELECT t.descripcion
+         FROM cdrs c2
+         LEFT JOIN tipificaciones t ON c2.tipificacion_id = t.id
+         WHERE c2.contacto_id = ct.id
+         ORDER BY c2.id DESC LIMIT 1) AS ultima_tipificacion
+      FROM contactos ct
+      LEFT JOIN usuarios u   ON ct.asignado_a = u.id
+      LEFT JOIN campanas cmp ON ct.campana_id  = cmp.id
+      LEFT JOIN cdrs cdr     ON cdr.contacto_id = ct.id
+      WHERE ct.asignado_a IS NOT NULL
+      GROUP BY ct.id, u.nombre, cmp.nombre, cmp.fecha_inicio
+      ORDER BY
+        u.nombre ASC NULLS LAST,
+        CASE WHEN ct.orden_marcacion IS NULL THEN 1 ELSE 0 END,
+        ct.orden_marcacion ASC NULLS LAST,
+        CASE ct.estado_marcacion
+          WHEN 'EN_INTENTOS' THEN 0
+          WHEN 'PENDIENTE'   THEN 1
+          WHEN 'AGENDADO'    THEN 2
+          WHEN 'GESTIONADO'  THEN 3
+          WHEN 'YA_PAGO'     THEN 4
+          ELSE 5
+        END,
+        ct.id ASC
+    `;
 
-    const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
-
-    const cartera = await Promise.all(asesores.map(async (a) => {
-      const contactos = await db.contacto.findMany({
-        where: { asignadoA: a.id },
-        select: {
-          id: true, nombreDeudor: true, telefono: true, estadoMarcacion: true,
-          montoDeuda: true, campanaId: true, ordenMarcacion: true,
-        },
-        orderBy: [{ ordenMarcacion: 'asc' }, { id: 'asc' }],
-      });
-      return { asesor_id: a.id, nombre: a.nombre, contactos };
-    }));
-
-    res.json(cartera);
+    res.json(rows.map(r => ({
+      ...r,
+      gestiones_count: Number(r.gestiones_count ?? 0),
+      monto_deuda: r.monto_deuda != null ? Number(r.monto_deuda) : null,
+      ya_pago: r.ya_pago === true || r.ya_pago === 1,
+      validado_pago: r.validado_pago === true || r.validado_pago === 1 ? 1 : 0,
+    })));
   } catch (err) { next(err); }
 });
 
@@ -511,23 +551,179 @@ router.get('/pagos-verificados', requireRole('supervisor', 'jefe_area', 'admin')
   } catch (err) { next(err); }
 });
 
-// ── GET /api/compromisos-equipo — Agendamientos pendientes del equipo ─────────
+// ── GET /api/compromisos-equipo — CDRs de compromisos del equipo ──────────────
 router.get('/compromisos-equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
+    const fechaStr = req.query.fecha || new Date().toISOString().slice(0, 10);
+    const asesorIdParam = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
+
     const whereU = { rol: 'asesor', estado: 'activo' };
     if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
-    const asesores = await db.usuario.findMany({ where: whereU, select: { id: true } });
-    const asesorIds = asesores.map(a => a.id);
+    const equipoAsesores = await db.usuario.findMany({ where: whereU, select: { id: true } });
+    const equipoIds = equipoAsesores.map(a => a.id);
 
-    const compromisos = await db.agendamiento.findMany({
-      where: { asesorId: { in: asesorIds }, estado: 'pendiente' },
-      include: {
-        contacto: { select: { id: true, nombreDeudor: true, telefono: true, montoDeuda: true } },
-        asesor: { select: { id: true, nombre: true } },
+    const asesorFilter = asesorIdParam && equipoIds.includes(asesorIdParam)
+      ? asesorIdParam
+      : { in: equipoIds };
+
+    const fechaInicio = new Date(fechaStr + 'T00:00:00');
+    const fechaFin    = new Date(fechaStr + 'T23:59:59.999');
+
+    const CODIGOS = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP', 'REAG', 'INCUMP'];
+
+    const cdrs = await db.cdr.findMany({
+      where: {
+        usuarioId: asesorFilter,
+        tipificacion: { codigo: { in: CODIGOS } },
+        OR: [
+          { timestampInicio: { gte: fechaInicio, lte: fechaFin } },
+          {
+            contacto: {
+              agendamientos: {
+                some: {
+                  fechaHora: { gte: fechaInicio, lte: fechaFin },
+                  estado: { not: 'cancelado' },
+                },
+              },
+            },
+          },
+        ],
       },
-      orderBy: { fechaHora: 'asc' },
+      select: {
+        id: true,
+        timestampInicio: true,
+        duracionSeg: true,
+        montoAcordado: true,
+        notas: true,
+        resultado: true,
+        snapshotNombre: true,
+        snapshotCedula: true,
+        snapshotTelefono: true,
+        snapshotEmpresa: true,
+        tipificacion: { select: { codigo: true, descripcion: true } },
+        usuario: { select: { nombre: true } },
+        contacto: {
+          select: {
+            nombreDeudor: true,
+            cedula: true,
+            telefono: true,
+            metadata: true,
+            agendamientos: {
+              where: { estado: { not: 'cancelado' } },
+              select: { fechaHora: true },
+              orderBy: { id: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: { timestampInicio: 'desc' },
     });
-    res.json(compromisos);
+
+    const result = cdrs.map(c => {
+      const meta = (c.contacto?.metadata && typeof c.contacto.metadata === 'object') ? c.contacto.metadata : {};
+      const empresa   = meta['EMPRESA']      || meta['empresa']       || c.snapshotEmpresa  || null;
+      const contrato  = meta['Nº CONTRATO']  || meta['CONTRATO']      || meta['contrato']   || null;
+      const moraRaw   = meta['VALOR EN MORA']|| meta['VALOR_EN_MORA'] || null;
+      let valorMora = null;
+      if (moraRaw != null) {
+        const p = parseFloat(String(moraRaw).replace(/[^0-9.-]/g, ''));
+        if (!isNaN(p)) valorMora = p;
+      }
+      return {
+        cdr_id:              c.id,
+        hora_gestion:        c.timestampInicio?.toISOString()     || null,
+        duracion_seg:        c.duracionSeg                         || null,
+        monto_acordado:      c.montoAcordado != null ? Number(c.montoAcordado) : null,
+        notas:               c.notas                               || null,
+        resultado:           c.resultado                           || null,
+        tipificacion_codigo: c.tipificacion?.codigo               || null,
+        tipificacion_desc:   c.tipificacion?.descripcion          || null,
+        asesor_nombre:       c.usuario?.nombre                    || null,
+        nombre_deudor:       c.contacto?.nombreDeudor || c.snapshotNombre    || null,
+        cedula:              c.contacto?.cedula        || c.snapshotCedula    || null,
+        telefono:            c.contacto?.telefono      || c.snapshotTelefono  || null,
+        empresa,
+        contrato,
+        valor_mora:          valorMora,
+        fecha_promesa:       c.contacto?.agendamientos?.[0]?.fechaHora?.toISOString() || null,
+      };
+    });
+
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// ── DELETE /api/compromisos/:id — Eliminar CDR compromiso ────────────────────
+router.delete('/compromisos/:id', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const cdrId = parseInt(req.params.id);
+    if (!cdrId) return res.status(400).json({ error: 'ID inválido' });
+    const cdr = await db.cdr.findUnique({ where: { id: cdrId }, select: { contactoId: true } });
+    if (!cdr) return res.status(404).json({ error: 'CDR no encontrado' });
+    await db.cdr.update({
+      where: { id: cdrId },
+      data: { tipificacionId: null, resultado: null, montoAcordado: null, notas: null },
+    });
+    // Revertir contacto a PENDIENTE si no tiene otros CDRs tipificados
+    const otrosTipif = await db.cdr.count({ where: { contactoId: cdr.contactoId, tipificacionId: { not: null }, id: { not: cdrId } } });
+    if (otrosTipif === 0) {
+      await db.contacto.update({ where: { id: cdr.contactoId }, data: { estadoMarcacion: 'PENDIENTE' } });
+    }
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/jefe/meta-diaria-campanas ───────────────────────────────────────
+router.get('/jefe/meta-diaria-campanas', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const hoy = new Date();
+    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const finDia    = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 23, 59, 59, 999);
+
+    const campanas = await db.campana.findMany({
+      where: { estado: 'activa' },
+      select: { id: true, nombre: true, metaDiaria: true },
+      orderBy: { id: 'desc' },
+    });
+
+    const cobradosPorCampana = await db.$queryRaw`
+      SELECT ct.campana_id, COALESCE(SUM(CAST(cdr.monto_acordado AS DOUBLE PRECISION)), 0) AS cobrado_hoy
+      FROM cdrs cdr
+      JOIN contactos ct ON cdr.contacto_id = ct.id
+      WHERE cdr.timestamp_inicio >= ${inicioDia}
+        AND cdr.timestamp_inicio <= ${finDia}
+        AND cdr.monto_acordado IS NOT NULL
+      GROUP BY ct.campana_id
+    `;
+
+    const cobradoMap = {};
+    cobradosPorCampana.forEach(r => { cobradoMap[Number(r.campana_id)] = Number(r.cobrado_hoy); });
+
+    res.json(campanas.map(c => {
+      const cobrado_hoy = cobradoMap[c.id] ?? 0;
+      return {
+        id: c.id,
+        nombre: c.nombre,
+        meta_diaria: c.metaDiaria ?? 0,
+        cobrado_hoy,
+        pct_cumplimiento: (c.metaDiaria ?? 0) > 0
+          ? Math.round((cobrado_hoy / c.metaDiaria) * 10000) / 100
+          : 0,
+      };
+    }));
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/jefe/meta-diaria-campana ───────────────────────────────────────
+router.post('/jefe/meta-diaria-campana', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const { campanaId, valor } = req.body;
+    const id  = parseInt(campanaId);
+    const val = parseFloat(valor);
+    if (!id || isNaN(val) || val < 0) return res.status(400).json({ error: 'campanaId y valor requeridos' });
+    await db.campana.update({ where: { id }, data: { metaDiaria: val } });
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
@@ -844,7 +1040,7 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
 });
 
 // ── Mensajes Broadcast ───────────────────────────────────────────
-router.get('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin', 'asesor'), async (req, res, next) => {
   try {
     const rows = await db.mensajeBroadcast.findMany({
       orderBy: { creadoEn: 'desc' },
@@ -1016,6 +1212,18 @@ router.get('/cartera', async (req, res, next) => {
       ],
     });
 
+    // Última tipificación por contacto (CDR más reciente con tipificacion_id)
+    const contactoIds = contactos.map(c => c.id);
+    const latestTipCdrs = contactoIds.length > 0 ? await db.cdr.findMany({
+      where: { contactoId: { in: contactoIds }, tipificacionId: { not: null } },
+      select: { contactoId: true, tipificacion: { select: { codigo: true, descripcion: true } } },
+      orderBy: { id: 'desc' },
+    }) : [];
+    const tipMap = new Map();
+    for (const cdr of latestTipCdrs) {
+      if (!tipMap.has(cdr.contactoId)) tipMap.set(cdr.contactoId, cdr.tipificacion);
+    }
+
     const today = new Date().toISOString().slice(0, 10);
 
     res.json(contactos.map(ct => {
@@ -1029,6 +1237,7 @@ router.get('/cartera', async (req, res, next) => {
       const correoStatus = ct.correoStatus === 'ENVIADO'
         ? (ct.correoEnviadoFecha === today ? 'ENVIADO' : 'INACTIVO')
         : ct.correoStatus;
+      const tip = tipMap.get(ct.id) || null;
 
       return {
         id: ct.id,
@@ -1049,6 +1258,8 @@ router.get('/cartera', async (req, res, next) => {
         validado_pago: ct.validadoPago,
         orden_marcacion: ct.ordenMarcacion,
         fecha_asignacion: ct.fechaAsignacion,
+        ultima_tip_codigo: tip?.codigo || null,
+        ultima_tipificacion: tip?.descripcion || null,
       };
     }));
   } catch (err) { next(err); }

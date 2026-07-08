@@ -111,9 +111,12 @@ function initDatabase() {
     if (!colNamesCamp.includes('supervisor_id')) {
       db.prepare("ALTER TABLE campanas ADD COLUMN supervisor_id INTEGER REFERENCES usuarios(id)").run();
     }
-    console.log('[DB] Migración de columna supervisor_id en campanas completada');
+    if (!colNamesCamp.includes('meta_diaria')) {
+      db.prepare("ALTER TABLE campanas ADD COLUMN meta_diaria REAL NOT NULL DEFAULT 0").run();
+    }
+    console.log('[DB] Migración de columna supervisor_id/meta_diaria en campanas completada');
   } catch (err) {
-    console.warn('[DB] Error en migración campanas (supervisor_id):', err.message);
+    console.warn('[DB] Error en migración campanas (supervisor_id/meta_diaria):', err.message);
   }
 
   // MIGRACIÓN: Control de intentos de marcación por contacto

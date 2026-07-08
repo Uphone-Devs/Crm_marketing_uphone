@@ -9,23 +9,22 @@ function formatTimer(seg) {
   return `${h}:${m}:${s}`;
 }
 
-function StatBox({ icon, total, detalle, color }) {
-  const d = detalle || [0, 0, 0];
-  const s0 = Array.isArray(d) ? (d[0] || 0) : (d[0] || 0);
-  const s1 = Array.isArray(d) ? (d[1] || 0) : (d[1] || 0);
-  const s2 = Array.isArray(d) ? (d[2] || 0) : (d[2] || 0);
+function StatBox({ label, total, detalle, color }) {
+  const d = detalle || {};
+  const s0 = d[0] || 0;
+  const s1 = d[1] || 0;
+  const s2 = d[2] || 0;
+  const c = color || 'var(--color-primary)';
   return (
-    <div className="asesor-stat-box">
-      <div className="asesor-stat-box__total">
-        <span className="material-symbols-outlined" style={{ fontSize: 16, color: color || 'var(--color-primary)' }}>{icon}</span>
-        <span className="asesor-stat-box__count" style={{ color: total > 0 ? (color || 'var(--color-primary)') : undefined }}>{total}</span>
-      </div>
+    <div className="asesor-stat-box" style={{ borderTop: `2px solid ${c}` }}>
+      <span className="asesor-stat-box__label" style={{ color: c }}>{label}</span>
+      <span className="asesor-stat-box__count" style={{ color: total > 0 ? c : 'rgba(255,255,255,0.25)' }}>{total}</span>
       <div className="asesor-stat-box__detail">
-        <span>S0: <b>{s0}</b></span>
-        <span className="asesor-stat-box__sep">|</span>
-        <span>S1: <b>{s1}</b></span>
-        <span className="asesor-stat-box__sep">|</span>
-        <span>S2: <b>{s2}</b></span>
+        <span>S0:<b>{s0}</b></span>
+        <span className="asesor-stat-box__sep">·</span>
+        <span>S1:<b>{s1}</b></span>
+        <span className="asesor-stat-box__sep">·</span>
+        <span>S2:<b>{s2}</b></span>
       </div>
     </div>
   );
@@ -81,10 +80,10 @@ export default function TopAppBar({
 
         {/* Channel Stats */}
         <div className="asesor-stats-channels">
-          <StatBox icon="call" total={asesorStats.marcaciones || 0} detalle={asesorStats.marcacionesDetalle} color="#4caf50" />
-          <StatBox icon="chat" total={asesorStats.wspEnviados || 0} detalle={asesorStats.wspDetalle} color="#00bcd4" />
-          <StatBox icon="sms" total={asesorStats.smsEnviados || 0} detalle={asesorStats.smsDetalle} color="#ff9800" />
-          <StatBox icon="mail" total={asesorStats.correosEnviados || 0} detalle={asesorStats.emailDetalle} color="#9c27b0" />
+          <StatBox label="Llamadas" total={asesorStats.marcaciones || 0} detalle={asesorStats.marcacionesDetalle} color="#4caf50" />
+          <StatBox label="WhatsApp" total={asesorStats.wspEnviados || 0} detalle={asesorStats.wspDetalle} color="#25D366" />
+          <StatBox label="RCS" total={asesorStats.smsEnviados || 0} detalle={asesorStats.smsDetalle} color="#4285F4" />
+          <StatBox label="Correo" total={asesorStats.correosEnviados || 0} detalle={asesorStats.emailDetalle} color="#EA4335" />
         </div>
 
         {/* Gestiones / Compromisos */}

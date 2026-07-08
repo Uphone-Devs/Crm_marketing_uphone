@@ -109,22 +109,21 @@ export default function DashboardDirectivo({ apiBase, token }) {
   const [error, setError]   = useState(null);
   const initialLoadDone = React.useRef(false);
 
-  const [metaMensualData, setMetaMensualData] = useState(null);
   const [indicadores,     setIndicadores]     = useState(null);
   const [productividad,   setProductividad]   = useState(null);
   const [topAsesores,     setTopAsesores]     = useState([]);
   const [morosidad,       setMorosidad]       = useState([]);
   const [tendencia,       setTendencia]       = useState([]);
 
+  // Metas diarias por campaña
+  const [metaDiariaCampanas, setMetaDiariaCampanas] = useState([]);
+  const [editsMeta,          setEditsMeta]          = useState({}); // campanaId → string
+
   // Filtros
   const [campanaId,    setCampanaId]    = useState('');
   const [grupo,        setGrupo]        = useState('');
   const [distribuidor, setDistribuidor] = useState('');
   const [numeroCuota,  setNumeroCuota]  = useState('');
-
-  // Meta input
-  const [inputMeta,   setInputMeta]   = useState('');
-  const [savingMeta,  setSavingMeta]  = useState(false);
 
   const hdr = { Authorization: `Bearer ${token}` };
   const json = { ...hdr, 'Content-Type': 'application/json' };
@@ -141,8 +140,7 @@ export default function DashboardDirectivo({ apiBase, token }) {
       if (numeroCuota) q.append('numeroCuota', numeroCuota);
       const qs = q.toString() ? `?${q}` : '';
 
-      const [rMeta, rInd, rProd, rTop, rMor, rTend] = await Promise.all([
-        fetch(`${apiBase}/jefe/meta-mensual`,              { headers: hdr }),
+      const [rInd, rProd, rTop, rMor, rTend] = await Promise.all([
         fetch(`${apiBase}/jefe/indicadores${qs}`,          { headers: hdr }),
         fetch(`${apiBase}/jefe/productividad${qs}`,        { headers: hdr }),
         fetch(`${apiBase}/jefe/top-asesores?limit=5${qs ? '&' + q : ''}`, { headers: hdr }),
@@ -152,9 +150,6 @@ export default function DashboardDirectivo({ apiBase, token }) {
 
       if (!rInd.ok) throw new Error(`Error API: ${rInd.status}`);
 
-      const meta = await rMeta.json();
-      setMetaMensualData(meta);
-      setInputMeta(meta?.meta_mensual ?? '');
       setIndicadores(await rInd.json());
       setProductividad(await rProd.json());
       setTopAsesores(await rTop.json());
@@ -176,22 +171,45 @@ export default function DashboardDirectivo({ apiBase, token }) {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const handleGuardarMeta = async () => {
-    const val = parseFloat(inputMeta);
-    if (!val || isNaN(val) || val < 0) return;
-    setSavingMeta(true);
+  // Carga metas diarias por campaña (independiente del filtro)
+  const fetchMetasDiarias = useCallback(async () => {
+    if (!apiBase) return;
     try {
-      const res = await fetch(`${apiBase}/jefe/meta-mensual`, {
+      const r = await fetch(`${apiBase}/jefe/meta-diaria-campanas`, { headers: hdr });
+      if (r.ok) {
+        const data = await r.json();
+        setMetaDiariaCampanas(Array.isArray(data) ? data : []);
+        const initEdits = {};
+        data.forEach(c => { initEdits[c.id] = String(c.meta_diaria ?? 0); });
+        setEditsMeta(prev => {
+          // Solo inicializar campos que el usuario no está editando actualmente
+          const next = { ...initEdits };
+          Object.keys(prev).forEach(k => { if (prev[k] !== initEdits[k]) next[k] = prev[k]; });
+          return next;
+        });
+      }
+    } catch (_) {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBase, token]);
+
+  useEffect(() => {
+    fetchMetasDiarias();
+    const iv = setInterval(fetchMetasDiarias, 30000);
+    return () => clearInterval(iv);
+  }, [fetchMetasDiarias]);
+
+  const handleGuardarMetaCampana = async (campanaId) => {
+    const val = parseFloat(editsMeta[campanaId]);
+    if (isNaN(val) || val < 0) return;
+    try {
+      await fetch(`${apiBase}/jefe/meta-diaria-campana`, {
         method: 'POST',
         headers: json,
-        body: JSON.stringify({ meta: val }),
+        body: JSON.stringify({ campanaId, valor: val }),
       });
-      if (res.ok) await fetchData();
-      else alert('Error al guardar la meta');
+      await fetchMetasDiarias();
     } catch (e) {
       alert(e.message);
-    } finally {
-      setSavingMeta(false);
     }
   };
 
@@ -199,10 +217,6 @@ export default function DashboardDirectivo({ apiBase, token }) {
   const g   = indicadores?.global ?? {};
   const seg = indicadores?.porSegmento ?? [];
   const prod = productividad ?? {};
-
-  const pctCumpl  = metaMensualData?.pct_cumplimiento ?? 0;
-  const cobradoM  = metaMensualData?.cobrado_mes      ?? 0;
-  const metaM     = metaMensualData?.meta_mensual     ?? 0;
 
   return (
     <div className="dashboard-directivo-container">
@@ -214,20 +228,8 @@ export default function DashboardDirectivo({ apiBase, token }) {
           <p>Métricas de recuperación, productividad y cumplimiento</p>
         </div>
 
-        <div className="dd-meta-config">
-          <label>Meta Mensual (USD):</label>
-          <input
-            type="number"
-            className="input-meta"
-            value={inputMeta}
-            onChange={e => setInputMeta(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleGuardarMeta()}
-            disabled={savingMeta}
-            placeholder="0"
-          />
-          <button type="button" className="btn-primary" onClick={handleGuardarMeta} disabled={savingMeta}>
-            {savingMeta ? 'Guardando…' : 'Fijar Meta'}
-          </button>
+        <div className="dd-meta-config" style={{ fontSize: 12, opacity: 0.6 }}>
+          Meta diaria por campaña ↓
         </div>
 
         <div className="dd-filters">
@@ -269,14 +271,56 @@ export default function DashboardDirectivo({ apiBase, token }) {
             </div>
           </div>
 
-          {/* ── SECCIÓN 2: Gauge + Avance + Cobertura ──────────────────── */}
-          <div className="dd-section-charts3">
-            {/* Gauge meta */}
-            <div className="chart-container dd-chart-gauge">
-              <h3>Cumplimiento de Meta Mensual</h3>
-              <GaugeMeta pct={pctCumpl} cobrado={cobradoM} meta={metaM} />
+          {/* ── SECCIÓN META DIARIA POR CAMPAÑA ─────────────────────────── */}
+          {metaDiariaCampanas.length > 0 && (
+            <div className="chart-container" style={{ marginBottom: 16 }}>
+              <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 700, opacity: 0.85 }}>
+                Meta Diaria por Cartera (USD)
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {metaDiariaCampanas.map(c => {
+                  const pct = c.pct_cumplimiento ?? 0;
+                  const color = pct >= 100 ? '#00ff7f' : pct >= 60 ? '#ffc107' : '#ff5252';
+                  return (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 130, opacity: 0.85, flexShrink: 0 }}>{c.nombre}</span>
+                      <div style={{ flex: 1, minWidth: 100, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: 3, transition: 'width .4s' }} />
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 40 }}>{pct.toFixed(1)}%</span>
+                      <span style={{ fontSize: 12, opacity: 0.5, minWidth: 80 }}>
+                        ${(c.cobrado_hoy ?? 0).toLocaleString('es', { maximumFractionDigits: 2 })} / ${(c.meta_diaria ?? 0).toLocaleString('es', { maximumFractionDigits: 2 })}
+                      </span>
+                      <input
+                        aria-label="Meta diaria"
+                        type="number" min="0" step="0.01"
+                        value={editsMeta[c.id] ?? ''}
+                        onChange={e => setEditsMeta(prev => ({ ...prev, [c.id]: e.target.value }))}
+                        onKeyDown={e => e.key === 'Enter' && handleGuardarMetaCampana(c.id)}
+                        placeholder="Meta $"
+                        style={{
+                          width: 90, padding: '3px 6px', fontSize: 12,
+                          background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)',
+                          borderRadius: 5, color: 'inherit',
+                        }}
+                      />
+                      <button type="button"
+                        onClick={() => handleGuardarMetaCampana(c.id)}
+                        style={{
+                          padding: '3px 9px', fontSize: 12, fontWeight: 700,
+                          background: 'rgba(0,230,118,0.15)', border: '1px solid rgba(0,230,118,0.35)',
+                          color: 'var(--color-primary)', borderRadius: 5, cursor: 'pointer',
+                        }}
+                      >Fijar</button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          )}
 
+          {/* ── SECCIÓN 2: Avance + Cobertura ──────────────────────────── */}
+          <div className="dd-section-charts3">
             {/* Avance cartera */}
             <div className="chart-container dd-chart-avance">
               <h3>Avance de Cartera</h3>

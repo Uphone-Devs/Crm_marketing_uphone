@@ -207,6 +207,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [contactoInfoPopup, setContactoInfoPopup] = useState(null);
   const [carteraLlamada, setCarteraLlamada] = useState(null);
   const [tipifMarcaLlamada, setTipifMarcaLlamada] = useState(false);
+  const [tipifSelects, setTipifSelects] = useState({}); // { contactoId: 'no_contesta' | 'cuelga' | ... }
+  const TIP_CODE_TO_VAL = { CUE:'cuelga', NC:'no_contesta', NEG:'negativa_pago', REF:'referencia', EQ:'equivocado', SUS:'suspendido', PMP:'promesa_pago', TER:'tercero', VOL_CALL:'volver_llamar', BUZON:'buzon_voz' };
+  const [mensajesBroadcast, setMensajesBroadcast] = useState([]);
 
   // ── Refs para estabilidad de red (Backbone de Comunicación) ──
   const wsRef = useRef(null);
@@ -419,6 +422,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
           break;
         case 'db:getLoteMensajeria':
           url = `${apiBase}/cartera?campanaId=&tipo=${args[1] || ''}`;
+          break;
+        case 'db:getMensajesBroadcast':
+          url = `${apiBase}/mensajes-broadcast`;
           break;
         case 'db:getRankingGeneralAsesores':
           url = `${apiBase}/ranking-general?fecha=${args[0] || ''}`;
@@ -798,6 +804,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
           const evtName = msg.tipo;
           const handler = evtName === 'agendamiento:aviso' ? handleAvisoLocal : handleEjecutarLocal;
           if (handler) handler(msg);
+        }
+
+        if (msg.tipo === 'CARTERA_ASIGNADA') {
+          cargarCartera();
+          showToast('Nueva cartera asignada — actualizando...', 'info');
         }
       };
 
@@ -1257,6 +1268,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const data = await callApi('db:getCarteraAsesor', usuario.id, campana?.id);
       const arr = Array.isArray(data) ? data : [];
       setCartera(arr);
+      // Inicializar selects con tipificaciones existentes en DB
+      const initSel = {};
+      arr.forEach(c => { if (c.ultima_tip_codigo && TIP_CODE_TO_VAL[c.ultima_tip_codigo]) initSel[c.id] = TIP_CODE_TO_VAL[c.ultima_tip_codigo]; });
+      setTipifSelects(initSel);
       // Sincronizar métricas canal con estado real de cartera (círculos verdes = ENVIADO hoy)
       const rcs = { 0: 0, 1: 0, 2: 0 };
       const wsp = { 0: 0, 1: 0, 2: 0 };
@@ -1265,11 +1280,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
         let meta = {};
         try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
         const dias = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
-        const seg = dias >= 0 && dias <= 2 ? dias : null;
-        if (seg === null) return;
-        if (c.rcs_status === 'ENVIADO')       rcs[seg]++;
-        if (c.whatsapp_status === 'ENVIADO')  wsp[seg]++;
-        if (c.correo_status === 'ENVIADO')    mail[seg]++;
+        const bucket = dias >= 0 && dias <= 2 ? dias : 0;
+        if (c.rcs_status === 'ENVIADO')       rcs[bucket]++;
+        if (c.whatsapp_status === 'ENVIADO')  wsp[bucket]++;
+        if (c.correo_status === 'ENVIADO')    mail[bucket]++;
       });
       setSmsDetalle(rcs);
       setWspDetalle(wsp);
@@ -1280,12 +1294,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
     } finally {
       setCarteraLoading(false);
     }
-  }, [usuario?.id, callApi]);
+  }, [usuario?.id, campana?.id, callApi]);
 
   // Cargar cartera al montar para inicializar métricas S0/S1/S2 desde el primer momento
   useEffect(() => {
     cargarCartera();
   }, [cargarCartera]);
+
+  // Cargar mensajes broadcast al montar (mensajes por segmento configurados por supervisor)
+  useEffect(() => {
+    callApi('db:getMensajesBroadcast')
+      .then(data => setMensajesBroadcast(data || []))
+      .catch(err => console.warn('[Mensajes] Error cargando mensajes broadcast:', err?.message || err));
+  }, [callApi]);
 
   // Recargar cartera al navegar a páginas que la muestran
   useEffect(() => {
@@ -1293,6 +1314,27 @@ export default function AsesorPanel({ usuario, onLogout }) {
       cargarCartera();
     }
   }, [activePage, cargarCartera]);
+
+  function getMensajeParaContacto(contacto, diasMoraVal) {
+    const dias = parseInt(diasMoraVal, 10) || 0;
+    let segmento;
+    if (dias === 0)        segmento = 'TRAMO_0';
+    else if (dias <= 30)   segmento = 'TRAMO_1';
+    else if (dias <= 60)   segmento = 'TRAMO_2';
+    else                   segmento = 'PLAZO';
+    console.log('[Mensajes] total cargados:', mensajesBroadcast.length, '| segmento cliente:', segmento, '| dias:', dias);
+    if (!mensajesBroadcast.length) return '';
+    const activos = mensajesBroadcast.filter(m => m.activo === 1);
+    const match = activos.find(m => m.segmento_destino === segmento)
+               || activos.find(m => m.segmento_destino === 'TODOS');
+    if (!match) { console.warn('[Mensajes] Sin mensaje activo para segmento:', segmento); return ''; }
+    return match.mensaje
+      .replace(/\{nombre\}/gi, contacto.nombre_deudor || '')
+      .replace(/\{deuda\}/gi, contacto.monto_deuda || '')
+      .replace(/\{cedula\}/gi, contacto.cedula || '')
+      .replace(/\{dias\}/gi, String(dias))
+      .replace(/\{telefono\}/gi, contacto.telefono || '');
+  }
 
   async function handleConnectUSB() {
     try {
@@ -1608,6 +1650,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
       }
 
       showToast('Gestión registrada', 'success');
+      if (contactoSnapshot?.id) {
+        const tipifVal = TIP_CODE_TO_VAL[tipificacion.codigo];
+        if (tipifVal) setTipifSelects(prev => ({ ...prev, [contactoSnapshot.id]: tipifVal }));
+      }
       setDashRefreshTrigger(p => p + 1);
       fetchMetricasYEnviar();
 
@@ -2173,7 +2219,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               })()}
             </div>
           ) : activePage === 'cartera' ? (
-            <div className="widget-card" style={{ maxWidth: 1100, margin: '0 auto', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 144px)', overflow: 'hidden' }}>
+            <div className="widget-card" style={{ width: '100%', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 144px)', overflow: 'hidden' }}>
               <div style={{ flexShrink: 0, paddingBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 6 }}>
               <div className="widget-header" style={{ marginBottom: 8 }}>
                 <div>
@@ -2388,7 +2434,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               </div>
 
               {/* ── Tabla ── */}
-              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+              <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', minHeight: 0 }}>
               {(() => {
                 const ESTADO_STYLE = {
                   PENDIENTE:   { bg: 'rgba(255,152,0,0.15)',  fg: '#ffb74d', label: 'Pendiente'   },
@@ -2491,12 +2537,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           const yaGestionado = c.estado_marcacion === 'GESTIONADO' || (c.estado_marcacion === 'YA_PAGO' && c.validado_pago === 1);
                           const turno = turnoMap.get(c.id);
                           const esSiguiente = turno === 1;
+                          const esPMP = tipifSelects[c.id] === 'promesa_pago';
                           return (
                             <tr key={`crt-${c.id}`}
                               onClick={(e) => { if (e.target.closest('button, select')) return; setContactoInfoPopup(c); }}
                               style={{
                                 borderTop: '1px solid rgba(255,255,255,0.04)',
-                                background: esSiguiente ? 'rgba(0,230,118,0.06)' : undefined,
+                                background: esPMP ? 'rgba(0,230,118,0.09)' : esSiguiente ? 'rgba(0,230,118,0.06)' : undefined,
+                                borderLeft: esPMP ? '3px solid rgba(0,230,118,0.55)' : undefined,
                                 cursor: 'pointer',
                               }}>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
@@ -2520,8 +2568,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 <span style={{
                                   fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                   background: est.bg, color: est.fg, whiteSpace: 'nowrap',
+                                  display: 'inline-flex', alignItems: 'center', gap: 3,
                                 }}>
-                                  {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 12, verticalAlign: 'middle', marginRight: 2 }}>check_circle</span>}
+                                  {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>}
                                   {est.label}
                                 </span>
                               </td>
@@ -2549,79 +2598,126 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 const canalApi = canal === 'wsp' ? 'whatsapp' : canal;
                                 const esGestionado = c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'YA_PAGO';
                                 const bloqueado = enviado && esGestionado;
+                                const canalColor = canal === 'wsp' ? '#25D366' : canal === 'correo' ? '#f48fb1' : '#64b5f6';
+                                const canalIcon  = canal === 'wsp' ? 'chat' : canal === 'correo' ? 'mail' : 'sms';
+                                const canalLabel = canal === 'wsp' ? 'WhatsApp' : canal === 'correo' ? 'Gmail' : 'Google Messages';
                                 return (
-                                  <td key={canal} style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                  <td key={canal} style={{ padding: '6px 8px', textAlign: 'center' }}>
                                     <button type="button"
-                                      title={bloqueado ? `${canal.toUpperCase()} fijo — cliente gestionado` : enviado ? `Desmarcar ${canal.toUpperCase()}` : `Marcar ${canal.toUpperCase()} como enviado`}
+                                      title={bloqueado ? `${canalLabel} fijo — cliente gestionado` : enviado ? `Desmarcar ${canalLabel}` : `Abrir ${canalLabel}`}
                                       onClick={async () => {
                                         if (bloqueado) return;
-                                        const nuevoEstado = enviado ? 'ACTIVO' : 'ENVIADO';
-                                        setCartera(prev => prev.map(x =>
-                                          x.id === c.id ? { ...x, [statusKey]: nuevoEstado } : x
-                                        ));
-                                        // Actualizar S0/S1/S2 top bar en tiempo real
                                         let meta = {};
                                         try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
-                                        const diasMora = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
-                                        const seg = diasMora >= 0 && diasMora <= 2 ? diasMora : null;
-                                        const delta = enviado ? -1 : +1;
-                                        if (seg !== null) {
-                                          if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + delta) }));
-                                          if (canal === 'correo') setEmailDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + delta) }));
-                                          if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + delta) }));
-                                        }
-                                        try {
-                                          if (enviado) {
+                                        const diasMoraVal = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0', 10);
+                                        const seg = diasMoraVal >= 0 && diasMoraVal <= 2 ? diasMoraVal : null;
+                                        // seg nulo cuando diasMora > 2; usamos bucket 0 para que el global siempre cuente
+                                        const bucket = seg ?? 0;
+
+                                        if (enviado) {
+                                          // Desmarcar
+                                          setCartera(prev => prev.map(x => x.id === c.id ? { ...x, [statusKey]: 'ACTIVO' } : x));
+                                          if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
+                                          if (canal === 'correo') setEmailDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
+                                          if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
+                                          try {
                                             await callApi('db:toggleContactoMensajeria', c.id, canalApi, 'ACTIVO');
-                                          } else {
-                                            await callApi('db:marcarLoteEnviado', usuario.id, canalApi, [c.id]);
+                                            fetchMetricasYEnviar();
+                                          } catch (e) {
+                                            setCartera(prev => prev.map(x => x.id === c.id ? { ...x, [statusKey]: 'ENVIADO' } : x));
+                                            if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) + 1) }));
+                                            if (canal === 'correo') setEmailDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) + 1) }));
+                                            if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) + 1) }));
+                                            showToast('Error: ' + e.message, 'error');
                                           }
+                                          return;
+                                        }
+
+                                        // Abrir app de mensajería
+                                        const codigoPais = '593';
+                                        const buildPhone = (tel) => {
+                                          if (!tel) return '';
+                                          let clean = String(tel).replace(/\D/g, '');
+                                          if (clean.startsWith('0')) clean = clean.slice(1);
+                                          return `${codigoPais}${clean}`;
+                                        };
+                                        const mensaje = getMensajeParaContacto(c, diasMoraVal);
+                                        if (canal === 'correo') {
+                                          const email = meta['CORREO CLIENTE'] || meta['CORREO'] || meta['EMAIL'] || '';
+                                          if (!email) { showToast('Sin correo registrado para este cliente', 'warning'); return; }
+                                          try {
+                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(email)}${mensaje ? '&body=' + encodeURIComponent(mensaje) : ''}`;
+                                            await callApi('shell:openExternal', gmailUrl);
+                                            showToast('Gmail abierto con mensaje', 'success');
+                                          } catch (err) {
+                                            showToast('Error abriendo Gmail: ' + (err.message || err), 'error');
+                                            return;
+                                          }
+                                        } else if (canal === 'wsp') {
+                                          const phone = buildPhone(c.telefono);
+                                          if (!phone) { showToast('Sin teléfono disponible', 'warning'); return; }
+                                          const res = await callApi('adb:openWhatsApp', phone, mensaje).catch(e => ({ success: false, error: e.message }));
+                                          if (res?.success) {
+                                            showToast('WhatsApp abierto en el celular', 'success');
+                                          } else {
+                                            // Sin celular → abrir WhatsApp Web con mensaje
+                                            const wspWebUrl = `https://api.whatsapp.com/send?phone=${phone}${mensaje ? '&text=' + encodeURIComponent(mensaje) : ''}`;
+                                            try {
+                                              await callApi('shell:openExternal', wspWebUrl);
+                                              showToast('WhatsApp Web abierto con mensaje', 'info');
+                                            } catch (_) {
+                                              showToast('WSP registrado (sin celular conectado)', 'info');
+                                            }
+                                          }
+                                        } else if (canal === 'rcs') {
+                                          const phone = buildPhone(c.telefono);
+                                          if (!phone) { showToast('Sin teléfono disponible', 'warning'); return; }
+                                          const res = await callApi('adb:sendSMS', phone, mensaje).catch(e => ({ success: false, error: e.message }));
+                                          if (res?.success) {
+                                            showToast('Google Messages abierto con mensaje', 'success');
+                                          } else {
+                                            showToast('RCS registrado (sin celular conectado)', 'info');
+                                          }
+                                        }
+
+                                        // Marcar ENVIADO + actualizar contadores (siempre, sin importar ADB)
+                                        setCartera(prev => prev.map(x => x.id === c.id ? { ...x, [statusKey]: 'ENVIADO' } : x));
+                                        if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) + 1) }));
+                                        if (canal === 'correo') setEmailDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) + 1) }));
+                                        if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) + 1) }));
+                                        try {
+                                          await callApi('db:marcarLoteEnviado', usuario.id, canalApi, [c.id]);
                                           fetchMetricasYEnviar();
                                         } catch (e) {
-                                          setCartera(prev => prev.map(x =>
-                                            x.id === c.id ? { ...x, [statusKey]: enviado ? 'ENVIADO' : 'ACTIVO' } : x
-                                          ));
-                                          // Revertir contador si falla API
-                                          if (seg !== null) {
-                                            const revert = -delta;
-                                            if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + revert) }));
-                                            if (canal === 'correo') setEmailDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + revert) }));
-                                            if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [seg]: Math.max(0, (p[seg] || 0) + revert) }));
-                                          }
+                                          setCartera(prev => prev.map(x => x.id === c.id ? { ...x, [statusKey]: 'ACTIVO' } : x));
+                                          if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
+                                          if (canal === 'correo') setEmailDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
+                                          if (canal === 'wsp')    setWspDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
                                           showToast('Error: ' + e.message, 'error');
                                         }
                                       }}
                                       style={{
-                                        background: 'none', border: 'none',
+                                        background: enviado ? `${canalColor}22` : 'rgba(255,255,255,0.04)',
+                                        border: `1px solid ${enviado ? canalColor + '88' : 'rgba(255,255,255,0.1)'}`,
                                         cursor: bloqueado ? 'not-allowed' : 'pointer',
-                                        padding: 2, borderRadius: 4, display: 'inline-flex', alignItems: 'center',
-                                        transition: 'opacity 0.15s', opacity: bloqueado ? 0.5 : 1,
+                                        padding: '4px 8px', borderRadius: 6,
+                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                        transition: 'all 0.15s', opacity: bloqueado ? 0.45 : 1,
+                                        color: enviado ? canalColor : 'rgba(255,255,255,0.35)',
                                       }}
-                                      onMouseEnter={e => { if (!bloqueado && !enviado) e.currentTarget.querySelector('span').style.color = '#00e676'; if (!bloqueado && enviado) e.currentTarget.querySelector('span').style.color = '#ff5252'; }}
-                                      onMouseLeave={e => { if (!bloqueado && !enviado) e.currentTarget.querySelector('span').style.color = 'rgba(255,255,255,0.2)'; if (!bloqueado && enviado) e.currentTarget.querySelector('span').style.color = '#00e676'; }}
+                                      onMouseEnter={e => { if (!bloqueado) e.currentTarget.style.background = enviado ? `${canalColor}33` : `${canalColor}18`; e.currentTarget.style.color = canalColor; e.currentTarget.style.borderColor = canalColor + 'aa'; }}
+                                      onMouseLeave={e => { e.currentTarget.style.background = enviado ? `${canalColor}22` : 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = enviado ? canalColor : 'rgba(255,255,255,0.35)'; e.currentTarget.style.borderColor = enviado ? canalColor + '88' : 'rgba(255,255,255,0.1)'; }}
                                     >
-                                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: enviado ? '#00e676' : 'rgba(255,255,255,0.2)' }}>
-                                        {enviado ? 'check_circle' : 'radio_button_unchecked'}
-                                      </span>
+                                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{canalIcon}</span>
+                                      {enviado && <span style={{ fontSize: 9, fontWeight: 800 }}>✓</span>}
                                     </button>
                                   </td>
                                 );
                               })}
                               <td style={{ padding: '6px 10px', textAlign: 'center', minWidth: 148 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                                  {/* Chip resultado último tipificación */}
-                                  {c.ultima_tip_codigo ? (
-                                    <div style={{
-                                      padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 800,
-                                      background: 'rgba(0,230,118,0.12)', border: '1px solid rgba(0,230,118,0.35)',
-                                      color: '#00e676', letterSpacing: '0.06em', textAlign: 'center',
-                                    }}>
-                                      ✓ {c.ultima_tip_codigo}
-                                    </div>
-                                  ) : null}
-                                  {/* Selector tipificación */}
                                   <select
-                                    value=""
+                                    value={tipifSelects[c.id] || ''}
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       if (!val) return;
@@ -2632,67 +2728,48 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       };
                                       const code = codeMap[val] || val;
                                       if (code === 'PMP') {
-                                        // PMP: abre diálogo — marcación se contará al guardar
-                                        setContactoActual(c);
-                                        setTipifInicial('PMP');
-                                        setTipifMarcaLlamada(true);
-                                        setShowTipificacion(true);
+                                        setContactoActual(c); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true);
                                       } else {
-                                        // Resto: guardar directo sin diálogo
                                         const tipif = tipificacionesCache.find(t => t.codigo === code);
-                                        if (!tipif) {
-                                          // Código no en cache — abrir diálogo como fallback
-                                          setContactoActual(c);
-                                          setTipifInicial(code);
-                                          setTipifMarcaLlamada(true);
-                                          setShowTipificacion(true);
-                                          return;
-                                        }
-                                        handleSaveTipificacion({
-                                          tipificacionId: tipif.id,
-                                          notas: '',
-                                          tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion },
-                                          agendamiento: null,
-                                          montoAcordado: null,
-                                          _contacto: c,
-                                          _marcacion: true,
-                                        });
+                                        if (!tipif) { setContactoActual(c); setTipifInicial(code); setTipifMarcaLlamada(true); setShowTipificacion(true); return; }
+                                        setTipifSelects(prev => ({ ...prev, [c.id]: val }));
+                                        handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true });
                                       }
                                     }}
                                     style={{
                                       width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6,
-                                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)',
-                                      color: 'rgba(255,255,255,0.75)', cursor: 'pointer', outline: 'none',
-                                      appearance: 'none', textAlign: 'center',
+                                      background: tipifSelects[c.id] ? 'rgba(0,230,118,0.12)' : 'rgba(255,255,255,0.06)',
+                                      border: tipifSelects[c.id] ? '1px solid rgba(0,230,118,0.4)' : '1px solid rgba(255,255,255,0.14)',
+                                      color: tipifSelects[c.id] ? '#00e676' : 'rgba(255,255,255,0.75)',
+                                      cursor: 'pointer', outline: 'none', appearance: 'none', textAlign: 'center', fontWeight: tipifSelects[c.id] ? 700 : 400,
                                     }}
                                   >
-                                    <option value="" disabled style={{ background: '#1e1e1e' }}>
-                                      {c.ultima_tip_codigo ? '⚡ Re-tipificar...' : '⚡ Tipificar...'}
-                                    </option>
+                                    <option value="" disabled style={{ background: '#1e1e1e' }}>⚡ Tipificar...</option>
                                     <option value="cuelga" style={{ background: '#1e1e1e' }}>Cuelga</option>
                                     <option value="no_contesta" style={{ background: '#1e1e1e' }}>No contesta</option>
                                     <option value="referencia" style={{ background: '#1e1e1e' }}>Referencia</option>
                                     <option value="equivocado" style={{ background: '#1e1e1e' }}>Equivocado</option>
                                     <option value="suspendido" style={{ background: '#1e1e1e' }}>Suspendido</option>
                                     <option value="negativa_pago" style={{ background: '#1e1e1e' }}>Negativa de pago</option>
-                                    <option value="promesa_pago" style={{ background: '#1e1e1e' }}>Promesa de pago</option>
+                                    <option value="promesa_pago" style={{ background: '#1e1e1e' }}>Promesa agendada</option>
                                     <option value="tercero" style={{ background: '#1e1e1e' }}>Tercero</option>
                                     <option value="volver_llamar" style={{ background: '#1e1e1e' }}>Volver a llamar</option>
                                     <option value="buzon_voz" style={{ background: '#1e1e1e' }}>Buzón de voz</option>
                                   </select>
-                                  {/* Botón PMP */}
-                                  <button type="button"
-                                    onClick={() => { setContactoActual(c); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true); }}
-                                    style={{
-                                      width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6, fontWeight: 700,
-                                      background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
-                                      color: '#00e676', cursor: 'pointer', letterSpacing: '0.04em',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                                    }}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>payments</span>
-                                    PROMESA DE PAGO
-                                  </button>
+                                  {!tipifSelects[c.id] && (
+                                    <button type="button"
+                                      onClick={() => { setContactoActual(c); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true); }}
+                                      style={{
+                                        width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6, fontWeight: 700,
+                                        background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.3)',
+                                        color: '#00e676', cursor: 'pointer', letterSpacing: '0.04em',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                                      }}
+                                    >
+                                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>payments</span>
+                                      PROMESA DE PAGO
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               {/* ── Columna ADB opcional — siempre visible y activa ── */}

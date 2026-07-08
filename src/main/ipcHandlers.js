@@ -43,16 +43,17 @@ const {
   startRecordOnDevice,
   checkCallStatus,
   sendSMS,
+  openWhatsApp,
 } = require('./adbManager');
 const metricsManager = require('./metricsManager');
 const { startCapture, stopCapture, isCapturing } = require('./audioManager');
 const recorder = require('./ffmpeg.recorder');
-const { broadcastToAll, getConnectedClients } = require('./wsServer');
+const { broadcastToAll, broadcastToAsesor, getConnectedClients } = require('./wsServer');
 const {
   findUserByEmail, findUserById,
   getAsesores, getAllUsuarios, insertAsesor, updateAsesor, deleteAsesor, anonymizeAsesor,
   getAllUsuariosAdmin, updateUsuarioAdmin, toggleUsuarioEstado, changePasswordAdmin,
-  getCampanas, getCampanasPorAsesor, getCampanaById, getContactoById, getSiguienteContacto, getCampaignSummary, getCampanasDashboard, deleteCampana, deleteContactosPorAsesorEnCampana, insertCampana, insertContactos,
+  getCampanas, getCampanasPorAsesor, getCampanaById, getContactoById, getSiguienteContacto, getCampaignSummary, getCampanasDashboard, deleteCampana, deleteContactosPorAsesorEnCampana, insertCampana, insertContactos, getMetaDiariaCampanas, setMetaDiariaCampana,
   insertCdr, updateCdr, marcarContactoGestionado, marcarYaPagoDeclarado, eliminarCompromiso, confirmarPagoCompromiso, reagendarCompromiso, marcarCompromisoIncumplido, incrementarIntentoContacto, resetearIntentosContacto, getCdrsByUsuario, getSubGestionesByAsesor, getSubGestionesByContacto, buscarContactoPorCedula, getAllReferencias, getCdrsByContacto, insertSubGestion, getAllCdrs, getBitacoraAsesor, getRefsBitacora, getCarteraAsesor, getCarteraEquipo, setOrdenMarcacionBatch, getCarteraFiltradaAsesor, toggleContactoMensajeria, getLoteMensajeria, marcarLoteEnviado,
   getTipificaciones, getTipificacionById, actualizarEstadoContacto,
   getContactabilidadDia,
@@ -146,6 +147,7 @@ function registerIpcHandlers() {
   ipcMain.handle('adb:isScrcpyRunning', async () => isScrcpyRunning());
   ipcMain.handle('adb:stopAll', async () => { stopAll(); return { success: true }; });
   ipcMain.handle('adb:sendSMS', async (event, phoneNumber, message) => sendSMS(phoneNumber, message));
+  ipcMain.handle('adb:openWhatsApp', async (event, phoneNumber, message) => openWhatsApp(phoneNumber, message));
   ipcMain.handle('adb:stop', async () => { stopAll(); return { success: true }; });
 
   // ── AUDIO ──────────────────────────────────────────────
@@ -280,6 +282,8 @@ function registerIpcHandlers() {
     getProgresoCampana(Number(campanaId), asesorId ? Number(asesorId) : null)
   );
   ipcMain.handle('db:getCampanasDashboard', async (event) => getCampanasDashboard());
+  ipcMain.handle('db:getMetaDiariaCampanas', dbGuard(async () => getMetaDiariaCampanas()));
+  ipcMain.handle('db:setMetaDiariaCampana', dbGuard(async (event, campanaId, valor) => setMetaDiariaCampana(campanaId, valor)));
 
   // ── DB: CDRs ───────────────────────────────────────────
   ipcMain.handle('db:insertCdr', async (event, data) => {
@@ -606,6 +610,12 @@ function registerIpcHandlers() {
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // Notificar a un asesor que tiene nueva cartera (para refresco sin reiniciar)
+  ipcMain.handle('ws:notifyCarteraAsignada', async (event, asesorId) => {
+    try { broadcastToAsesor(asesorId, { tipo: 'CARTERA_ASIGNADA' }); } catch (_) {}
+    return { ok: true };
   });
 
   // ── SEGMENTOS / TRAMOS DINÁMICOS ────────────────────────
