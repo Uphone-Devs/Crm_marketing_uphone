@@ -642,8 +642,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
     if (!telefono) return;
     let tel = telefono;
     if (!tel.startsWith('0')) tel = '0' + tel;
+    // Cel 1 (slot 0) = llamada telefónica normal · Cel 2 (slot 1) = llamada de voz por WhatsApp
+    const esWspCall = deviceIndex === 1;
     try {
-      const res = await window.api.invoke('adb:dial', tel, deviceIndex);
+      const res = esWspCall
+        ? await window.api.invoke('adb:whatsappCall', tel, deviceIndex)
+        : await window.api.invoke('adb:dial', tel, deviceIndex);
       if (res.success) {
         setMarcaciones(prev => prev + 1);
         let cdrIdLocal = null;
@@ -658,7 +662,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           } catch { /* no bloquea */ }
         }
         setCarteraLlamada({ contacto: typeof contacto === 'object' ? contacto : { telefono }, cdrId: cdrIdLocal });
-        showToast(`Marcando ${tel} (Cel ${deviceIndex + 1})...`, 'success');
+        showToast(esWspCall ? `Llamando por WhatsApp ${tel} (Cel 2)...` : `Marcando ${tel} (Cel ${deviceIndex + 1})...`, 'success');
         enviarMetricasWS();
       } else {
         showToast(res.error || 'Sin conexión ADB — verifica depuración USB', 'warning');
@@ -2589,7 +2593,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
                           <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={isDeviceConnected ? 'Marcar vía ADB — Celular 1 (conectado)' : 'Marcar vía ADB — Celular 1 (sin dispositivo)'}>📱1</th>
-                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={adbDeviceCount >= 2 ? 'Marcar vía ADB — Celular 2 (conectado)' : 'Marcar vía ADB — Celular 2 (sin dispositivo)'}>📱2</th>
+                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={adbDeviceCount >= 2 ? 'Llamada de voz por WhatsApp — Celular 2 (conectado)' : 'Llamada de voz por WhatsApp — Celular 2 (sin dispositivo)'}>📱2 WSP</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2872,20 +2876,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                                   <button
                                     type="button"
-                                    title={`Marcar ${c.telefono} vía ADB — Celular 2${adbDeviceCount >= 2 ? '' : ' (no conectado)'}`}
+                                    title={`Llamada de voz por WhatsApp a ${c.telefono} — Celular 2${adbDeviceCount >= 2 ? '' : ' (no conectado)'}`}
                                     onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, 1); }}
                                     style={{
                                       width: 32, height: 32, borderRadius: 8,
-                                      border: '1px solid rgba(186,104,200,0.35)',
-                                      background: 'rgba(186,104,200,0.10)',
-                                      color: '#ba68c8',
+                                      border: '1px solid rgba(37,211,102,0.35)',
+                                      background: 'rgba(37,211,102,0.10)',
+                                      color: '#25D366',
                                       cursor: 'pointer',
                                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                                       transition: 'all 0.2s',
                                       opacity: adbDeviceCount >= 2 ? 1 : 0.45,
                                     }}
                                   >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_forwarded</span>
+                                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>perm_phone_msg</span>
                                   </button>
                                   {/* Indicador de estado ADB Cel 2 */}
                                   <div style={{

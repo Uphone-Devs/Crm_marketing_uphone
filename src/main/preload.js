@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('api', {
       'adb:devices', 'adb:getDevices', 'adb:connectUSB', 'adb:connectWifi', 'adb:stop',
       'adb:getDeviceStats', 'adb:getMPH', 'adb:getROI', 'adb:dial',
       'adb:hangup', 'adb:toggleHold', 'adb:toggleMute', 'adb:toggleSpeaker',
-      'adb:startRecordOnDevice', 'adb:checkCallStatus', 'adb:isScrcpyRunning', 'adb:sendSMS', 'adb:openWhatsApp', 'adb:stopAll',
+      'adb:startRecordOnDevice', 'adb:checkCallStatus', 'adb:isScrcpyRunning', 'adb:sendSMS', 'adb:openWhatsApp', 'adb:whatsappCall', 'adb:stopAll',
       // Audio
       'audio:start', 'audio:stop', 'audio:status',
       // Recorder
