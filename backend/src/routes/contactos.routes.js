@@ -10,7 +10,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // GET /api/contactos/asesores/lista — Asesores activos disponibles para asignación
-router.get('/asesores/lista', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.get('/asesores/lista', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const asesores = await db.usuario.findMany({
       where: { rol: 'asesor', estado: 'activo' },
@@ -53,7 +53,7 @@ router.get('/asesor/:id', async (req, res, next) => {
 });
 
 // POST /api/contactos/asignar — Asignar lote de contactos a un asesor
-router.post('/asignar', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.post('/asignar', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const { contacto_ids, asesor_id } = req.body;
     if (!Array.isArray(contacto_ids) || !contacto_ids.length) {
@@ -63,7 +63,15 @@ router.post('/asignar', requireRole('admin', 'supervisor', 'jefe_area'), async (
 
     const result = await db.contacto.updateMany({
       where: { id: { in: contacto_ids.map(Number) } },
-      data: { asignadoA: parseInt(asesor_id), fechaAsignacion: new Date() },
+      data: {
+        asignadoA: parseInt(asesor_id),
+        fechaAsignacion: new Date(),
+        estadoMarcacion: 'PENDIENTE',
+        yaPago: false,
+        validadoPago: false,
+        ordenMarcacion: null,
+        intentosRealizados: 0,
+      },
     });
 
     res.json({ asignados: result.count });
@@ -71,7 +79,7 @@ router.post('/asignar', requireRole('admin', 'supervisor', 'jefe_area'), async (
 });
 
 // POST /api/contactos/asignar/campana — Distribución round-robin de toda una campaña
-router.post('/asignar/campana', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.post('/asignar/campana', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const { campana_id, asesor_ids } = req.body;
     if (!campana_id) return res.status(400).json({ error: 'campana_id requerido.' });
@@ -95,7 +103,15 @@ router.post('/asignar/campana', requireRole('admin', 'supervisor', 'jefe_area'),
     const updates = pendientes.map((c, i) =>
       db.contacto.update({
         where: { id: c.id },
-        data: { asignadoA: ids[i % ids.length], fechaAsignacion: now },
+        data: {
+          asignadoA: ids[i % ids.length],
+          fechaAsignacion: now,
+          estadoMarcacion: 'PENDIENTE',
+          yaPago: false,
+          validadoPago: false,
+          ordenMarcacion: null,
+          intentosRealizados: 0,
+        },
       })
     );
 
@@ -105,7 +121,7 @@ router.post('/asignar/campana', requireRole('admin', 'supervisor', 'jefe_area'),
 });
 
 // GET /api/contactos — Listar contactos con filtros (admin/supervisor)
-router.get('/', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.get('/', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const { campana_id, asesor_id, estado, sin_asignar, page = 1, limit = 200 } = req.query;
     const where = {};
@@ -168,6 +184,18 @@ router.patch('/:id/gestionar', async (req, res, next) => {
     await db.contacto.update({
       where: { id: parseInt(req.params.id) },
       data: { estadoMarcacion: 'GESTIONADO' },
+    });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/contactos/:id/ya-pago — Asesor declara "ya pagó" → pendiente de comprobación
+// (yaPago=1, validadoPago=0). Sale de la cola activa; el supervisor confirma el cruce bancario.
+router.patch('/:id/ya-pago', async (req, res, next) => {
+  try {
+    await db.contacto.update({
+      where: { id: parseInt(req.params.id) },
+      data: { yaPago: true, validadoPago: false, estadoMarcacion: 'YA_PAGO', ordenMarcacion: null },
     });
     res.json({ ok: true });
   } catch (err) { next(err); }

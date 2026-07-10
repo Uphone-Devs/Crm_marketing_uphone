@@ -35,15 +35,15 @@ const CAT_COLOR = {
 };
 
 const fmtHora = (ts) => {
-  if (!ts || typeof ts !== 'string') return 'â€”';
+  if (!ts || typeof ts !== 'string') return 'â€"';
   try {
     const d = new Date(ts.replace(' ', 'T'));
-    if (isNaN(d.getTime())) return 'â€”';
+    if (isNaN(d.getTime())) return 'â€"';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-  } catch { return 'â€”'; }
+  } catch { return 'â€"'; }
 };
 const fmtDuracion = (seg) => {
-  if (!seg || seg <= 0) return 'â€”';
+  if (!seg || seg <= 0) return 'â€"';
   const m = Math.floor(seg / 60);
   const s = seg % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
@@ -81,7 +81,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
       .then(d => { if (!cancelled) setRegistros(Array.isArray(d) ? d : []); })
       .catch(err => { console.error('[CONTACT_MODAL]', err); if (!cancelled) setRegistros([]); })
       .finally(() => { if (!cancelled) setCargando(false); });
-    // Propagar cambios al padre para que la card pequeÃ±a refleje el mismo filtro
+    // Propagar cambios al padre para que la card pequeña refleje el mismo filtro
     if (typeof onFiltersChange === 'function') {
       onFiltersChange(filtroFecha || null, filtroFechaFin || filtroFecha || null, filtroCampana ? Number(filtroCampana) : null);
     }
@@ -109,7 +109,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
     });
   }, [registros, busqueda, filtroAsesor, filtroCategoria, filtroHora]);
 
-  // DistribuciÃ³n por hora (para chips)
+  // Distribución por hora (para chips)
   const distribHora = useMemo(() => {
     const map = new Map();
     for (const r of filtrados) {
@@ -119,7 +119,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
     return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
   }, [filtrados]);
 
-  // Buckets 0-23 desglosados por categorÃ­a (para grÃ¡fico apilado)
+  // Buckets 0-23 desglosados por categoría (para gráfico apilado)
   const dataGrafico = useMemo(() => {
     const buckets = new Array(24).fill(0).map((_, h) => ({
       hora: `${String(h).padStart(2, '0')}:00`,
@@ -138,7 +138,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
       else if (cat.includes('NEUTRO')) buckets[h].neutros++;
       else if (cat.includes('NO_CONTACTADO') || cat.includes('NO CONTACTADO')) buckets[h].no_contactados++;
     }
-    // Recortar horas vacÃ­as extremas para foco
+    // Recortar horas vacías extremas para foco
     const firstActive = buckets.findIndex(b => b.total > 0);
     if (firstActive === -1) return buckets.slice(8, 19);
     const lastActive = 23 - [...buckets].reverse().findIndex(b => b.total > 0);
@@ -187,14 +187,14 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
   const exportarCsv = () => {
     if (filtrados.length === 0) return;
     const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-    const headers = ['Hora Inicio', 'Hora Fin', 'DuraciÃ³n (s)', 'Asesor', 'Cliente', 'CÃ©dula', 'TelÃ©fono', 'Empresa', 'Contrato', 'TipificaciÃ³n', 'CategorÃ­a', 'Notas'];
+    const headers = ['Hora Inicio', 'Hora Fin', 'Duración (s)', 'Asesor', 'Cliente', 'Cédula', 'Teléfono', 'Empresa', 'Contrato', 'Tipificación', 'Categoría', 'Notas'];
     const rows = filtrados.map(r => [
       r.hora_inicio || '', r.hora_fin || '', r.duracion_seg || '',
       r.asesor_nombre || '', r.nombre_deudor || '', r.cedula || '', r.telefono || '',
       r.empresa || '', r.contrato || '',
       r.tipificacion_desc || '', r.tipificacion_categoria || '', r.notas || '',
     ].map(esc).join(','));
-    const csv = 'ï»¿' + headers.join(',') + '\n' + rows.join('\n');
+    const csv = '﻿' + headers.join(',') + '\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -226,12 +226,12 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
             <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, letterSpacing: 0.5 }}>JEFE DE AREA · DETALLE</span>
             <h3 style={{ margin: '4px 0 0', fontSize: 16 }}>Contactabilidad por Hora</h3>
             <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.5 }}>
-              Cada gestiÃ³n con asesor, hora inicio/fin, duraciÃ³n y tipificaciÃ³n
+              Cada gestión con asesor, hora inicio/fin, duración y tipificación
               {filtroFecha && filtroFechaFin && filtroFecha !== filtroFechaFin
-                ? ` â€” ${filtroFecha} â†’ ${filtroFechaFin}`
-                : filtroFecha ? ` â€” ${filtroFecha}` : ' â€” todas las fechas'}
+                ? ` â€" ${filtroFecha} â†' ${filtroFechaFin}`
+                : filtroFecha ? ` â€" ${filtroFecha}` : ' â€" todas las fechas'}
               {filtroCampana && campanas.find(c => String(c.id) === filtroCampana)
-                ? ` Â· campaÃ±a: ${campanas.find(c => String(c.id) === filtroCampana).nombre}`
+                ? ` · campaña: ${campanas.find(c => String(c.id) === filtroCampana).nombre}`
                 : ''}
             </p>
           </div>
@@ -243,7 +243,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           </button>
         </div>
 
-        {/* Barra filtros temporales (DÃ­a + CampaÃ±a) */}
+        {/* Barra filtros temporales (Día + Campaña) */}
         <div style={{
           padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
           display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
@@ -293,7 +293,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
             }}
           >HOY</button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 12, opacity: 0.5 }}>CampaÃ±a</span>
+            <span style={{ fontSize: 12, opacity: 0.5 }}>Campaña</span>
             <select
               value={filtroCampana}
               onChange={e => setFiltroCampana(e.target.value)}
@@ -323,7 +323,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           )}
         </div>
 
-        {/* Toolbar (bÃºsqueda + asesor + categorÃ­a + hora + KPIs + export) */}
+        {/* Toolbar (búsqueda + asesor + categoría + hora + KPIs + export) */}
         <div style={{
           padding: '10px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
           display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap',
@@ -337,7 +337,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
               type="text"
               value={busqueda}
               onChange={e => setBusqueda(e.target.value)}
-              placeholder="Buscar asesor, cliente, cÃ©dula, contrato, notas..."
+              placeholder="Buscar asesor, cliente, cédula, contrato, notas..."
               style={{
                 width: '100%', padding: '5px 10px 5px 28px', fontSize: 12,
                 background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
@@ -350,7 +350,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
             {asesores.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
           </select>
           <select value={filtroCategoria} onChange={e => setFiltroCategoria(e.target.value)} style={inputStyle}>
-            <option value="TODOS">Todas categorÃ­as</option>
+            <option value="TODOS">Todas categorías</option>
             <option value="EFECTIVO">Efectivos</option>
             <option value="NEUTRO">Neutros</option>
             <option value="NO_CONTACT">No contactados</option>
@@ -358,7 +358,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           <select value={filtroHora} onChange={e => setFiltroHora(e.target.value)} style={inputStyle}>
             <option value="">Toda hora</option>
             {Array.from({ length: 24 }, (_, h) => (
-              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 â€” {String(h).padStart(2, '0')}:59</option>
+              <option key={h} value={h}>{String(h).padStart(2, '0')}:00 â€" {String(h).padStart(2, '0')}:59</option>
             ))}
           </select>
           <Kpi label="Total" value={filtrados.length} color="var(--color-primary)" />
@@ -369,10 +369,10 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
 
         </div>
 
-        {/* Ãrea scrolleable: grÃ¡fico + chips + tabla en un solo flujo vertical */}
+        {/* Área scrolleable: gráfico + chips + tabla en un solo flujo vertical */}
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
 
-        {/* GrÃ¡fico ampliado: gestiones por hora apiladas */}
+        {/* Gráfico ampliado: gestiones por hora apiladas */}
         {!cargando && filtrados.length > 0 && (
           <div style={{
             padding: '12px 18px 4px', borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -381,7 +381,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
               <div>
                 <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.55, letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                  DistribuciÃ³n por Hora
+                  Distribución por Hora
                 </span>
                 <p style={{ margin: '2px 0 0', fontSize: 12, opacity: 0.4 }}>
                   Click en una barra para filtrar por esa hora
@@ -391,7 +391,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                 <div style={{ textAlign: 'right' }}>
                   <span style={{ fontSize: 12, opacity: 0.5, fontWeight: 700, textTransform: 'uppercase' }}>Pico</span>
                   <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--color-primary)' }}>
-                    {horaPico.hora} Â· {horaPico.total} gestiones
+                    {horaPico.hora} · {horaPico.total} gestiones
                   </div>
                 </div>
               )}
@@ -425,7 +425,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           </div>
         )}
 
-        {/* Chips horario (click rÃ¡pido) */}
+        {/* Chips horario (click rápido) */}
         {distribHora.length > 0 && (
           <div style={{
             padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)',
@@ -444,7 +444,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                     color: activo ? 'var(--color-primary)' : 'inherit',
                     borderRadius: 99, cursor: 'pointer',
                   }}>
-                  {String(h).padStart(2, '0')}:00 Â· {n}
+                  {String(h).padStart(2, '0')}:00 · {n}
                 </button>
               );
             })}
@@ -469,31 +469,31 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                 <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left', position: 'sticky', top: 0 }}>
                   <th style={th}>Hora Inicio</th>
                   <th style={th}>Hora Fin</th>
-                  <th style={th}>DuraciÃ³n</th>
+                  <th style={th}>Duración</th>
                   <th style={th}>Asesor</th>
                   <th style={th}>Cliente</th>
-                  <th style={th}>TelÃ©fono</th>
+                  <th style={th}>Teléfono</th>
                   <th style={th}>Contrato</th>
-                  <th style={th}>TipificaciÃ³n</th>
-                  <th style={th}>CategorÃ­a</th>
+                  <th style={th}>Tipificación</th>
+                  <th style={th}>Categoría</th>
                   <th style={th}>Notas</th>
                 </tr>
               </thead>
               <tbody>
                 {filtrados.map((r, i) => {
                   const cat = (r.tipificacion_categoria || '').toUpperCase().replace(' ', '_');
-                  const catStyle = CAT_COLOR[cat] || CAT_COLOR[r.tipificacion_categoria] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc', label: r.tipificacion_categoria || 'â€”' };
+                  const catStyle = CAT_COLOR[cat] || CAT_COLOR[r.tipificacion_categoria] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc', label: r.tipificacion_categoria || 'â€"' };
                   const rowKey = r.cdr_id != null ? `cdr-${r.cdr_id}` : `ext-${i}`;
                   return (
                     <tr key={rowKey} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                       <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_inicio)}</span></td>
                       <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_fin)}</span></td>
                       <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtDuracion(r.duracion_seg)}</td>
-                      <td style={td}>{r.asesor_nombre || 'â€”'}</td>
-                      <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || 'â€”'}</td>
-                      <td style={td}><span className="text-mono">{r.telefono || 'â€”'}</span></td>
-                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{r.contrato || 'â€”'}</span></td>
-                      <td style={td}>{r.tipificacion_desc || 'â€”'}</td>
+                      <td style={td}>{r.asesor_nombre || 'â€"'}</td>
+                      <td style={{ ...td, fontWeight: 600 }}>{r.nombre_deudor || 'â€"'}</td>
+                      <td style={td}><span className="text-mono">{r.telefono || 'â€"'}</span></td>
+                      <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{r.contrato || 'â€"'}</span></td>
+                      <td style={td}>{r.tipificacion_desc || 'â€"'}</td>
                       <td style={td}>
                         <span style={{
                           fontSize: 12, fontWeight: 700, padding: '2px 6px', borderRadius: 99,
@@ -503,7 +503,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
                         </span>
                       </td>
                       <td style={{ ...td, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.75 }} title={r.notas || ''}>
-                        {r.notas || <span style={{ opacity: 0.3 }}>â€”</span>}
+                        {r.notas || <span style={{ opacity: 0.3 }}>â€"</span>}
                       </td>
                     </tr>
                   );
@@ -513,7 +513,7 @@ export default function ContactabilidadModal({ fechaDesde, fechaHasta, campanaId
           )}
         </div>
 
-        </div>{/* fin Ã¡rea scrolleable */}
+        </div>{/* fin área scrolleable */}
       </div>
     </div>
   );

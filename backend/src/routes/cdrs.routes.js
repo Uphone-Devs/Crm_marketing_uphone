@@ -90,7 +90,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // GET /api/cdrs/metricas — Métricas agregadas del equipo (solo supervisor)
-router.get('/metricas', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/metricas', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);

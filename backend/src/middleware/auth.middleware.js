@@ -23,7 +23,7 @@ function authMiddleware(req, res, next) {
 
 /**
  * Middleware que restringe acceso por rol.
- * @param  {...string} roles - Roles permitidos ('supervisor', 'asesor', 'admin')
+ * @param  {...string} roles - Roles permitidos ('jefe_area', 'asesor', 'admin')
  */
 function requireRole(...roles) {
   return (req, res, next) => {

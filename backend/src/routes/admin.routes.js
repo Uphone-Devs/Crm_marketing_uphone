@@ -25,7 +25,7 @@ function getCpuUsage() {
     });
 }
 
-router.get('/sysinfo', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
+router.get('/sysinfo', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const cpuUsage = await getCpuUsage();
         const totalMem = os.totalmem();
@@ -53,13 +53,13 @@ router.get('/sysinfo', authMiddleware, requireRole('admin', 'supervisor', 'jefe_
     }
 });
 
-router.get('/connected', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), (req, res) => {
+router.get('/connected', authMiddleware, requireRole('admin', 'jefe_area'), (req, res) => {
     res.json(getConnectedStats());
 });
 
 // ── User CRUD ─────────────────────────────────────────────────────────────────
 
-router.get('/users', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
+router.get('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const raw = await prisma.usuario.findMany({
             orderBy: { nombre: 'asc' },
@@ -76,7 +76,7 @@ router.get('/users', authMiddleware, requireRole('admin', 'supervisor', 'jefe_ar
     }
 });
 
-router.post('/users', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
+router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const { nombre, email, password, rol, supervisor_id } = req.body;
         if (!nombre || !email || !password || !rol) {
@@ -101,7 +101,7 @@ router.post('/users', authMiddleware, requireRole('admin', 'supervisor', 'jefe_a
     }
 });
 
-router.put('/users/:id', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
+router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
         const { nombre, email, rol, estado, supervisor_id } = req.body;
@@ -118,7 +118,7 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'supervisor', 'jef
     }
 });
 
-router.post('/users/:id/toggle', authMiddleware, requireRole('admin', 'supervisor', 'jefe_area'), async (req, res) => {
+router.post('/users/:id/toggle', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
         const current = await prisma.usuario.findUnique({ where: { id }, select: { estado: true } });

@@ -172,3 +172,4 @@ function getConnectedStats() {
 
 module.exports = setupWsServer;
 module.exports.getConnectedStats = getConnectedStats;
+module.exports.broadcastToAll = broadcastToAll;

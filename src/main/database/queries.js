@@ -164,18 +164,18 @@ function getMetaDiariaCampanas() {
     }
   } catch (_) {}
 
-  // Intentar query con monto_acordado
+  // cobrado_hoy = pagos validados bancariamente hoy (validacion_pagos)
   try {
-    const colsCdr = db.prepare("PRAGMA table_info(cdrs)").all().map(c => c.name);
-    if (colsCdr.includes('monto_acordado')) {
+    const colsVp = db.prepare("PRAGMA table_info(validacion_pagos)").all().map(c => c.name);
+    if (colsVp.includes('monto_pagado')) {
       const rows = db.prepare(`
         SELECT c.id, c.nombre, c.estado, COALESCE(c.meta_diaria, 0) AS meta_diaria,
-               COALESCE(SUM(CASE WHEN substr(cdr.creado_en,1,10) = ?
-                                  AND cdr.monto_acordado IS NOT NULL
-                                 THEN CAST(cdr.monto_acordado AS REAL) ELSE 0 END), 0) AS cobrado_hoy
+               COALESCE(SUM(CASE WHEN substr(vp.validado_en,1,10) = ?
+                                  AND vp.estado_pago != 'ABONO_PARCIAL'
+                                 THEN CAST(vp.monto_pagado AS REAL) ELSE 0 END), 0) AS cobrado_hoy
         FROM campanas c
         LEFT JOIN contactos ct ON ct.campana_id = c.id
-        LEFT JOIN cdrs cdr     ON cdr.contacto_id = ct.id
+        LEFT JOIN validacion_pagos vp ON vp.contacto_id = ct.id
         WHERE c.estado = 'activa'
         GROUP BY c.id
         ORDER BY c.id DESC
@@ -639,8 +639,10 @@ function marcarCompromisoIncumplido(cdrId) {
 // La validación bancaria (confirmarPagos) lo "blinda" elevando validado_pago=1.
 function marcarYaPagoDeclarado(contactoId) {
   const db = getDb();
+  // ya_pago=1 + validado_pago=0 → "pendiente de comprobación" (declarado por asesor, aún sin
+  // cruce bancario del supervisor). orden_marcacion=NULL lo saca de la cola de marcación activa.
   return db.prepare(
-    "UPDATE contactos SET ya_pago = 1, validado_pago = 0, estado_marcacion = 'YA_PAGO' WHERE id = ?"
+    "UPDATE contactos SET ya_pago = 1, validado_pago = 0, estado_marcacion = 'YA_PAGO', orden_marcacion = NULL WHERE id = ?"
   ).run(contactoId);
 }
 
@@ -3016,12 +3018,16 @@ function getRankingLlamadas(fecha) {
   return { totalEquipo: 0, asesores: [], debugError: null };
 }
 
-function getRankingGeneralAsesores(fecha) {
+function getRankingGeneralAsesores(fecha, idsConectados = null) {
   const db = getDb();
   const f = fecha || _todayLocalISO();
 
-  // 1. Asesores activos
-  const asesores = db.prepare("SELECT id, nombre FROM usuarios WHERE rol = 'asesor' AND estado = 'activo' ORDER BY nombre").all();
+  // 1. Asesores activos y conectados
+  let asesores = db.prepare("SELECT id, nombre FROM usuarios WHERE rol = 'asesor' AND estado = 'activo' ORDER BY nombre").all();
+  if (idsConectados && idsConectados.length > 0) {
+    const set = new Set(idsConectados.map(Number));
+    asesores = asesores.filter(a => set.has(Number(a.id)));
+  }
 
   const getSegmento = (metaStr) => {
     try {
@@ -3051,7 +3057,7 @@ function getRankingGeneralAsesores(fecha) {
   ranking.forEach(r => rankingMap[r.id] = r);
 
   try {
-    // 3. Contar CDRs (llamadas)
+    // 3. Contar CDRs (llamadas) — competencia diaria, todas las llamadas del día
     const cdrs = db.prepare(`
       SELECT c.usuario_id, ct.metadata
       FROM cdrs c
@@ -3069,7 +3075,7 @@ function getRankingGeneralAsesores(fecha) {
       }
     }
 
-    // 4. Contar Eventos ACCION_RAPIDA
+    // 4. Contar Eventos ACCION_RAPIDA — competencia diaria, todas las acciones del día
     const eventos = db.prepare(`
       SELECT e.usuario_id, e.metadata, ct.metadata as contacto_metadata
       FROM eventos e

@@ -65,7 +65,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /api/campanas — Crear campaña
-router.post('/', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.post('/', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const { nombre, descripcion } = req.body;
     if (!nombre?.trim()) return res.status(400).json({ error: 'nombre requerido.' });
@@ -144,7 +144,7 @@ router.get('/:id/summary', async (req, res, next) => {
 });
 
 // POST /api/campanas/:id/contactos — Insertar contactos en lote para un asesor
-router.post('/:id/contactos', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const campanaId = parseInt(req.params.id);
     const { asesorId, contactos } = req.body;
@@ -169,7 +169,7 @@ router.post('/:id/contactos', requireRole('admin', 'supervisor', 'jefe_area'), a
 });
 
 // DELETE /api/campanas/:id/asesores/:asesorId — Eliminar contactos de un asesor en la campaña
-router.delete('/:id/asesores/:asesorId', requireRole('admin', 'supervisor', 'jefe_area'), async (req, res, next) => {
+router.delete('/:id/asesores/:asesorId', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const campanaId = parseInt(req.params.id);
     const asesorId = parseInt(req.params.asesorId);

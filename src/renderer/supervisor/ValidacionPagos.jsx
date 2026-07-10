@@ -43,10 +43,6 @@ async function parsePagosExcel(file, empresaKey) {
   const pagos = [];
 
   wb.eachSheet((ws) => {
-    // Fila 1 = título merged "REPORTE CUOTAS", fila 2 = headers, fila 3+ = datos
-    const rawHeaders = ws.getRow(2).values; // index 0 = undefined (1-based)
-    if (!rawHeaders || rawHeaders.length < 2) return;
-
     const getStr = (v) => {
       if (v == null) return '';
       if (v.richText) return v.richText.map(x => x.text).join('').trim();
@@ -54,7 +50,22 @@ async function parsePagosExcel(file, empresaKey) {
       return String(v).trim();
     };
 
-    const headers = rawHeaders.slice(1).map(getStr); // 0-based for findIndex
+    // La fila de encabezados NO es fija: algunos reportes tienen título merged en fila 1
+    // (headers en fila 2) y otros tienen headers directo en fila 1. Detectar la primera
+    // fila (entre 1 y 6) que contenga la columna CONTRATO.
+    let headerRowNum = -1;
+    let headers = [];
+    for (let rn = 1; rn <= 6; rn++) {
+      const vals = ws.getRow(rn).values;
+      if (!vals || vals.length < 2) continue;
+      const hs = vals.slice(1).map(getStr);
+      if (hs.some(h => h.toUpperCase().includes('CONTRATO'))) {
+        headerRowNum = rn;
+        headers = hs;
+        break;
+      }
+    }
+    if (headerRowNum === -1) return; // hoja sin estructura esperada
 
     const idxOf = (...names) => {
       for (const n of names) {
@@ -73,7 +84,7 @@ async function parsePagosExcel(file, empresaKey) {
     if (contratoIdx < 1) return; // hoja sin estructura esperada
 
     ws.eachRow((row, rowNum) => {
-      if (rowNum <= 2) return;
+      if (rowNum <= headerRowNum) return;
       const raw = (i) => i < 1 ? null : row.getCell(i).value;
       const str = (i) => getStr(raw(i));
 
@@ -586,9 +597,9 @@ export default function ValidacionPagos({ usuario }) {
       {resultado && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 14 }}>
           {[
-            { label: 'Contratos reporte', value: resultado.totalContratos.toLocaleString(), color: 'var(--color-on-surface)', icon: 'receipt_long' },
-            { label: 'Coincidencias',     value: resultado.totalMatches.toLocaleString(),   color: 'var(--color-primary)',    icon: 'link' },
-            { label: 'Pagos completos',   value: (statsByEstado.PAGADO_COMPLETO?.length + (statsByEstado.PAGO_EXCEDENTE?.length||0)).toString(), color: '#00ff7f', icon: 'check_circle' },
+            { label: 'Contratos reporte', value: Number(resultado.totalContratos ?? 0).toLocaleString(), color: 'var(--color-on-surface)', icon: 'receipt_long' },
+            { label: 'Coincidencias',     value: Number(resultado.totalMatches ?? 0).toLocaleString(),   color: 'var(--color-primary)',    icon: 'link' },
+            { label: 'Pagos completos',   value: ((statsByEstado.PAGADO_COMPLETO?.length||0) + (statsByEstado.PAGO_EXCEDENTE?.length||0)).toString(), color: '#00ff7f', icon: 'check_circle' },
             { label: 'Abonos parciales',  value: (statsByEstado.ABONO_PARCIAL?.length || 0).toString(), color: '#ff9800', icon: 'timelapse' },
             { label: 'Seleccionados',     value: seleccionados.size.toString(), color: '#ffc107', icon: 'done_all' },
             { label: 'Monto a validar',   value: fmt$(totalSelMonto), color: 'var(--color-danger)', icon: 'payments' },
@@ -909,6 +920,33 @@ export default function ValidacionPagos({ usuario }) {
               </div>
             )}
           </div>
+
+          {/* Registros sin sesión (historial legacy o sesión borrada) */}
+          {(() => {
+            const sesionIds = new Set(sesiones.map(s => s.id));
+            const huerfanos = historial.filter(r => !r.sesion_id || !sesionIds.has(r.sesion_id));
+            if (!huerfanos.length) return null;
+            const abierta = sesionAbierta === '__huerfanos__';
+            return (
+              <div style={{ marginBottom: 8, border: `1px solid ${abierta ? 'rgba(255,152,0,0.25)' : 'rgba(255,255,255,0.06)'}`, borderRadius: 10, overflow: 'hidden' }}>
+                <div onClick={() => setSesionAbierta(abierta ? null : '__huerfanos__')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', background: 'rgba(255,255,255,0.02)', userSelect: 'none' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#ff9800', opacity: 0.7 }}>history</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700 }}>Registros sin sesión agrupada</div>
+                    <div style={{ fontSize: 12, opacity: 0.4 }}>{huerfanos.length} contratos validados anteriormente</div>
+                  </div>
+                  <span className="material-symbols-outlined" style={{ fontSize: 18, opacity: 0.4, transform: abierta ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
+                </div>
+                {abierta && (
+                  <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '10px 14px' }}>
+                    <input aria-label="Buscar contrato, cliente, empresa…" type="text" placeholder="Buscar contrato, cliente, empresa…" value={histFiltro} onChange={e => setHistFiltro(e.target.value)}
+                      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: '#fff', width: 280, marginBottom: 10 }} />
+                    <TablaRegistros rows={huerfanos} histFiltro={histFiltro} onRevertir={handleRevertir} />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Lista de sesiones */}
           {sesiones.map(ses => {

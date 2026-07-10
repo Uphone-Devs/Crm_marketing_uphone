@@ -49,7 +49,7 @@ const {
 const metricsManager = require('./metricsManager');
 const { startCapture, stopCapture, isCapturing } = require('./audioManager');
 const recorder = require('./ffmpeg.recorder');
-const { broadcastToAll, broadcastToAsesor, getConnectedClients } = require('./wsServer');
+const { broadcastToAll, broadcastToAsesor, getConnectedClients, getConnectedAsesores } = require('./wsServer');
 const {
   findUserByEmail, findUserById,
   getAsesores, getAllUsuarios, insertAsesor, updateAsesor, deleteAsesor, anonymizeAsesor,
@@ -317,6 +317,13 @@ function registerIpcHandlers() {
     marcarContactoGestionado(contactoId);
     return { success: true };
   });
+  ipcMain.handle('db:marcarYaPago', async (event, contactoId) => {
+    if (!contactoId || typeof contactoId !== 'number') {
+      return { error: 'contactoId inválido' };
+    }
+    marcarYaPagoDeclarado(contactoId);
+    return { success: true };
+  });
   ipcMain.handle('db:incrementarIntentoContacto', async (event, contactoId, maxIntentos) => {
     if (!contactoId || typeof contactoId !== 'number') {
       return { error: 'contactoId inválido' };
@@ -490,7 +497,10 @@ function registerIpcHandlers() {
   );
 
   // ── DB: MÉTRICAS ───────────────────────────────────────
-  ipcMain.handle('db:getRankingGeneralAsesores', async (event, fecha) => getRankingGeneralAsesores(fecha));
+  ipcMain.handle('db:getRankingGeneralAsesores', async (event, fecha) => {
+    const idsConectados = getConnectedAsesores().map(a => Number(a.asesor_id));
+    return getRankingGeneralAsesores(fecha, idsConectados);
+  });
   ipcMain.handle('db:getMetricasDia', async (event, usuarioId, fecha, opts) =>
     getMetricasDia(usuarioId, fecha || null, opts || {})
   );

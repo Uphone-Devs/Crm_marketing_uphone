@@ -469,6 +469,11 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
   const [diasPopOpen, setDiasPopOpen] = React.useState(false);
   const [diasPopPos, setDiasPopPos] = React.useState({ top: 0, left: 0 });
   const diasBtnRef = React.useRef(null);
+  // Filtro de MORA por tramo (alto/medio/bajo) — tertiles dinámicos. 'todos' = sin filtro.
+  const [moraFiltro, setMoraFiltro] = React.useState('todos');
+  const [moraPopOpen, setMoraPopOpen] = React.useState(false);
+  const [moraPopPos, setMoraPopPos] = React.useState({ top: 0, left: 0 });
+  const moraBtnRef = React.useRef(null);
 
   // Calcular posición del popover desde el bounding rect del botón
   const openDiasPop = () => {
@@ -477,6 +482,13 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
       setDiasPopPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 240) });
     }
     setDiasPopOpen(true);
+  };
+  const openMoraPop = () => {
+    if (moraBtnRef.current) {
+      const rect = moraBtnRef.current.getBoundingClientRect();
+      setMoraPopPos({ top: rect.bottom + 4, left: Math.max(8, rect.right - 200) });
+    }
+    setMoraPopOpen(true);
   };
 
   const [prevItems, setPrevItems] = React.useState(items);
@@ -487,6 +499,8 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
     setDragOrder(null);
     setDiasFiltro(new Set());
     setDiasPopOpen(false);
+    setMoraFiltro('todos');
+    setMoraPopOpen(false);
   }
 
   // (sin listener global — backdrop overlay maneja el outside-click)
@@ -521,18 +535,36 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
     return Array.from(s).sort((a, b) => a - b);
   }, [enriquecidos]);
 
-  // Promoción Excel-style: días seleccionados primero, demás abajo en su orden natural.
-  // NO filtra — todas las filas siguen visibles, solo reordenadas.
+  // Tertiles dinámicos de mora (solo valores > 0) para el filtro alto/medio/bajo.
+  const moraThresholds = React.useMemo(() => {
+    const vals = enriquecidos.map(r => r._moraNum).filter(v => v > 0).sort((a, b) => a - b);
+    if (vals.length < 3) return null;
+    return { p33: vals[Math.floor(vals.length / 3)], p66: vals[Math.floor((vals.length * 2) / 3)] };
+  }, [enriquecidos]);
+
+  // Pipeline de filtrado: primero MORA (oculta filas fuera del tramo), luego promoción
+  // Excel-style por Días Mora (reordena, no oculta).
   const enriquecidosFiltrados = React.useMemo(() => {
-    if (diasFiltro.size === 0) return enriquecidos;
+    let base = enriquecidos;
+    if (moraFiltro !== 'todos' && moraThresholds) {
+      const { p33, p66 } = moraThresholds;
+      base = base.filter(r => {
+        const v = r._moraNum;
+        if (moraFiltro === 'bajo')  return v > 0 && v <= p33;
+        if (moraFiltro === 'medio') return v > p33 && v <= p66;
+        if (moraFiltro === 'alto')  return v > p66;
+        return true;
+      });
+    }
+    if (diasFiltro.size === 0) return base;
     const promoted = [];
     const rest = [];
-    enriquecidos.forEach(r => {
+    base.forEach(r => {
       if (diasFiltro.has(r._diasMora)) promoted.push(r);
       else rest.push(r);
     });
     return [...promoted, ...rest];
-  }, [enriquecidos, diasFiltro]);
+  }, [enriquecidos, diasFiltro, moraFiltro, moraThresholds]);
 
   // Turno basado en orden natural backend (queue). Incluye YA_PAGO declarado
   // si supervisor le asignó orden_marcacion (recallable).
@@ -602,7 +634,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
 
   // "Asignar Orden" tiene sentido si el supervisor cambió la vista (sort/drag)
   // O si filtró por tramo de días (asignar orden solo al subset visible).
-  const ordenSucio = !!(sortKey || dragOrder || diasFiltro.size > 0);
+  const ordenSucio = !!(sortKey || dragOrder || diasFiltro.size > 0 || moraFiltro !== 'todos');
 
   const handleDrop = (targetId) => {
     if (!dragEnabled || dragId == null || targetId == null || dragId === targetId) {
@@ -636,6 +668,7 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
     setSortDir('asc');
     setDragOrder(null);
     setDiasFiltro(new Set());
+    setMoraFiltro('todos');
   };
 
   const toggleDiaFiltro = (d) => {
@@ -717,7 +750,42 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
             <SortHeader k="cliente" label="Cliente" {...headerProps} />
             <SortHeader k="cedula" label="Cédula" {...headerProps} />
             <SortHeader k="telefono" label="Teléfono" {...headerProps} />
-            <SortHeader k="mora" label="Mora" align="right" {...headerProps} />
+            <th style={{ ...th, textAlign: 'right' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                <span
+                  onClick={sortable ? () => handleHeaderClick('mora') : undefined}
+                  title={sortable ? 'Ordenar por Mora' : ''}
+                  style={{ cursor: sortable ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 3, userSelect: 'none' }}
+                >
+                  Mora
+                  {sortable && (
+                    <span className="material-symbols-outlined" style={{
+                      fontSize: 13,
+                      opacity: sortKey === 'mora' ? 0.95 : 0.25,
+                      color: sortKey === 'mora' ? 'var(--color-primary)' : 'inherit',
+                    }}>
+                      {sortKey === 'mora' ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') : 'unfold_more'}
+                    </span>
+                  )}
+                </span>
+                <button
+                  ref={moraBtnRef}
+                  type="button"
+                  onClick={() => moraPopOpen ? setMoraPopOpen(false) : openMoraPop()}
+                  title="Filtrar por tramo de mora (alto/medio/bajo)"
+                  style={{
+                    background: moraFiltro !== 'todos' ? 'rgba(255,193,7,0.18)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${moraFiltro !== 'todos' ? 'rgba(255,193,7,0.5)' : 'rgba(255,255,255,0.10)'}`,
+                    color: moraFiltro !== 'todos' ? '#ffd54f' : 'rgba(255,255,255,0.55)',
+                    padding: '2px 5px', borderRadius: 4, cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 12, fontWeight: 700,
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>filter_alt</span>
+                  {moraFiltro !== 'todos' && <span style={{ textTransform: 'capitalize' }}>{moraFiltro}</span>}
+                </button>
+              </span>
+            </th>
             <th style={{ ...th, textAlign: 'center' }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <span
@@ -850,6 +918,49 @@ function TablaItems({ items, mostrarAsesor = false, onReorder = null }) {
           })}
         </tbody>
       </table>
+      {moraPopOpen && (
+        <>
+          <div onClick={() => setMoraPopOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'transparent' }} />
+          <div style={{
+            position: 'fixed', top: moraPopPos.top, left: moraPopPos.left,
+            zIndex: 9999, width: 200, background: '#0d1117', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden', textAlign: 'left',
+          }}>
+            <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: 12, fontWeight: 700, opacity: 0.85 }}>
+              Filtrar por tramo de mora
+            </div>
+            {!moraThresholds && (
+              <div style={{ padding: '12px 10px', fontSize: 12, opacity: 0.5, textAlign: 'center' }}>Datos insuficientes</div>
+            )}
+            {moraThresholds && [
+              { k: 'todos', label: 'Todos' },
+              { k: 'alto',  label: `Alto (> $${moraThresholds.p66.toFixed(0)})` },
+              { k: 'medio', label: `Medio ($${moraThresholds.p33.toFixed(0)} – $${moraThresholds.p66.toFixed(0)})` },
+              { k: 'bajo',  label: `Bajo (≤ $${moraThresholds.p33.toFixed(0)})` },
+            ].map(opt => {
+              const active = moraFiltro === opt.k;
+              return (
+                <button key={opt.k} type="button"
+                  onClick={() => { setMoraFiltro(opt.k); setMoraPopOpen(false); setDragOrder(null); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', width: '100%',
+                    textAlign: 'left', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit',
+                    background: active ? 'rgba(255,193,7,0.12)' : 'transparent',
+                    color: active ? '#ffd54f' : 'inherit', fontWeight: active ? 700 : 400,
+                  }}
+                >
+                  <span style={{
+                    width: 12, height: 12, borderRadius: '50%', flexShrink: 0,
+                    border: `1px solid ${active ? '#ffd54f' : 'rgba(255,255,255,0.3)'}`,
+                    background: active ? '#ffd54f' : 'transparent',
+                  }} />
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
       {diasPopOpen && (
         <>
           {/* Backdrop: click fuera cierra el popover */}

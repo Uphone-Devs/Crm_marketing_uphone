@@ -5,6 +5,10 @@
 
 ---
 
+## Actualizaciones recientes
+
+- Ver el resumen de cambios en [docs/ACTUALIZACION_2026-07-10.md](docs/ACTUALIZACION_2026-07-10.md)
+
 ## 1. Acceso al sistema
 
 1. Abrir la aplicación **CRM Marketing Uphone**.

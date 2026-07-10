@@ -174,6 +174,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
       const data = isRemote
         ? await vmFetch(apiBase, authToken, '/asesores')
         : await window.api.invoke('db:getAsesores');
+      if (Array.isArray(data) && data.length > 0) setAsesores(data);
       const metricasArray = await Promise.all(
         data.map(a => isRemote
           ? vmFetch(apiBase, authToken, `/metricas/${a.id}`)
@@ -372,6 +373,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
   // ── Effects ──
   useEffect(() => {
     cargarAsesores();
+    cargarMetricasAsesores();
     cargarMetricasEquipo();
     cargarMetricasValidacion();
     conectarWS();
@@ -1323,7 +1325,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
                     onChange={e => setNewAsesorRol(e.target.value)}
                   >
                     <option value="asesor">Gestor</option>
-                    <option value="supervisor">Jefe de Area</option>
+                    <option value="jefe_area">Jefe de Area</option>
                   </select>
                 </div>
               )}

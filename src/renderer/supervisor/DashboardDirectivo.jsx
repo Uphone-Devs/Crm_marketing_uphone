@@ -118,12 +118,18 @@ export default function DashboardDirectivo({ apiBase, token }) {
   // Metas diarias por campaña
   const [metaDiariaCampanas, setMetaDiariaCampanas] = useState([]);
   const [editsMeta,          setEditsMeta]          = useState({}); // campanaId → string
+  const [metasSegs,          setMetasSegs]          = useState({}); // campanaId → { segmentos: [...] }
+  const [editsSegs,          setEditsSegs]          = useState({}); // campanaId → { '0':{monto,und}, '1':..., '2':..., global:{...} }
+  const [expandedCamp,       setExpandedCamp]       = useState(null);
 
   // Filtros
+  const todayISO = new Date().toISOString().slice(0, 10);
   const [campanaId,    setCampanaId]    = useState('');
   const [grupo,        setGrupo]        = useState('');
   const [distribuidor, setDistribuidor] = useState('');
   const [numeroCuota,  setNumeroCuota]  = useState('');
+  const [fechaDesde,   setFechaDesde]   = useState(todayISO);
+  const [fechaHasta,   setFechaHasta]   = useState(todayISO);
 
   const hdr = { Authorization: `Bearer ${token}` };
   const json = { ...hdr, 'Content-Type': 'application/json' };
@@ -138,12 +144,14 @@ export default function DashboardDirectivo({ apiBase, token }) {
       if (grupo)       q.append('grupo',       grupo);
       if (distribuidor) q.append('distribuidor', distribuidor);
       if (numeroCuota) q.append('numeroCuota', numeroCuota);
+      if (fechaDesde)  q.append('fechaDesde',  fechaDesde);
+      if (fechaHasta)  q.append('fechaHasta',  fechaHasta);
       const qs = q.toString() ? `?${q}` : '';
 
       const [rInd, rProd, rTop, rMor, rTend] = await Promise.all([
         fetch(`${apiBase}/jefe/indicadores${qs}`,          { headers: hdr }),
         fetch(`${apiBase}/jefe/productividad${qs}`,        { headers: hdr }),
-        fetch(`${apiBase}/jefe/top-asesores?limit=5${qs ? '&' + q : ''}`, { headers: hdr }),
+        fetch(`${apiBase}/jefe/top-asesores?limit=20${qs ? '&' + q : ''}`, { headers: hdr }),
         fetch(`${apiBase}/jefe/morosidad${qs}`,            { headers: hdr }),
         fetch(`${apiBase}/jefe/tendencia-semanal${qs}`,    { headers: hdr }),
       ]);
@@ -162,7 +170,7 @@ export default function DashboardDirectivo({ apiBase, token }) {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, token, campanaId, grupo, distribuidor, numeroCuota]);
+  }, [apiBase, token, campanaId, grupo, distribuidor, numeroCuota, fechaDesde, fechaHasta]);
 
   useEffect(() => {
     initialLoadDone.current = false;
@@ -213,6 +221,43 @@ export default function DashboardDirectivo({ apiBase, token }) {
     }
   };
 
+  const fetchMetasSegsForCampana = async (cid) => {
+    try {
+      const r = await fetch(`${apiBase}/campana/metas-segmentos?campana_id=${cid}`, { headers: hdr });
+      if (r.ok) {
+        const data = await r.json();
+        setMetasSegs(prev => ({ ...prev, [cid]: data }));
+        // Inicializar edits si no existen
+        setEditsSegs(prev => {
+          if (prev[cid]) return prev;
+          const init = {};
+          (data.segmentos || []).forEach(s => {
+            init[s.seg] = { monto: String(s.meta_monto || ''), und: String(s.meta_unidades || '') };
+          });
+          return { ...prev, [cid]: init };
+        });
+      }
+    } catch (_) {}
+  };
+
+  const handleGuardarMetasSegs = async (cid) => {
+    const edits = editsSegs[cid] || {};
+    const metas = {};
+    ['0','1','2','global'].forEach(seg => {
+      metas[seg] = {
+        monto:    parseFloat(edits[seg]?.monto) || 0,
+        unidades: parseFloat(edits[seg]?.und)   || 0,
+      };
+    });
+    try {
+      await fetch(`${apiBase}/jefe/metas-segmentos`, {
+        method: 'POST', headers: json,
+        body: JSON.stringify({ campanaId: cid, metas }),
+      });
+      await fetchMetasSegsForCampana(cid);
+    } catch (e) { alert(e.message); }
+  };
+
   // Atajos para datos
   const g   = indicadores?.global ?? {};
   const seg = indicadores?.porSegmento ?? [];
@@ -233,10 +278,14 @@ export default function DashboardDirectivo({ apiBase, token }) {
         </div>
 
         <div className="dd-filters">
-          <input aria-label="ID Campaña" type="text" placeholder="ID Campaña"   value={campanaId}   onChange={e => setCampanaId(e.target.value)} />
+          <input aria-label="ID Campaña" type="text" placeholder="ID Campaña" value={campanaId} onChange={e => setCampanaId(e.target.value)} />
           <input type="text" placeholder="Distribuidor" value={distribuidor} onChange={e => setDistribuidor(e.target.value)} />
           <input type="text" placeholder="Grupo"        value={grupo}        onChange={e => setGrupo(e.target.value)} />
           <input type="text" placeholder="N° Cuota"     value={numeroCuota}  onChange={e => setNumeroCuota(e.target.value)} />
+          <input aria-label="Fecha desde" type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+            style={{ background: 'transparent', border: '1px solid rgba(0,230,118,0.25)', borderRadius: 8, padding: '6px 10px', color: '#fff', fontSize: 13, colorScheme: 'dark' }} />
+          <input aria-label="Fecha hasta" type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+            style={{ background: 'transparent', border: '1px solid rgba(0,230,118,0.25)', borderRadius: 8, padding: '6px 10px', color: '#fff', fontSize: 13, colorScheme: 'dark' }} />
           <button type="button" className="btn-secondary" onClick={fetchData}>Filtrar</button>
         </div>
       </div>
@@ -271,53 +320,133 @@ export default function DashboardDirectivo({ apiBase, token }) {
             </div>
           </div>
 
-          {/* ── SECCIÓN META DIARIA POR CAMPAÑA ─────────────────────────── */}
-          {metaDiariaCampanas.length > 0 && (
-            <div className="chart-container" style={{ marginBottom: 16 }}>
-              <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 700, opacity: 0.85 }}>
-                Meta Diaria por Cartera (USD)
-              </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {metaDiariaCampanas.map(c => {
-                  const pct = c.pct_cumplimiento ?? 0;
-                  const color = pct >= 100 ? '#00ff7f' : pct >= 60 ? '#ffc107' : '#ff5252';
-                  return (
-                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, minWidth: 130, opacity: 0.85, flexShrink: 0 }}>{c.nombre}</span>
-                      <div style={{ flex: 1, minWidth: 100, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                        <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: color, borderRadius: 3, transition: 'width .4s' }} />
+          {/* ── SECCIÓN META DIARIA POR CAMPAÑA (con segmentos) ─────────── */}
+          {metaDiariaCampanas.length > 0 && (() => {
+            const SEG_COLORS = { '0': '#3b82f6', '1': '#8b5cf6', '2': '#06b6d4', global: '#10b981' };
+            const SEG_LABELS = { '0': 'S0', '1': 'S1', '2': 'S2', global: 'Global' };
+            const fmtUSD = v => `$${Number(v || 0).toLocaleString('es', { maximumFractionDigits: 0 })}`;
+            return (
+              <div className="chart-container" style={{ marginBottom: 16 }}>
+                <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 700, opacity: 0.85 }}>
+                  Metas Diarias por Cartera
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {metaDiariaCampanas.map(c => {
+                    const pctGlobal = c.pct_cumplimiento ?? 0;
+                    const colorG = pctGlobal >= 100 ? '#00ff7f' : pctGlobal >= 60 ? '#ffc107' : '#ff5252';
+                    const isExp  = expandedCamp === c.id;
+                    const segsData = metasSegs[c.id]?.segmentos || [];
+                    const segsMap  = Object.fromEntries(segsData.map(s => [s.seg, s]));
+
+                    return (
+                      <div key={c.id} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, overflow: 'hidden' }}>
+                        {/* Fila principal campaña */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', flexWrap: 'wrap' }}>
+                          <button type="button" onClick={() => {
+                            const next = isExp ? null : c.id;
+                            setExpandedCamp(next);
+                            if (next) fetchMetasSegsForCampana(c.id);
+                          }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'rgba(255,255,255,0.5)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{isExp ? 'expand_less' : 'expand_more'}</span>
+                          </button>
+                          <span style={{ fontSize: 12, fontWeight: 700, minWidth: 130, opacity: 0.9, flexShrink: 0 }}>{c.nombre}</span>
+                          <div style={{ flex: 1, minWidth: 80, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(pctGlobal, 100)}%`, height: '100%', background: colorG, borderRadius: 3, transition: 'width .4s' }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: colorG, minWidth: 40 }}>{pctGlobal.toFixed(1)}%</span>
+                          <span style={{ fontSize: 11, opacity: 0.45, minWidth: 100 }}>
+                            {fmtUSD(c.cobrado_hoy)} / {fmtUSD(c.meta_diaria)}
+                          </span>
+                          <input aria-label="Meta global USD" type="number" min="0" step="1"
+                            value={editsMeta[c.id] ?? ''}
+                            onChange={e => setEditsMeta(prev => ({ ...prev, [c.id]: e.target.value }))}
+                            onKeyDown={e => e.key === 'Enter' && handleGuardarMetaCampana(c.id)}
+                            placeholder="Meta global $"
+                            style={{ width: 100, padding: '3px 6px', fontSize: 11, background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 5, color: 'inherit' }}
+                          />
+                          <button type="button" onClick={() => handleGuardarMetaCampana(c.id)}
+                            style={{ padding: '3px 9px', fontSize: 11, fontWeight: 700, background: 'rgba(0,230,118,0.12)', border: '1px solid rgba(0,230,118,0.3)', color: '#00e676', borderRadius: 5, cursor: 'pointer' }}>
+                            Fijar
+                          </button>
+                        </div>
+
+                        {/* Panel expandido: metas por segmento */}
+                        {isExp && (
+                          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.45, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Metas por segmento</div>
+
+                            {/* Grid segmentos: S0 S1 S2 Global */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                              {['0','1','2','global'].map(seg => {
+                                const color   = SEG_COLORS[seg];
+                                const label   = SEG_LABELS[seg];
+                                const apiSeg  = segsMap[seg] || {};
+                                const editSeg = editsSegs[c.id]?.[seg] || { monto: '', und: '' };
+                                const pctM    = apiSeg.pct_monto    ?? null;
+                                const pctU    = apiSeg.pct_unidades ?? null;
+                                return (
+                                  <div key={seg} style={{ background: `${color}0d`, border: `1px solid ${color}28`, borderRadius: 9, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 800, color }}>{label}</div>
+
+                                    {/* Avance monto */}
+                                    {apiSeg.meta_monto > 0 && (
+                                      <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 2 }}>
+                                          <span style={{ opacity: 0.5 }}>Cobrado</span>
+                                          <span style={{ fontWeight: 700, color }}>{fmtUSD(apiSeg.cobrado_hoy)}/{fmtUSD(apiSeg.meta_monto)}</span>
+                                        </div>
+                                        <div style={{ height: 5, background: 'rgba(255,255,255,0.06)', borderRadius: 99 }}>
+                                          <div style={{ width: `${Math.min(pctM ?? 0, 100)}%`, height: '100%', background: (pctM ?? 0) >= 100 ? '#00e676' : color, borderRadius: 99, transition: 'width .4s' }} />
+                                        </div>
+                                        <div style={{ fontSize: 10, color, fontWeight: 700, marginTop: 1 }}>{pctM ?? 0}%</div>
+                                      </div>
+                                    )}
+
+                                    {/* Avance unidades */}
+                                    {apiSeg.meta_unidades > 0 && (
+                                      <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 2 }}>
+                                          <span style={{ opacity: 0.5 }}>Pagados</span>
+                                          <span style={{ fontWeight: 700, color }}>{apiSeg.unidades_hoy}/{apiSeg.meta_unidades}</span>
+                                        </div>
+                                        <div style={{ height: 5, background: 'rgba(255,255,255,0.06)', borderRadius: 99 }}>
+                                          <div style={{ width: `${Math.min(pctU ?? 0, 100)}%`, height: '100%', background: (pctU ?? 0) >= 100 ? '#00e676' : color, borderRadius: 99, transition: 'width .4s' }} />
+                                        </div>
+                                        <div style={{ fontSize: 10, color, fontWeight: 700, marginTop: 1 }}>{pctU ?? 0}%</div>
+                                      </div>
+                                    )}
+
+                                    {/* Inputs configuración */}
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 3 }}>
+                                      <input aria-label={`Meta monto ${label}`} type="number" min="0" placeholder="Meta $ cobrado"
+                                        value={editSeg.monto}
+                                        onChange={e => setEditsSegs(prev => ({ ...prev, [c.id]: { ...(prev[c.id]||{}), [seg]: { ...(prev[c.id]?.[seg]||{}), monto: e.target.value } } }))}
+                                        style={{ width: '100%', padding: '3px 6px', fontSize: 10, background: 'rgba(0,0,0,0.25)', border: `1px solid ${color}40`, borderRadius: 5, color: 'inherit', boxSizing: 'border-box' }}
+                                      />
+                                      <input aria-label={`Meta unidades ${label}`} type="number" min="0" placeholder="Meta # pagados"
+                                        value={editSeg.und}
+                                        onChange={e => setEditsSegs(prev => ({ ...prev, [c.id]: { ...(prev[c.id]||{}), [seg]: { ...(prev[c.id]?.[seg]||{}), und: e.target.value } } }))}
+                                        style={{ width: '100%', padding: '3px 6px', fontSize: 10, background: 'rgba(0,0,0,0.25)', border: `1px solid ${color}40`, borderRadius: 5, color: 'inherit', boxSizing: 'border-box' }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <button type="button" onClick={() => handleGuardarMetasSegs(c.id)}
+                              style={{ alignSelf: 'flex-end', padding: '5px 16px', fontSize: 12, fontWeight: 700, background: 'rgba(0,230,118,0.15)', border: '1px solid rgba(0,230,118,0.35)', color: '#00e676', borderRadius: 7, cursor: 'pointer' }}>
+                              Guardar metas por segmento
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 40 }}>{pct.toFixed(1)}%</span>
-                      <span style={{ fontSize: 12, opacity: 0.5, minWidth: 80 }}>
-                        ${(c.cobrado_hoy ?? 0).toLocaleString('es', { maximumFractionDigits: 2 })} / ${(c.meta_diaria ?? 0).toLocaleString('es', { maximumFractionDigits: 2 })}
-                      </span>
-                      <input
-                        aria-label="Meta diaria"
-                        type="number" min="0" step="0.01"
-                        value={editsMeta[c.id] ?? ''}
-                        onChange={e => setEditsMeta(prev => ({ ...prev, [c.id]: e.target.value }))}
-                        onKeyDown={e => e.key === 'Enter' && handleGuardarMetaCampana(c.id)}
-                        placeholder="Meta $"
-                        style={{
-                          width: 90, padding: '3px 6px', fontSize: 12,
-                          background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.12)',
-                          borderRadius: 5, color: 'inherit',
-                        }}
-                      />
-                      <button type="button"
-                        onClick={() => handleGuardarMetaCampana(c.id)}
-                        style={{
-                          padding: '3px 9px', fontSize: 12, fontWeight: 700,
-                          background: 'rgba(0,230,118,0.15)', border: '1px solid rgba(0,230,118,0.35)',
-                          color: 'var(--color-primary)', borderRadius: 5, cursor: 'pointer',
-                        }}
-                      >Fijar</button>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── SECCIÓN 2: Avance + Cobertura ──────────────────────────── */}
           <div className="dd-section-charts3">

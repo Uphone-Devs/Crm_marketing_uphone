@@ -51,6 +51,21 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   const _tok   = localStorage.getItem('auth_token');
   const filtroDesde = filtroFechaDesde || null;
   const filtroHasta = filtroFechaHasta || filtroFechaDesde || null;
+
+  // El panel se mantiene montado con display:none al cambiar de pestaña (JefePanel). Los
+  // charts de recharts miden 0×0 mientras está oculto y avisan por consola en cada re-render.
+  // Renderizamos los charts solo cuando el contenedor tiene tamaño real (visible).
+  const rootRef = useRef(null);
+  const [chartsVisible, setChartsVisible] = useState(true);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const check = () => setChartsVisible(el.offsetWidth > 0 && el.offsetParent !== null);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const esRango = !!(filtroDesde && filtroHasta && filtroDesde !== filtroHasta);
   const labelFecha = esRango
     ? `del ${filtroDesde} al ${filtroHasta}`
@@ -58,20 +73,20 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
   const detalleAsesores = metricasEquipo?.detalleAsesores || [];
 
-  // â”€â”€ Filtros locales â€” RotaciÃ³n de Cartera â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Filtros locales â€" Rotación de Cartera â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const [rotFechaInicio, setRotFechaInicio] = useState('');
   const [rotFechaFin,    setRotFechaFin]    = useState('');
   const [rotCampana,     setRotCampana]     = useState('');
   const [rotCampanas,    setRotCampanas]    = useState([]);
   const [rotDetalle,     setRotDetalle]     = useState(null); // null = usa detalleAsesores del prop
 
-  // Cargar campaÃ±as disponibles una sola vez
+  // Cargar campañas disponibles una sola vez
   useEffect(() => {
     (_isRem ? vmFetch(_api, _tok, '/campanas') : window.api.invoke('db:getCampanas'))
       .then(c => setRotCampanas(Array.isArray(c) ? c : [])).catch(() => {});
   }, []);
 
-  // Fetch cuando cambian los filtros locales de rotaciÃ³n
+  // Fetch cuando cambian los filtros locales de rotación
   useEffect(() => {
     const hayFiltroLocal = rotFechaInicio || rotFechaFin || rotCampana;
     if (!hayFiltroLocal) { setRotDetalle(null); return; }
@@ -92,7 +107,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
       .catch(err => { console.error('[ROT_CARTERA]', err); setRotDetalle(null); });
   }, [rotFechaInicio, rotFechaFin, rotCampana]);
 
-  // Sincroniza la card RotaciÃ³n de Cartera con el rango global del panel
+  // Sincroniza la card Rotación de Cartera con el rango global del panel
   // cuando no hay filtro local activo (filtro local tiene precedencia).
   useEffect(() => {
     const hayFiltroLocal = rotFechaInicio || rotFechaFin || rotCampana;
@@ -113,10 +128,10 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   // Datos activos: filtro local > prop global
   const rotDetalleActivo = rotDetalle ?? detalleAsesores;
 
-  // â”€â”€ 1. Gestiones por asesor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // (sin cambios â€” usa datos reales)
+  // â"€â"€ 1. Gestiones por asesor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // (sin cambios â€" usa datos reales)
 
-  // â”€â”€ 2. RotaciÃ³n de Cartera â€” DATOS REALES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ 2. Rotación de Cartera â€" DATOS REALES â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const totalAsignados  = rotDetalleActivo.reduce((s, d) => s + (d?.metricas?.total_asignados  || 0), 0);
   const gestionadosBase = rotDetalleActivo.reduce((s, d) => s + (d?.metricas?.gestionados_base || 0), 0);
   const rotacionReal    = totalAsignados > 0
@@ -144,7 +159,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     .filter(d => d.total > 0)
     .sort((a, b) => b.pct - a.pct);
 
-  // â”€â”€ 4. Contactabilidad â€” DATOS REALES (4 categorÃ­as por CDR) â”€â”€â”€
+  // â"€â"€ 4. Contactabilidad â€" DATOS REALES (4 categorías por CDR) â"€â"€â"€
   const totalMarcaciones    = metricasEquipo?.marcacionesTotales || 0; // se usa en otras cards (ROI/Tiempo)
   const cdrsTotal           = metricasEquipo?.cdrsTotalEquipo         ?? 0;
   const cdrsEfectivos       = metricasEquipo?.contactosEfectivosTotal ?? 0;
@@ -159,20 +174,20 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     { name: 'No Contactados', key: 'NO_CONTACTADO', value: cdrsNoContactados, color: '#9E9E9E' },
   ];
 
-  // â”€â”€ 5. Proyecciones â€” extrapola rate actual al cierre de jornada â”€â”€
-  // Aplicable solo cuando el dÃ­a filtrado es hoy (o no hay filtro). Para dÃ­as
-  // pasados, jornada cerrada â†’ proyecciÃ³n = actual (sin extrapolar).
+  // â"€â"€ 5. Proyecciones â€" extrapola rate actual al cierre de jornada â"€â"€
+  // Aplicable solo cuando el día filtrado es hoy (o no hay filtro). Para días
+  // pasados, jornada cerrada â†' proyección = actual (sin extrapolar).
   const PROY_HORA_INICIO = 8;    // 08:00
-  const PROY_HORA_FIN    = 17;   // 17:00 â†’ jornada de 9h
+  const PROY_HORA_FIN    = 17;   // 17:00 â†' jornada de 9h
   const PROY_HORAS_TOTAL = PROY_HORA_FIN - PROY_HORA_INICIO;
   const proyHoyStr = todayLocalISO();
   const proyEsHoy = !esRango && (!filtroDesde || filtroDesde === proyHoyStr);
   const proyAhora = new Date();
   const proyHoraDecimal = proyAhora.getHours() + proyAhora.getMinutes() / 60;
-  // Horas transcurridas dentro de la jornada (mÃ­nimo 0.5h para no dividir por casi cero)
+  // Horas transcurridas dentro de la jornada (mínimo 0.5h para no dividir por casi cero)
   const proyHorasTrans = Math.max(0.5, Math.min(PROY_HORAS_TOTAL, proyHoraDecimal - PROY_HORA_INICIO));
   const proyHorasRest  = Math.max(0, PROY_HORAS_TOTAL - proyHorasTrans);
-  // Factor: cuÃ¡nto se proyecta multiplicando al ritmo actual
+  // Factor: cuánto se proyecta multiplicando al ritmo actual
   const proyFactor = proyEsHoy && proyHorasTrans > 0 ? PROY_HORAS_TOTAL / proyHorasTrans : 1;
   const proyectar = (actual) => proyEsHoy ? Math.round(actual * proyFactor) : actual;
 
@@ -207,7 +222,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     ? Math.round((metricasEquipo?.montoRecaudadoTotal || 0) * proyFactor * 100) / 100
     : (metricasEquipo?.montoRecaudadoTotal || 0);
 
-  // â”€â”€ 6. Contactabilidad por Hora â€” fetch del detalle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ 6. Contactabilidad por Hora â€" fetch del detalle â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const [detalleContact, setDetalleContact] = useState([]);
   useEffect(() => {
     const camp = filtroCampana ? Number(filtroCampana) : null;
@@ -237,11 +252,11 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
       else if (cat.includes('NEUTRO')) buckets[h].neutros++;
       else if (cat.includes('NO_CONTACTADO')) buckets[h].no_contactados++;
     }
-    // Calcular % efectividad por hora (null si sin datos â†’ lÃ­nea no dibuja ese punto)
+    // Calcular % efectividad por hora (null si sin datos â†' línea no dibuja ese punto)
     buckets.forEach(b => {
       b.pct_efectividad = b.total > 0 ? Math.round((b.efectivos / b.total) * 100) : null;
     });
-    // Recortar horas vacÃ­as al inicio/final para limpieza
+    // Recortar horas vacías al inicio/final para limpieza
     const firstActive = buckets.findIndex(b => b.total > 0);
     const lastActive = buckets.length - 1 - [...buckets].reverse().findIndex(b => b.total > 0);
     if (firstActive === -1) return buckets.slice(8, 19); // default jornada laboral
@@ -256,10 +271,10 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     ? Math.round((totalEfectivosHora / detalleContact.length) * 100)
     : 0;
 
-  // â”€â”€ 6.5 Volumen de MarcaciÃ³n por Hora â€” stack por asesor â”€â”€â”€â”€â”€
+  // â"€â"€ 6.5 Volumen de Marcación por Hora â€" stack por asesor â"€â"€â"€â"€â"€
   // Reutiliza detalleContact (mismo dataset que Contactabilidad por Hora) pero
   // agrupa por hora + asesor. Permite correlacionar volumen vs efectividad:
-  // hora con muchas marcaciones pero pocos efectivos â†’ mala franja horaria.
+  // hora con muchas marcaciones pero pocos efectivos â†' mala franja horaria.
 
   const volumenInfo = useMemo(() => {
     // Asesores presentes en el detalle (con al menos 1 CDR)
@@ -297,9 +312,9 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     return { data, asesores: asesorIds.map(aid => ({ id: aid, key: keyOf(aid), label: labelOf(aid), nombre: aMap.get(aid) })) };
   }, [detalleContact]);
   const totalMarcacionesHora = metricasEquipo?.marcacionesTotales || detalleContact.length;
-  const horaPico = volumenInfo.data.reduce((max, b) => b.total > max.total ? b : max, { hora: 'â€”', total: 0 });
+  const horaPico = volumenInfo.data.reduce((max, b) => b.total > max.total ? b : max, { hora: 'â€"', total: 0 });
 
-  // â”€â”€ 7. Monto Comprometido por Asesor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ 7. Monto Comprometido por Asesor â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const dataMontoComprometido = detalleAsesores
     .map(d => ({
       name:        d?.asesor?.nombre.split(' ')[0],
@@ -319,7 +334,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   const totalIncumplidos = dataMontoFinal.reduce((s, d) => s + d.incumplidos, 0);
   const totalReagendados = dataMontoFinal.reduce((s, d) => s + d.reagendados, 0);
 
-  // â”€â”€ Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const [modalOpen,  setModalOpen]  = React.useState(false);
   // Drill-down de Contactabilidad: { asesorId, asesorNombre, categoria } | null
   const [drillContact, setDrillContact] = React.useState(null);
@@ -330,8 +345,10 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
 
   return (
-    <>
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECCIÃ“N PRIORITARIA â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+    <div ref={rootRef}>
+     {chartsVisible && (
+      <>
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• SECCIÃ"N PRIORITARIA â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <div style={SECTION_HEADER_STYLE}>
         <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)' }}>star</span>
         <span style={{ ...SECTION_TAG_STYLE, color: 'var(--color-primary)' }}>Vista Prioritaria</span>
@@ -339,13 +356,13 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 'var(--space-md)', alignItems: 'stretch' }}>
 
-        {/* PRIORITARIA Â· 1. Gestiones Realizadas */}
+        {/* PRIORITARIA · 1. Gestiones Realizadas */}
         <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }} onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={() => openModal('gestiones', 'Gestiones por Asesor')}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <h3 className="widget-title">Gestiones Realizadas</h3>
               <p className="text-body-sm" style={{ opacity: 0.5, marginBottom: 4 }}>
-                {detalleAsesores.reduce((s, d) => s + (d?.metricas?.total_marcaciones || 0), 0)} marcaciones Â· {detalleAsesores.reduce((s, d) => s + (d?.metricas?.total_compromisos || 0), 0)} compromisos Â· equipo de {detalleAsesores.length} asesores
+                {detalleAsesores.reduce((s, d) => s + (d?.metricas?.total_marcaciones || 0), 0)} marcaciones · {detalleAsesores.reduce((s, d) => s + (d?.metricas?.total_compromisos || 0), 0)} compromisos · equipo de {detalleAsesores.length} asesores
               </p>
             </div>
             <span className="material-symbols-outlined" style={{ color: 'var(--color-primary)', fontSize: 20 }}>task_alt</span>
@@ -405,7 +422,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           </div>
         </div>
 
-        {/* PRIORITARIA Â· 3. Contactabilidad por Hora â€” full-width, mÃ¡s grande + footer resumen */}
+        {/* PRIORITARIA · 3. Contactabilidad por Hora â€" full-width, más grande + footer resumen */}
         {(() => {
           const totalGest = detalleContact.length;
           const efe = detalleContact.filter(r => {
@@ -418,7 +435,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
             return c.includes('NO_CONTACTADO') || c.includes('NO CONTACTADO');
           }).length;
           const sinTip = totalGest - efe - neu - noc;
-          const horaPicoContact = dataContactHora.reduce((m, b) => b.total > m.total ? b : m, { hora: 'â€”', total: 0 });
+          const horaPicoContact = dataContactHora.reduce((m, b) => b.total > m.total ? b : m, { hora: 'â€"', total: 0 });
           const pct = (n) => totalGest > 0 ? Math.round((n / totalGest) * 100) : 0;
           return (
             <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }}
@@ -428,7 +445,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                 <div>
                   <h3 className="widget-title">Contactabilidad por Hora</h3>
                   <p className="text-body-sm" style={{ opacity: 0.5, marginBottom: 4 }}>
-                    {totalGest} gestiones Â· {efe} efectivas Â· {tasaContactabilidadHora}% tasa Â· pico {horaPicoContact.hora} ({horaPicoContact.total})
+                    {totalGest} gestiones · {efe} efectivas · {tasaContactabilidadHora}% tasa · pico {horaPicoContact.hora} ({horaPicoContact.total})
                   </p>
                 </div>
                 <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.35 }}>open_in_new</span>
@@ -477,7 +494,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-              {/* Footer resumen â€” distribuciÃ³n por categorÃ­a + KPIs */}
+              {/* Footer resumen â€" distribución por categoría + KPIs */}
               <div style={{
                 marginTop: 12, padding: '12px 10px',
                 borderTop: '1px solid rgba(255,255,255,0.08)',
@@ -506,15 +523,15 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           );
         })()}
 
-        {/* PRIORITARIA Â· 4. Volumen de MarcaciÃ³n por Hora â€” stack por asesor */}
+        {/* PRIORITARIA · 4. Volumen de Marcación por Hora â€" stack por asesor */}
         <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }}
              onMouseEnter={onEnter} onMouseLeave={onLeave}
              onClick={() => onOpenVolumen && onOpenVolumen()}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <h3 className="widget-title">Volumen de MarcaciÃ³n por Hora</h3>
+              <h3 className="widget-title">Volumen de Marcación por Hora</h3>
               <p className="text-body-sm" style={{ opacity: 0.5, marginBottom: 4 }}>
-                {totalMarcacionesHora} marcaciones Â· {volumenInfo.asesores.length} asesores Â· pico {horaPico.hora} ({horaPico.total})
+                {totalMarcacionesHora} marcaciones · {volumenInfo.asesores.length} asesores · pico {horaPico.hora} ({horaPico.total})
               </p>
             </div>
             <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.35 }}>open_in_new</span>
@@ -541,7 +558,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   }}
                   labelFormatter={(label, payload) => {
                     const total = payload?.reduce((s, p) => s + (p.value || 0), 0) || 0;
-                    return `${label} Â· Total: ${total}`;
+                    return `${label} · Total: ${total}`;
                   }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
@@ -581,7 +598,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   {volumenInfo.asesores
                     .map((a, i) => {
                       let total = 0;
-                      let peakH = 'â€”', peakV = 0;
+                      let peakH = 'â€"', peakV = 0;
                       volumenInfo.data.forEach(b => {
                         const v = b[a.key] || 0;
                         total += v;
@@ -612,13 +629,13 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           )}
         </div>
 
-        {/* PRIORITARIA Â· 5. ComunicaciÃ³n Omnicanal â€” WSP / SMS / Correos enviados por asesor */}
+        {/* PRIORITARIA · 5. Comunicación Omnicanal â€" WSP / SMS / Correos enviados por asesor */}
         <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
           <div className="widget-header">
             <div>
-              <h3 className="widget-title">ComunicaciÃ³n Omnicanal</h3>
+              <h3 className="widget-title">Comunicación Omnicanal</h3>
               <p className="text-body-sm" style={{ opacity: 0.5 }}>
-                WhatsApps, SMS y Correos enviados por asesor desde las acciones rÃ¡pidas
+                WhatsApps, SMS y Correos enviados por asesor desde las acciones rápidas
               </p>
             </div>
             <span className="material-symbols-outlined" style={{ color: '#25D366' }}>send</span>
@@ -665,7 +682,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   if (filas.every(f => f.total === 0)) {
                     return (
                       <tr><td colSpan={5} style={{ padding: '20px 8px', textAlign: 'center', opacity: 0.4, fontSize: 12 }}>
-                        Sin envÃ­os registrados {labelFecha}
+                        Sin envíos registrados {labelFecha}
                       </td></tr>
                     );
                   }
@@ -684,17 +701,22 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           </div>
         </div>
 
-        {/* PRIORITARIA Â· 5. RotaciÃ³n de Cartera â€” bar chart por asesor + pie chart global */}
-        <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }} onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={() => openModal('rotacion', 'RotaciÃ³n de Cartera por Asesor')}>
+        {/* PRIORITARIA · 5. Rotación de Cartera — bar chart por asesor + pie chart global */}
+        <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }} onMouseEnter={onEnter} onMouseLeave={onLeave} onClick={() => openModal('rotacion', 'Rotación de Cartera por Asesor')}>
           <div className="widget-header" style={{ flexWrap: 'wrap', gap: 8 }}>
             <div style={{ flex: 1, minWidth: 180 }}>
-              <h3 className="widget-title">RotaciÃ³n de Cartera</h3>
-              <p className="text-body-sm" style={{ opacity: 0.5 }}>
-                {gestionadosBase.toLocaleString()} de {totalAsignados.toLocaleString()} contactos gestionados Â· <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>{rotacionReal}% completado</span>
+              <h3 className="widget-title">Rotación de Cartera</h3>
+              <p className="text-body-sm" style={{ opacity: 0.55 }}>
+                <span style={{ fontWeight: 700, color: 'var(--color-on-surface)' }}>{gestionadosBase.toLocaleString()}</span>
+                {' '}de{' '}
+                <span style={{ fontWeight: 700 }}>{totalAsignados.toLocaleString()}</span>
+                {' '}{(rotFechaInicio || filtroDesde) ? 'llamadas realizadas' : 'contactos gestionados'}
+                {' · '}
+                <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>{rotacionReal}% completado</span>
               </p>
             </div>
 
-            {/* Filtros locales â€” detener propagaciÃ³n para no abrir el modal */}
+            {/* Filtros locales â€" detener propagación para no abrir el modal */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
 
               {/* Rango de fechas */}
@@ -733,7 +755,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                 />
               </div>
 
-              {/* Selector de campaÃ±a */}
+              {/* Selector de campaña */}
               {rotCampanas.length > 0 && (
                 <select
                   value={rotCampana}
@@ -749,14 +771,14 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                     colorScheme: 'dark',
                   }}
                 >
-                  <option value="">Todas las campaÃ±as</option>
+                  <option value="">Todas las campañas</option>
                   {rotCampanas.map(c => (
                     <option key={c.id} value={c.id}>{c.nombre}</option>
                   ))}
                 </select>
               )}
 
-              {/* BotÃ³n limpiar â€” solo cuando hay filtro activo */}
+              {/* Botón limpiar â€" solo cuando hay filtro activo */}
               {(rotFechaInicio || rotFechaFin || rotCampana) && (
                 <button type="button"
                   onClick={() => { setRotFechaInicio(''); setRotFechaFin(''); setRotCampana(''); }}
@@ -785,7 +807,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)', gap: 'var(--space-md)', marginTop: 12, alignItems: 'stretch' }}>
 
-            {/* IZQ â€” Lista de progress bars por asesor (live) */}
+            {/* IZQ â€" Lista de progress bars por asesor (live) */}
             <div style={{ minHeight: 260, display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -797,58 +819,66 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               </div>
               {dataRotacionAsesor.length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.4, fontSize: 12, minHeight: 220 }}>
-                  Sin cartera asignada{rotCampana ? ` en campaÃ±a #${rotCampana}` : ''}{filtroDesde ? ` ${labelFecha}` : ''}
+                  Sin cartera asignada{rotCampana ? ` en campaña #${rotCampana}` : ''}{filtroDesde ? ` ${labelFecha}` : ''}
                 </div>
               ) : (
-                <div style={{ flex: 1, overflowY: 'auto', maxHeight: 360, paddingRight: 6 }}>
+                <div style={{ flex: 1, overflowY: 'auto', maxHeight: 380, paddingRight: 4 }}>
                   {dataRotacionAsesor.map((r, i) => {
-                    // Color por desempeÃ±o
-                    const color = r.pct >= 70 ? 'var(--color-primary)'
-                                : r.pct >= 30 ? '#ffc107'
+                    const color = r.pct >= 70 ? '#00e676'
+                                : r.pct >= 40 ? '#ffc107'
                                 : '#ff5252';
+                    const bgColor = r.pct >= 70 ? 'rgba(0,230,118,0.06)'
+                                  : r.pct >= 40 ? 'rgba(255,193,7,0.06)'
+                                  : 'rgba(255,82,82,0.06)';
                     const pendientes = Math.max(0, r.total - r.gestionados);
+                    const label = r.pct >= 70 ? 'Excelente' : r.pct >= 40 ? 'En progreso' : 'Bajo';
                     return (
                       <div key={r.fullName + i} style={{
-                        padding: '10px 12px',
+                        padding: '12px 14px',
                         marginBottom: 8,
-                        background: 'rgba(255,255,255,0.02)',
-                        border: '1px solid rgba(255,255,255,0.05)',
-                        borderRadius: 8,
-                        borderLeft: `3px solid ${color}`,
+                        background: bgColor,
+                        border: `1px solid ${color}22`,
+                        borderRadius: 10,
+                        borderLeft: `4px solid ${color}`,
                       }}>
-                        {/* Header: nombre + ratio */}
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-on-surface)' }}>
+                        {/* Header: nombre + badge + % */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-on-surface)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {r.fullName}
                           </span>
-                          <span style={{ fontSize: 12, opacity: 0.75 }}>
-                            <span style={{ fontWeight: 800, color }}>{r.gestionados}</span>
-                            <span style={{ opacity: 0.5 }}> de </span>
-                            <span style={{ fontWeight: 700 }}>{r.total}</span>
-                            <span style={{ opacity: 0.5 }}> clientes Â· </span>
-                            <span style={{ fontWeight: 800, color }}>{r.pct}%</span>
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color, background: `${color}18`, border: `1px solid ${color}33`, borderRadius: 4, padding: '2px 6px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              {label}
+                            </span>
+                            <span style={{ fontSize: 20, fontWeight: 800, color, lineHeight: 1 }}>{r.pct}%</span>
+                          </div>
                         </div>
-                        {/* Barra de progreso */}
-                        <div style={{
-                          position: 'relative',
-                          height: 8,
-                          background: 'rgba(255,255,255,0.06)',
-                          borderRadius: 4,
-                          overflow: 'hidden',
-                        }}>
+                        {/* Barra de progreso mejorada */}
+                        <div style={{ position: 'relative', height: 6, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden', marginBottom: 8 }}>
                           <div style={{
                             position: 'absolute', top: 0, left: 0, bottom: 0,
                             width: `${Math.min(100, r.pct)}%`,
-                            background: color,
-                            borderRadius: 4,
-                            transition: 'width 0.4s ease-out',
+                            background: `linear-gradient(90deg, ${color}99, ${color})`,
+                            borderRadius: 3,
+                            transition: 'width 0.5s ease-out',
                           }} />
                         </div>
-                        {/* Sub-stats */}
-                        <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 12, opacity: 0.55 }}>
-                          <span><span style={{ color }}>â—</span> Gestionados: <b>{r.gestionados}</b></span>
-                          <span><span style={{ opacity: 0.4 }}>â—</span> Pendientes: <b>{pendientes}</b></span>
+                        {/* Stats en chips */}
+                        <div style={{ display: 'flex', gap: 8, fontSize: 11 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '3px 8px' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ opacity: 0.6 }}>Gestionados</span>
+                            <span style={{ fontWeight: 800, color }}>{r.gestionados.toLocaleString()}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '3px 8px' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'inline-block', flexShrink: 0 }} />
+                            <span style={{ opacity: 0.6 }}>Pendientes</span>
+                            <span style={{ fontWeight: 700, opacity: 0.85 }}>{pendientes.toLocaleString()}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '3px 8px', marginLeft: 'auto' }}>
+                            <span className="material-symbols-outlined" style={{ fontSize: 11, opacity: 0.5 }}>group</span>
+                            <span style={{ fontWeight: 700, opacity: 0.7 }}>{r.total.toLocaleString()} total</span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -857,7 +887,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               )}
             </div>
 
-            {/* DER â€” Pie chart global */}
+            {/* DER â€" Pie chart global */}
             <div style={{ minHeight: 260, display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 'var(--space-md)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 Vista Global
@@ -865,9 +895,11 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               <div style={{ flex: 1, position: 'relative', minHeight: 200 }}>
                 <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
                   <PieChart>
-                    <Pie data={dataRotacion} innerRadius={55} outerRadius={85} paddingAngle={3} dataKey="value" stroke="none" startAngle={90} endAngle={-270}>
+                    <Pie data={dataRotacion} innerRadius={62} outerRadius={90} paddingAngle={2} dataKey="value" stroke="none" startAngle={90} endAngle={-270}>
                       {dataRotacion.map((_, i) => (
-                        <Cell key={i} fill={i === 0 ? 'var(--color-primary)' : 'rgba(255,255,255,0.08)'} />
+                        <Cell key={i} fill={i === 0
+                          ? (Number(rotacionReal) >= 70 ? '#00e676' : Number(rotacionReal) >= 40 ? '#ffc107' : '#ff5252')
+                          : 'rgba(255,255,255,0.06)'} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(v) => `${v}%`} contentStyle={chartTooltipStyle} />
@@ -878,19 +910,24 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
                   textAlign: 'center', pointerEvents: 'none',
                 }}>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--color-primary)', lineHeight: 1 }}>{rotacionReal}%</div>
-                  <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 }}>Completado</div>
+                  <div style={{
+                    fontSize: 32, fontWeight: 900, lineHeight: 1,
+                    color: Number(rotacionReal) >= 70 ? '#00e676' : Number(rotacionReal) >= 40 ? '#ffc107' : '#ff5252',
+                  }}>{rotacionReal}%</div>
+                  <div style={{ fontSize: 10, opacity: 0.45, textTransform: 'uppercase', letterSpacing: 1, marginTop: 4 }}>Completado</div>
                 </div>
               </div>
-              {/* Leyenda */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Gestionados</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-primary)', marginTop: 2 }}>{gestionadosBase.toLocaleString()}</div>
+              {/* Leyenda con números grandes */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ textAlign: 'center', padding: '8px 4px', background: 'rgba(0,230,118,0.05)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>
+                    {(rotFechaInicio || filtroDesde) ? 'Llamadas' : 'Gestionados'}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--color-primary)', lineHeight: 1 }}>{gestionadosBase.toLocaleString()}</div>
                 </div>
-                <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pendientes</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: 'rgba(255,255,255,0.55)', marginTop: 2 }}>{Math.max(0, totalAsignados - gestionadosBase).toLocaleString()}</div>
+                <div style={{ textAlign: 'center', padding: '8px 4px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+                  <div style={{ fontSize: 10, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 }}>Pendientes</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: 'rgba(255,255,255,0.6)', lineHeight: 1 }}>{Math.max(0, totalAsignados - gestionadosBase).toLocaleString()}</div>
                 </div>
               </div>
             </div>
@@ -898,13 +935,13 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           </div>
         </div>
 
-        {/* PRIORITARIA Â· 6. Contactabilidad Cruda â€” desglose por asesor + pie 4 segmentos */}
+        {/* PRIORITARIA · 6. Contactabilidad Cruda â€" desglose por asesor + pie 4 segmentos */}
         <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
           <div className="widget-header">
             <div>
               <h3 className="widget-title">Contactabilidad Cruda</h3>
               <p className="text-body-sm" style={{ opacity: 0.5 }}>
-                {cdrsTotal.toLocaleString()} CDRs Â· <span style={{ color: '#00E676', fontWeight: 700 }}>{tasaContactabilidad}% efectividad</span>
+                {cdrsTotal.toLocaleString()} CDRs · <span style={{ color: '#00E676', fontWeight: 700 }}>{tasaContactabilidad}% efectividad</span>
                 <span style={{ opacity: 0.4, marginLeft: 6, fontSize: 12 }}>(click en celda para ver detalle)</span>
               </p>
             </div>
@@ -913,7 +950,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(280px, 1fr)', gap: 'var(--space-md)', marginTop: 12, alignItems: 'stretch' }}>
 
-            {/* IZQ â€” Tabla por asesor con celdas clickeables */}
+            {/* IZQ â€" Tabla por asesor con celdas clickeables */}
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                 Desglose por Asesor
@@ -982,7 +1019,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               </div>
             </div>
 
-            {/* DER â€” Pie chart 4 segmentos global */}
+            {/* DER â€" Pie chart 4 segmentos global */}
             <div style={{ display: 'flex', flexDirection: 'column', borderLeft: '1px solid rgba(255,255,255,0.06)', paddingLeft: 'var(--space-md)' }}>
               <div style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
                 Vista Global
@@ -1066,7 +1103,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
             {[
               { label: 'Total Mora Base',    val: fmt$(metricasEquipo?.moraTotal),              color: 'rgba(255,255,255,0.5)' },
               { label: 'Total Comprometido', val: fmt$(metricasEquipo?.montoComprometidoTotal), color: C_DANGER },
-              { label: 'Tasa RecuperaciÃ³n',  val: `${metricasEquipo?.tasaRecuperacion ?? 0}%`, color: C_WARN },
+              { label: 'Tasa Recuperación',  val: `${metricasEquipo?.tasaRecuperacion ?? 0}%`, color: C_WARN },
             ].map((item) => (
               <div key={item.label} style={{ textAlign: 'center' }}>
                 <span style={{ display: 'block', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{item.label}</span>
@@ -1076,7 +1113,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           </div>
         </div>
 
-        {/* AnÃ¡lisis de Cartera */}
+        {/* Análisis de Cartera */}
         <div style={{ gridColumn: '1 / -1' }}>
           <AnalisisCartera filtroFechaDesde={filtroDesde} filtroFechaHasta={filtroHasta} />
         </div>
@@ -1086,17 +1123,17 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           <CumplimientoMetas filtroFechaDesde={filtroDesde} filtroFechaHasta={filtroHasta} />
         </div>
 
-        {/* PRIORITARIA Â· 7. Proyecciones â€” extrapola rate actual al cierre de jornada */}
+        {/* PRIORITARIA · 7. Proyecciones â€" extrapola rate actual al cierre de jornada */}
         <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }} onMouseEnter={onEnter} onMouseLeave={onLeave}>
           <div className="widget-header">
             <div>
               <h3 className="widget-title">Proyecciones</h3>
               <p className="text-body-sm" style={{ opacity: 0.5 }}>
                 {esRango
-                  ? <>PerÃ­odo {filtroDesde} â†’ {filtroHasta} Â· totales reales acumulados</>
+                  ? <>Período {filtroDesde} â†' {filtroHasta} · totales reales acumulados</>
                   : proyEsHoy
-                    ? <>EstimaciÃ³n al cierre de jornada (17:00) Â· <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>{proyHorasTrans.toFixed(1)}h transcurridas, {proyHorasRest.toFixed(1)}h restantes</span> Â· factor {proyFactor.toFixed(2)}Ã—</>
-                    : <>DÃ­a cerrado Â· valores reales finales (sin proyecciÃ³n)</>}
+                    ? <>Estimación al cierre de jornada (17:00) · <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>{proyHorasTrans.toFixed(1)}h transcurridas, {proyHorasRest.toFixed(1)}h restantes</span> · factor {proyFactor.toFixed(2)}Ã—</>
+                    : <>Día cerrado · valores reales finales (sin proyección)</>}
               </p>
             </div>
             <span className="material-symbols-outlined" style={{ color: 'var(--color-primary)' }}>insights</span>
@@ -1137,18 +1174,18 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           <div style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 700, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                Marcaciones Â· actual vs proyectado por asesor
+                Marcaciones · actual vs proyectado por asesor
               </span>
               {proyEsHoy && (
                 <div style={{ display: 'flex', gap: 12, fontSize: 12, opacity: 0.6 }}>
                   <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'var(--color-primary)', borderRadius: 2, verticalAlign: 'middle', marginRight: 4 }} />Realizado</span>
-                  <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'rgba(0,230,118,0.25)', borderRadius: 2, border: '1px dashed rgba(0,230,118,0.6)', verticalAlign: 'middle', marginRight: 4 }} />ProyecciÃ³n</span>
+                  <span><span style={{ display: 'inline-block', width: 10, height: 10, background: 'rgba(0,230,118,0.25)', borderRadius: 2, border: '1px dashed rgba(0,230,118,0.6)', verticalAlign: 'middle', marginRight: 4 }} />Proyección</span>
                 </div>
               )}
             </div>
             {dataProyeccion.length === 0 ? (
               <div style={{ padding: 30, textAlign: 'center', opacity: 0.4, fontSize: 12 }}>
-                Sin datos de gestiÃ³n para proyectar
+                Sin datos de gestión para proyectar
               </div>
             ) : (
               <div style={{ height: Math.max(220, dataProyeccion.length * 36 + 40) }}>
@@ -1162,7 +1199,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       contentStyle={chartTooltipStyle}
                       formatter={(v, name, props) => {
                         if (name === 'marcActual') return [`${v} realizadas`, props.payload.fullName];
-                        if (name === 'marcDelta')  return [`+${v} proyectadas â†’ ${props.payload.marcProy} total`, ''];
+                        if (name === 'marcDelta')  return [`+${v} proyectadas â†' ${props.payload.marcProy} total`, ''];
                         return [v, name];
                       }}
                     />
@@ -1198,17 +1235,17 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       <td style={{ padding: '7px 8px', color: 'var(--color-on-surface-variant)', fontWeight: 600 }}>{r.fullName}</td>
                       <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                         <span style={{ opacity: 0.6 }}>{r.marcActual}</span>
-                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†’</span>
+                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†'</span>
                         <span style={{ fontWeight: 800, color: 'var(--color-primary)' }}>{r.marcProy}</span>
                       </td>
                       <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                         <span style={{ opacity: 0.6 }}>{r.comprActual}</span>
-                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†’</span>
+                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†'</span>
                         <span style={{ fontWeight: 800, color: '#1DE9B6' }}>{r.comprProy}</span>
                       </td>
                       <td style={{ padding: '7px 8px', textAlign: 'right' }}>
                         <span style={{ opacity: 0.6 }} className="text-mono">${Number(r.recaudActual).toFixed(2)}</span>
-                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†’</span>
+                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†'</span>
                         <span style={{ fontWeight: 800, color: '#ffc107' }} className="text-mono">${Number(r.recaudProy).toFixed(2)}</span>
                       </td>
                     </tr>
@@ -1243,7 +1280,9 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
         fechaFin={filtroHasta}
         campanaId={filtroCampana}
       />
-    </>
+      </>
+     )}
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const _EMPTY_OBJ = {};
 
 /**
- * MetricDetailModal â€” Ranking comparativo de asesores por tipo de mÃ©trica.
+ * MetricDetailModal â€" Ranking comparativo de asesores por tipo de métrica.
  *
  * Props:
  *   - metricas: { [asesorId]: { total_marcaciones, total_gestiones, total_compromisos, tiempo_al_aire, eficiencia, estado_actual_id } }
@@ -47,7 +47,7 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
       let extra = null; // info adicional para mostrar en tooltip / tabla
       switch (metricType) {
         case 'rotacion':
-          // % de cartera asignada con al menos una gestiÃ³n completada
+          // % de cartera asignada con al menos una gestión completada
           val = totalAsignados > 0 ? Math.round((gestionadosBase / totalAsignados) * 100) : 0;
           extra = `${gestionadosBase} / ${totalAsignados}`;
           break;
@@ -100,7 +100,7 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
               </div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>MÃ¡s Alto</div>
+              <div style={{ fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Más Alto</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: '#1DE9B6' }}>
                 {summaryStats.max} <span style={{ fontSize: 12, fontWeight: 400 }}>{unitLabel}</span>
               </div>
@@ -120,7 +120,7 @@ export default function MetricDetailModal({ open, onClose, metricType, metricTit
                 formatter={(value, _name, props) => {
                   const ex = props.payload.extra;
                   const main = `${value} ${unitLabel}`;
-                  return [ex ? `${main} Â· ${ex}` : main, props.payload.fullName];
+                  return [ex ? `${main} · ${ex}` : main, props.payload.fullName];
                 }}
               />
               <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={28} fill={COLOR_PALETTE[0]}>

@@ -50,6 +50,24 @@ async function parsearXLSX(f) {
   })();
   const prodIdx   = findIdx(['PRODUCTO', 'GRUPO', 'CARTERA', 'CAMPAÑA', 'LOT']);
   const gestorIdx = findIdx(['GESTOR', 'AGENTE', 'COBRADOR']);
+  const fventaIdx = findIdx(['FECHA DE VENTA', 'FECHA VENTA', 'FECHA DE COMPRA', 'FECHA COMPRA']);
+
+  // #7 — Empresa según fecha de compra: >= 2026-01-01 → UPHONE TEC SAS; <= 2025-12-31 → UPHONE SCC.
+  // Serial Excel de 2026-01-01 = 46023 (epoch 1899-12-30).
+  const SERIAL_2026 = 46023;
+  const empresaPorSerial = (serial) => serial >= SERIAL_2026 ? 'UPHONE TEC SAS' : 'UPHONE SCC';
+  const empresaDeFechaVenta = (row) => {
+    if (fventaIdx <= 0) return '';
+    const v = row.getCell(fventaIdx).value;
+    let serial = null;
+    if (typeof v === 'number') serial = v;
+    else if (v instanceof Date) serial = Math.floor((v.getTime() - Date.UTC(1899, 11, 30)) / 86400000);
+    else {
+      const s = String((v && typeof v === 'object' && 'result' in v ? v.result : v) ?? '').trim();
+      if (/^\d+(\.\d+)?$/.test(s)) serial = parseFloat(s);
+    }
+    return serial != null ? empresaPorSerial(serial) : '';
+  };
 
   const contactos = [];
   ws.eachRow((row, rowNumber) => {
@@ -70,6 +88,9 @@ async function parsearXLSX(f) {
     headers.forEach((header, index) => {
       if (header && index > 0) metadata[header] = getVal(index);
     });
+    // #7 — Etiquetar empresa por fecha de compra (para validación y cruce por empresa).
+    const empresaCliente = empresaDeFechaVenta(row);
+    if (empresaCliente) metadata['EMPRESA'] = empresaCliente;
 
     contactos.push({
       telefono,

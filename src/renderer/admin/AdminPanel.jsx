@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   PieChart, Pie, Cell, BarChart, Bar, Legend,
@@ -583,7 +583,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
               <label>Rol
                 <select value={form.rol} onChange={e => setForm(f => ({ ...f, rol: e.target.value }))}>
                   <option value="asesor">Gestor</option>
-                  <option value="supervisor">Jefe de Area</option>
+                  <option value="jefe_area">Jefe de Area</option>
                   <option value="admin">Admin</option>
                 </select>
               </label>
@@ -816,7 +816,7 @@ function PageConexion({ dbConfig, onConfigChange }) {
             </div>
             <div className="local-info-row">
               <span className="material-icons" style={{ color: '#ea80fc' }}>schedule</span>
-              <span>Migraciones: M-001 â†’ M-041 aplicadas automáticamente.</span>
+              <span>Migraciones: M-001 â†' M-041 aplicadas automáticamente.</span>
             </div>
           </div>
         </Card>
