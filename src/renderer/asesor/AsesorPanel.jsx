@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import NavigationDrawer from '../shared/NavigationDrawer';
 import TopAppBar from '../shared/TopAppBar';
 import Modal from '../shared/Modal';
@@ -16,6 +16,27 @@ import { assertChannelAllowedLocal, handleAuthStatus } from '../shared/apiClient
 
 const WS_PORT = 3001;
 
+// Empresa según fecha de compra: >= 2026-01-01 → UPHONE TEC SAS; antes → UPHONE SCC.
+// FECHA DE VENTA puede venir como serial Excel (número) o como string de fecha (JS Date).
+const CORTE_EMPRESA = new Date('2026-01-01T00:00:00');
+function empresaDeMeta(meta) {
+  if (!meta) return null;
+  const dir = meta['EMPRESA'] && String(meta['EMPRESA']).trim();
+  if (dir) return dir;
+  const raw = meta['FECHA DE VENTA'] ?? meta['FECHA VENTA'] ?? meta['FECHA DE COMPRA'];
+  if (raw == null || raw === '') return null;
+  let d;
+  const s = String(raw).trim();
+  const n = parseFloat(s);
+  if (isFinite(n) && n > 1 && !/[a-zA-Z]/.test(s)) {
+    d = new Date(Date.UTC(1899, 11, 30) + n * 86400000); // serial Excel
+  } else {
+    d = new Date(s); // string de fecha
+  }
+  if (isNaN(d)) return null;
+  return d >= CORTE_EMPRESA ? 'UPHONE TEC SAS' : 'UPHONE SCC';
+}
+
 const ESTADOS = [
   { id: 1, nombre: 'En Gestión',     icon: 'phone_in_talk', cssClass: 'active' },
   { id: 2, nombre: 'Almuerzo',       icon: 'restaurant',    cssClass: 'data' },
@@ -31,17 +52,26 @@ function formatTimer(seg) {
   return `${h}:${m}:${s}`;
 }
 
-function Kpi({ label, value, color }) {
+function Kpi({ label, value, color, onClick, active, title }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      padding: '4px 10px', borderRadius: 20,
-      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)',
-      whiteSpace: 'nowrap',
-    }}>
-      <span style={{ fontSize: 10, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
+    <Tag
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '4px 10px', borderRadius: 20,
+        background: active ? (color ? `${color}22` : 'rgba(255,255,255,0.1)') : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${active && color ? color + '88' : 'rgba(255,255,255,0.07)'}`,
+        whiteSpace: 'nowrap', cursor: onClick ? 'pointer' : 'default',
+        font: 'inherit', color: 'inherit', transition: 'all 0.15s',
+      }}
+    >
+      <span style={{ fontSize: 10, opacity: active ? 0.75 : 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</span>
       <span style={{ fontSize: 13, fontWeight: 800, color: color || 'inherit' }}>{value}</span>
-    </div>
+      {onClick && <span className="material-symbols-outlined" style={{ fontSize: 13, opacity: 0.5, color: color || 'inherit' }}>{active ? 'expand_less' : 'chevron_right'}</span>}
+    </Tag>
   );
 }
 
@@ -153,6 +183,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   // ── Llamada Activa ──
   const [cdrId, setCdrId] = useState(null);
+  // Mapa contactoId → cdrId creado al marcar por celular (handleAdbMarcar).
+  // Evita doble CDR/doble marcación: la tipificación reutiliza el CDR ya creado.
+  const cdrPorContactoRef = useRef({});
   const [enLlamada, setEnLlamada] = useState(false);
   const [grabando, setGrabando] = useState(false);
   const ultimoAudioPathRef = useRef('');
@@ -226,6 +259,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraFiltroDias, setCarteraFiltroDias] = useState('general');
   const [carteraFiltro, setCarteraFiltro] = useState('');
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
+  const [moraFiltro, setMoraFiltro] = useState('todos'); // todos | alto | medio | bajo — solo cartera asesor
+  const [vistaYaPago, setVistaYaPago] = useState(false); // true = apartado "Ya pagó" (declarados + validados)
   const [carteraDesde, setCarteraDesde] = useState('');
   const [carteraHasta, setCarteraHasta] = useState('');
   const [contactoInfoPopup, setContactoInfoPopup] = useState(null);
@@ -234,12 +269,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [llamadaActivaPorCel, setLlamadaActivaPorCel] = useState({ 0: null, 1: null });
   const [tipifMarcaLlamada, setTipifMarcaLlamada] = useState(false);
   const [tipifSelects, setTipifSelects] = useState({}); // { contactoId: 'no_contesta' | 'cuelga' | ... }
-  const TIP_CODE_TO_VAL = { CUE:'cuelga', NC:'no_contesta', NEG:'negativa_pago', REF:'referencia', EQ:'equivocado', SUS:'suspendido', PMP:'promesa_pago', TER:'tercero', VOL_CALL:'volver_llamar', BUZON:'buzon_voz' };
+  const TIP_CODE_TO_VAL = { CUE:'cuelga', NC:'no_contesta', NEG:'negativa_pago', REF:'referencia', EQ:'equivocado', SUS:'suspendido', PMP:'promesa_pago', TER:'tercero', VOL_CALL:'volver_llamar', BUZON:'buzon_voz', APAGADO:'apagado', NO_DISP:'no_disponible', NO_WSP:'no_whatsapp', INCORRECTO:'incorrecto', REF_ELIM:'referencia_elimina', NO_CON_OCU:'ocupado', NOTIFICADO:'notificado' };
   const [mensajesBroadcast, setMensajesBroadcast] = useState([]);
 
   // ── Refs para estabilidad de red (Backbone de Comunicación) ──
   const wsRef = useRef(null);
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
+  const handleDialRef = useRef(null);
+  const enviarMetricasWSRef = useRef(null);
   const estadoRef = useRef(estadoActual);
   const historialGestionesRef = useRef([]);
   const tiempoEstadoRef = useRef(0);
@@ -325,6 +362,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
           break;
         case 'db:marcarContactoGestionado':
           url = `${apiBase}/contactos/${args[0]}/gestionar`;
+          options.method = 'PATCH';
+          break;
+        case 'db:marcarYaPago':
+          url = `${apiBase}/contactos/${args[0]}/ya-pago`;
           options.method = 'PATCH';
           break;
         case 'db:incrementarIntentoContacto':
@@ -458,9 +499,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
         case 'db:getProyeccionMensual':
           url = `${apiBase}/proyeccion-mensual`;
           break;
-        case 'db:getIndicadoresCobranza':
-          url = `${apiBase}/indicadores-cobranza`;
+        case 'db:getIndicadoresCobranza': {
+          const params = args[0] && args[0].campana_id ? `?campana_id=${args[0].campana_id}` : '';
+          url = `${apiBase}/indicadores-cobranza${params}`;
           break;
+        }
+        case 'db:getMetaDiariaCampanas': {
+          const cid = args[0] ? `?campana_id=${args[0]}` : '';
+          url = `${apiBase}/campana/meta-diaria${cid}`;
+          break;
+        }
+        case 'db:getMetasSegmentos': {
+          url = `${apiBase}/campana/metas-segmentos?campana_id=${args[0] || ''}`;
+          break;
+        }
         default:
           // C1: solo los canales de dispositivo/sistema (adb/audio/recorder/shell/app)
           // son legítimamente locales. Un canal de datos no mapeado lanzaría error
@@ -478,9 +530,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
       }
       return await response.json();
     } catch (err) {
-      console.error(`[API_REMOTE] Error enviando ${channel}:`, err);
-      // Fallback a local solo si el error es de red y queremos resiliencia, 
-      // pero para Multi-PC si la red falla, no habrá datos.
+      // Suprimir log para errores 404 (rutas no activas aún, p.ej. antes de reinicio)
+      if (!String(err?.message).includes('404')) {
+        console.error(`[API_REMOTE] Error enviando ${channel}:`, err);
+      }
       throw err;
     }
   }, [isRemote, apiBase, authToken, usuario.id, handleUnauthorized]);
@@ -650,7 +703,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const res = esWspCall
         ? await window.api.invoke('adb:whatsappCall', tel, deviceIndex)
         : await window.api.invoke('adb:dial', tel, deviceIndex);
-      if (res.success) {
+      // WhatsApp: el auto-tap del botón de llamar puede fallar aunque el chat SÍ se abra.
+      // En ese caso el asesor completa la llamada manualmente → igual cuenta como marcación/CDR.
+      const cuentaLlamada = res.success || (esWspCall && res.chatOpened);
+      if (cuentaLlamada) {
         setMarcaciones(prev => prev + 1);
         let cdrIdLocal = null;
         if (typeof contacto === 'object' && contacto?.id) {
@@ -661,13 +717,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
               timestamp_inicio: nowLocalISO(),
             });
             cdrIdLocal = r?.id ?? null;
+            // Registrar CDR por contacto para que la tipificación lo reutilice (evita doble CDR).
+            if (cdrIdLocal && contacto.id) cdrPorContactoRef.current[contacto.id] = cdrIdLocal;
           } catch { /* no bloquea */ }
         }
         setCarteraLlamada({ contacto: typeof contacto === 'object' ? contacto : { telefono }, cdrId: cdrIdLocal });
         // Distintivo por celular: marcar este contacto en el slot usado (reemplaza al anterior de ese slot)
         const contactoId = typeof contacto === 'object' ? contacto?.id : null;
         if (contactoId) setLlamadaActivaPorCel(prev => ({ ...prev, [deviceIndex]: contactoId }));
-        showToast(esWspCall ? `Llamando por WhatsApp ${tel} (Cel 2)...` : `Marcando ${tel} (Cel ${deviceIndex + 1})...`, 'success');
+        if (esWspCall && !res.success && res.chatOpened) {
+          showToast(`Chat WhatsApp abierto — toca el botón de llamar en el Cel 2`, 'info');
+        } else {
+          showToast(esWspCall ? `Llamando por WhatsApp ${tel} (Cel 2)...` : `Marcando ${tel} (Cel ${deviceIndex + 1})...`, 'success');
+        }
         enviarMetricasWS();
       } else {
         showToast(res.error || 'Sin conexión ADB — verifica depuración USB', 'warning');
@@ -682,6 +744,29 @@ export default function AsesorPanel({ usuario, onLogout }) {
     try { await window.api.invoke('adb:hangup'); } catch { /* ignorar */ }
     setCarteraLlamada(null);
   }, []);
+
+  // #5 — Asesor declara "ya pagó": el cliente sale de la cola activa y pasa al apartado
+  // "Pendiente de comprobación" (ya_pago=1, validado_pago=0). Sale definitivo cuando el
+  // supervisor confirma el cruce bancario en Validación de Pagos (validado_pago=1).
+  const handleMarcarYaPago = useCallback(async (c) => {
+    if (!c?.id) return;
+    if (!window.confirm(`¿Marcar a "${c.nombre_deudor}" como YA PAGÓ?\n\nSaldrá de tu cola activa y quedará pendiente de comprobación hasta la validación bancaria del supervisor.`)) return;
+    // Optimista
+    setCartera(prev => prev.map(x =>
+      x.id === c.id ? { ...x, ya_pago: 1, validado_pago: 0, estado_marcacion: 'YA_PAGO', orden_marcacion: null } : x
+    ));
+    try {
+      await callApi('db:marcarYaPago', c.id);
+      showToast(`${c.nombre_deudor} → pendiente de comprobación`, 'success');
+      enviarMetricasWS();
+    } catch (err) {
+      showToast('Error al marcar ya pagó: ' + err.message, 'error');
+      // Revertir optimista
+      setCartera(prev => prev.map(x =>
+        x.id === c.id ? { ...x, ya_pago: 0, estado_marcacion: 'PENDIENTE' } : x
+      ));
+    }
+  }, [callApi, showToast, enviarMetricasWS]);
 
   async function handleHangup() {
     try {
@@ -797,7 +882,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               tiempos_acumulados: met.tiemposAcumulados,
             }));
           }
-          enviarMetricasWS();
+          enviarMetricasWSRef.current?.();
         }, 500);
 
         // Keep-alive para Cloudflare tunnel (corta WS idle ~100s si solo hay protocol pings)
@@ -816,7 +901,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
         if (msg.tipo === 'REMOTE_DIAL' || msg.tipo === 'MARCAR_CLIENTE') {
           const tel = msg.telefono || msg.cliente?.telefono;
-          if (tel) handleDial(tel);
+          if (tel) handleDialRef.current?.(tel);
         }
 
         if (msg.tipo === 'SET_DIALING_MODE') {
@@ -838,6 +923,31 @@ export default function AsesorPanel({ usuario, onLogout }) {
           cargarCartera();
           showToast('Nueva cartera asignada — actualizando...', 'info');
         }
+
+        if (msg.tipo === 'PAGO_VALIDADO') {
+          const confirmedIds = new Set([...(msg.contactoIds || []), ...(msg.abonoIds || [])].map(Number));
+          if (confirmedIds.size) {
+            setCartera(prev => prev.map(c =>
+              confirmedIds.has(Number(c.id))
+                ? { ...c, validado_pago: 1, ya_pago: 1, estado_marcacion: 'YA_PAGO' }
+                : c
+            ));
+          }
+          setDashRefreshTrigger(p => p + 1);
+        }
+
+        if (msg.tipo === 'NUEVO_MENSAJE_BROADCAST') {
+          setMensajesBroadcast(prev => {
+            const sin = prev.filter(m => m.id !== msg.mensaje.id);
+            return [msg.mensaje, ...sin];
+          });
+        }
+
+        if (msg.tipo === 'MENSAJE_BROADCAST_DESACTIVADO') {
+          setMensajesBroadcast(prev =>
+            prev.map(m => m.id === msg.id ? { ...m, activo: 0 } : m)
+          );
+        }
       };
 
       socket.onclose = () => {
@@ -855,7 +965,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     } catch (err) {
       setTimeout(conectarWS, 5000);
     }
-  }, [usuario.id, handleDial, enviarMetricasWS]); // Dependencias estables
+  }, [usuario.id]); // Solo usuario.id — handleDial/enviarMetricasWS via refs para no recrear WS
 
   useEffect(() => {
     const handleAudioChunk = (chunk) => {
@@ -1052,6 +1162,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
       if (typeof offPmp === 'function') offPmp();
     };
   }, [handleAvisoLocal, handleEjecutarLocal, cargarContactoAgendado]);
+
+  // Mantener refs de callbacks volátiles para que conectarWS no se recree con cada render
+  handleDialRef.current = handleDial;
+  enviarMetricasWSRef.current = enviarMetricasWS;
 
   // 🚀 CONEXIÓN WEB SOCKET ESTABLE (Solo al montar o cambiar IP)
   useEffect(() => {
@@ -1383,6 +1497,15 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [activePage, cargarCartera]);
 
+  // Cargar progresoCampana al inicio si la campaña viene de sessionStorage (no pasa por handleSelectCampana)
+  useEffect(() => {
+    if (campana?.id && progresoCampana.total === 0) {
+      callApi('db:getProgresoCampana', campana.id, usuario?.id)
+        .then(p => { if (p?.total > 0) setProgresoCampana(p); })
+        .catch(() => {});
+    }
+  }, [campana?.id]);
+
   function getMensajeParaContacto(contacto, diasMoraVal) {
     const dias = parseInt(diasMoraVal, 10) || 0;
     let segmento;
@@ -1596,13 +1719,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
   async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado, _contacto, _marcacion = false }) {
     // _contacto override evita race condition cuando se llama sin abrir diálogo
     const contactoSnapshot = _contacto || contactoActual;
-    if (_marcacion) setMarcaciones(prev => prev + 1);
+
+    // CDR del LLAMAR de ESTE cliente (handleAdbMarcar lo guardó en cdrPorContactoRef).
+    // La marcación se cuenta SOLO al llamar, nunca al tipificar. Si existe cdrPrevio,
+    // esa llamada ya se contabilizó → la tipificación solo lo finaliza (no cuenta ni duplica).
+    const cdrPrevio = contactoSnapshot?.id
+      ? (cdrPorContactoRef.current[contactoSnapshot.id] || null)
+      : null;
+    // Solo cuenta como marcación si NO hubo LLAMAR previo (tipificación manual sin llamada).
+    if (_marcacion && !cdrPrevio) setMarcaciones(prev => prev + 1);
 
     try {
-      // Resolver CDR activo. Si no existe (fallo silencioso en insertCdr durante el dial
-      // o inestabilidad WS en modo Multi-PC), crear uno de respaldo ahora para que el
-      // compromiso quede con tipificacion_id y aparezca en getCompromisosEquipo.
-      let activeCdrId = cdrId;
+      // Prioridad del CDR a finalizar: el del LLAMAR de ESTE contacto (cdrPrevio) SIEMPRE primero,
+      // para no actualizar por error un cdrId viejo de otra llamada (evita doble registro/tipif).
+      // Solo si no hubo llamada se usa cdrId de la llamada activa; y como último recurso se crea uno.
+      let activeCdrId = cdrPrevio || cdrId;
       if (!activeCdrId && contactoSnapshot?.id) {
         console.warn('[TIPIFICACION] Sin CDR activo — creando CDR de respaldo');
         try {
@@ -1661,6 +1792,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
         dbWrites.push(callApi('db:marcarContactoGestionado', contactoSnapshot.id));
       }
       await Promise.all(dbWrites);
+
+      // CDR de este contacto ya finalizado → liberar para que un reintento cree uno nuevo.
+      if (contactoSnapshot?.id) delete cdrPorContactoRef.current[contactoSnapshot.id];
 
       // Agendamiento (secuencial — depende del contacto ya gestionado)
       if (agendamiento && contactoSnapshot?.id) {
@@ -1851,7 +1985,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         }}
         usuario={usuario}
         onLogout={onLogout}
-        compactContent={<AsesorMensajes compact={true} usuario={usuario} />}
+        compactContent={<AsesorMensajes compact={true} usuario={usuario} callApi={callApi} />}
         collapsed={navCollapsed}
         onToggleCollapse={() => setNavCollapsed(prev => !prev)}
       />
@@ -2341,38 +2475,113 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     <Kpi label="En intentos" value={enIntentos} color="#fbc02d" />
                     <Kpi label="Agendados" value={agendados} color="#64b5f6" />
                     <Kpi label="Gestionados" value={gestionados} color="var(--color-primary)" />
-                    <Kpi label="Ya pagó" value={yaPago} color="#ce93d8" />
+                    <Kpi label="Ya pagó" value={cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1).length} color="#ce93d8"
+                      onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago}
+                      title="Ver clientes que declararon pago (pendientes de comprobación) y los ya validados" />
+                    {(() => {
+                      const validados = cartera.filter(c => c.validado_pago === 1);
+                      if (!validados.length) return null;
+                      const recaudado = validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
+                      return (
+                        <Kpi
+                          label="Recaudado"
+                          value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                          color="#00e676"
+                          title={`${validados.length} contactos validados por supervisor`}
+                        />
+                      );
+                    })()}
                   </div>
                 );
               })()}
 
-              {/* ── Chips Días ── */}
+              {/* ── Contadores por segmento (gestionados / total) ── */}
               {(() => {
-                const countDias = (d) => cartera.filter(c => {
+                // "Gestionando" = ya trabajado (gestionado, agendado o ya pagó). PENDIENTE/EN_INTENTOS = falta.
+                const esTrabajado = (c) => c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'AGENDADO' || c.estado_marcacion === 'YA_PAGO';
+                const esPagado = (c) => c.validado_pago === 1 || c.ya_pago === 1;
+                const seg = { '0': { t: 0, g: 0, p: 0 }, '1': { t: 0, g: 0, p: 0 }, '2': { t: 0, g: 0, p: 0 } };
+                let genT = 0, genG = 0, genP = 0;
+                cartera.forEach(c => {
                   let meta = {};
                   try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
-                  return String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
-                }).length;
-                const gestionados = cartera.filter(c => c.estado_marcacion === 'GESTIONADO').length;
-                const chips = [
-                  { key: 'general', label: `General ${cartera.length}` },
-                  { key: '0',       label: `0 Dias ${countDias(0)}` },
-                  { key: '1',       label: `1 Dia ${countDias(1)}` },
-                  { key: '2',       label: `2 Dias ${countDias(2)}` },
-                  { key: 'gestionados', label: `Gestionados ${gestionados}`, isGestionado: true }
+                  const d = String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
+                  const w = esTrabajado(c);
+                  const p = esPagado(c);
+                  genT++; if (w) genG++; if (p) genP++;
+                  if (seg[d]) { seg[d].t++; if (w) seg[d].g++; if (p) seg[d].p++; }
+                });
+                const cards = [
+                  { key: 'general', label: 'General',  sub: 'toda la cartera', icon: 'groups',              t: genT, g: genG, p: genP, color: '#00e676' },
+                  { key: '0',       label: '0 días',   sub: 'al día',          icon: 'sentiment_satisfied', t: seg['0'].t, g: seg['0'].g, p: seg['0'].p, color: '#00e676' },
+                  { key: '1',       label: '1 día',    sub: 'mora leve',       icon: 'schedule',            t: seg['1'].t, g: seg['1'].g, p: seg['1'].p, color: '#ffca28' },
+                  { key: '2',       label: '2 días',   sub: 'mora',            icon: 'warning',             t: seg['2'].t, g: seg['2'].g, p: seg['2'].p, color: '#ff9800' },
                 ];
                 return (
-                  <div className="cartera-filters" style={{ marginBottom: 8, gap: 6 }}>
-                    {chips.map(f => (
-                      <button type="button" 
-                        key={f.key} 
-                        className={`cartera-filter-btn ${carteraFiltroDias === f.key ? 'active' : ''}`}
-                        style={f.isGestionado && carteraFiltroDias === f.key ? { background: 'rgba(0,230,118,0.2)', color: 'var(--color-primary)', borderColor: 'var(--color-primary)' } : f.isGestionado ? { color: 'var(--color-primary)' } : {}}
-                        onClick={() => setCarteraFiltroDias(f.key)}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 12 }}>
+                    {cards.map(c => {
+                      const active = carteraFiltroDias === c.key;
+                      const pct = c.t > 0 ? Math.round((c.g / c.t) * 100) : 0;
+                      const falta = Math.max(0, c.t - c.g);
+                      return (
+                        <button type="button" key={c.key}
+                          onClick={() => setCarteraFiltroDias(c.key)}
+                          title={`${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%`}
+                          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = c.color + '99'; }}
+                          onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = active ? c.color + '88' : 'rgba(255,255,255,0.08)'; }}
+                          style={{
+                            textAlign: 'left', cursor: 'pointer', padding: '13px 15px', borderRadius: 16,
+                            background: active
+                              ? `linear-gradient(145deg, ${c.color}22, ${c.color}0c)`
+                              : 'linear-gradient(145deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015))',
+                            border: `1px solid ${active ? c.color + '88' : 'rgba(255,255,255,0.08)'}`,
+                            boxShadow: active ? `0 4px 18px ${c.color}22` : 'none',
+                            transition: 'transform 0.18s, border-color 0.18s, box-shadow 0.18s',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 11 }}>
+                            <span style={{
+                              width: 30, height: 30, borderRadius: 10, flexShrink: 0,
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              background: `${c.color}1f`, color: c.color,
+                            }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 17 }}>{c.icon}</span>
+                            </span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 12, fontWeight: 800, color: active ? c.color : 'rgba(255,255,255,0.85)', lineHeight: 1.1 }}>{c.label}</div>
+                              <div style={{ fontSize: 10, opacity: 0.4 }}>{c.sub}</div>
+                            </div>
+                            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 900, color: c.color, background: `${c.color}1a`, padding: '3px 9px', borderRadius: 20 }}>{pct}%</span>
+                          </div>
+                          {/* Números principales: contactados / total */}
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 6 }}>
+                            <span style={{ fontSize: 24, fontWeight: 900, color: c.color, lineHeight: 1 }}>{c.g}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.45 }}>de {c.t}</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.5, fontWeight: 600 }}>contactados</span>
+                          </div>
+                          {/* Barra contactados */}
+                          <div style={{ height: 5, borderRadius: 99, background: 'rgba(255,255,255,0.07)', overflow: 'hidden', marginBottom: 6 }}>
+                            <div style={{
+                              width: `${pct}%`, height: '100%', borderRadius: 99,
+                              background: `linear-gradient(90deg, ${c.color}cc, ${c.color})`,
+                              boxShadow: pct > 0 ? `0 0 8px ${c.color}88` : 'none',
+                              transition: 'width 0.4s ease',
+                            }} />
+                          </div>
+                          {/* Pagados */}
+                          {c.p > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingTop: 5, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 11, color: '#ce93d8' }}>verified</span>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: '#ce93d8' }}>{c.p}</span>
+                              <span style={{ fontSize: 10, opacity: 0.45 }}>han pagado</span>
+                              <div style={{ marginLeft: 'auto', height: 4, width: 60, borderRadius: 99, background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                                <div style={{ width: `${c.t > 0 ? Math.round((c.p / c.t) * 100) : 0}%`, height: '100%', borderRadius: 99, background: '#ce93d8', transition: 'width 0.4s ease' }} />
+                              </div>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -2561,6 +2770,35 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     </div>
                   );
                 }
+                // #5 — Apartado "Pendiente de comprobación": ya_pago declarado por el asesor,
+                // aún sin validación bancaria del supervisor. Fuera de la cola activa.
+                // "Ya pagó" = declarado por asesor (ya_pago) o validado por supervisor (validado_pago).
+                // Salen de la cartera activa → apartado propio (botón KPI "Ya pagó").
+                const esYaPago = (c) => c.ya_pago === 1 || c.validado_pago === 1;
+                const yaPagoList = filtrados.filter(esYaPago);
+                let activos = filtrados.filter(c => !esYaPago(c));
+
+                // Filtro de MORA (alto/medio/bajo) — solo esta tabla. Tertiles dinámicos
+                // sobre los valores de mora presentes en la cartera activa.
+                const moraNum = (c) => {
+                  let meta = {};
+                  try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                  return parseFloat(String(meta['VALOR EN MORA'] ?? c.monto_deuda ?? 0).replace(/[^0-9.]/g, '')) || 0;
+                };
+                if (moraFiltro !== 'todos') {
+                  const vals = activos.map(moraNum).filter(v => v > 0).sort((a, b) => a - b);
+                  if (vals.length >= 3) {
+                    const p33 = vals[Math.floor(vals.length / 3)];
+                    const p66 = vals[Math.floor((vals.length * 2) / 3)];
+                    activos = activos.filter(c => {
+                      const v = moraNum(c);
+                      if (moraFiltro === 'bajo')  return v <= p33;
+                      if (moraFiltro === 'medio') return v > p33 && v <= p66;
+                      if (moraFiltro === 'alto')  return v > p66;
+                      return true;
+                    });
+                  }
+                }
                 if (filtrados.length === 0) {
                   return (
                     <div style={{ padding: '32px 0', textAlign: 'center', opacity: 0.4 }}>
@@ -2582,17 +2820,96 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     c.orden_marcacion != null;
                   if (enCola) turnoMap.set(c.id, ++__t);
                 });
+                // ── Vista "Ya pagó": pagados (validados) + no pagados (pendientes de comprobación) ──
+                if (vistaYaPago) {
+                  const pagados   = yaPagoList.filter(c => c.validado_pago === 1);
+                  const noPagados = yaPagoList.filter(c => c.validado_pago !== 1);
+                  const money = (v) => `$${Number(v || 0).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                  const Grupo = ({ titulo, sub, items, color, icon }) => (
+                    <div style={{ borderRadius: 12, border: `1px solid ${color}33`, background: `${color}0a`, overflow: 'clip' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: `1px solid ${color}22` }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18, color }}>{icon}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', color }}>{titulo}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 800, color, background: `${color}1e`, padding: '2px 10px', borderRadius: 20 }}>{items.length}</span>
+                      </div>
+                      <div style={{ padding: '4px 0', fontSize: 11, opacity: 0.45, textAlign: 'center' }}>{sub}</div>
+                      {items.length === 0 ? (
+                        <div style={{ padding: '18px 0', textAlign: 'center', opacity: 0.3, fontSize: 12 }}>Sin clientes</div>
+                      ) : items.map(c => (
+                        <div key={c.id} onClick={() => setContactoInfoPopup(c)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', borderTop: `1px solid ${color}14`, cursor: 'pointer' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nombre_deudor || '—'}</div>
+                            <div style={{ fontSize: 11, opacity: 0.5 }}>{c.cedula} · {c.telefono}</div>
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 800, color }}>{money(c.monto_deuda)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 0' }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#ce93d8' }}>fact_check</span>
+                        <span style={{ fontSize: 13, fontWeight: 800 }}>Clientes "Ya pagó"</span>
+                        <span style={{ fontSize: 11, opacity: 0.5 }}>Salen definitivamente cuando el supervisor valida el pago; si no pagó, vuelven a tu cartera.</span>
+                        <button type="button" onClick={() => setVistaYaPago(false)}
+                          style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 8, cursor: 'pointer', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: 'inherit' }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>arrow_back</span>
+                          Volver a cartera
+                        </button>
+                      </div>
+                      {yaPagoList.length === 0 ? (
+                        <div style={{ padding: '40px 0', textAlign: 'center', opacity: 0.35 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 36 }}>inbox</span>
+                          <p className="text-body-sm" style={{ marginTop: 8 }}>Aún no marcaste clientes como "Ya pagó"</p>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12 }}>
+                          <Grupo titulo="Pagados" sub="Validados por el supervisor (cruce bancario)" items={pagados} color="#00e676" icon="verified" />
+                          <Grupo titulo="No pagados" sub="Declarados — esperando validación bancaria" items={noPagados} color="#ffd54f" icon="hourglass_top" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 return (
+                 <>
                   <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'clip' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
                         <tr style={{ background: 'var(--color-surface-container)', textAlign: 'left' }}>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Turno de marcación">Turno</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Estado</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cliente</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Cédula</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase' }}>Teléfono</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Mora</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }} title="Número de contrato">N° Contrato</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Estado</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'left' }}>Cliente</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Empresa</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Cédula</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Teléfono</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                              <span>Mora</span>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: moraFiltro !== 'todos' ? 'rgba(255,213,79,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${moraFiltro !== 'todos' ? 'rgba(255,213,79,0.5)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 20, padding: '1px 6px 1px 7px' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 12, color: moraFiltro !== 'todos' ? '#ffd54f' : 'rgba(255,255,255,0.45)' }}>filter_alt</span>
+                                <select
+                                  aria-label="Filtrar por monto de mora"
+                                  title="Filtrar por monto de mora"
+                                  value={moraFiltro}
+                                  onChange={(e) => setMoraFiltro(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer',
+                                    color: moraFiltro !== 'todos' ? '#ffd54f' : 'rgba(255,255,255,0.7)',
+                                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', appearance: 'none', paddingRight: 2,
+                                  }}
+                                >
+                                  <option value="todos" style={{ background: '#1e1e1e' }}>Todos</option>
+                                  <option value="alto"  style={{ background: '#1e1e1e' }}>Alto</option>
+                                  <option value="medio" style={{ background: '#1e1e1e' }}>Medio</option>
+                                  <option value="bajo"  style={{ background: '#1e1e1e' }}>Bajo</option>
+                                </select>
+                              </div>
+                            </div>
+                          </th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Días Mora</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Gestiones</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>RCS</th>
@@ -2604,7 +2921,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {filtrados.map(c => {
+                        {activos.map(c => {
                           const esYaPagoDecl = c.estado_marcacion === 'YA_PAGO' && c.validado_pago !== 1;
                           const est = esYaPagoDecl
                             ? ESTADO_STYLE_YA_PAGO_DECL
@@ -2636,24 +2953,22 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     : esPMP ? '3px solid rgba(0,230,118,0.55)' : undefined,
                                 cursor: 'pointer',
                               }}>
-                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                {turno ? (
-                                  <span style={{
-                                    fontSize: esSiguiente ? 11 : 10, fontWeight: 800,
-                                    padding: esSiguiente ? '2px 8px' : '1px 6px', borderRadius: 99,
-                                    background: esSiguiente ? 'rgba(0,230,118,0.22)' : 'rgba(255,255,255,0.06)',
-                                    color: esSiguiente ? 'var(--color-primary)' : 'rgba(255,255,255,0.7)',
-                                    border: esSiguiente ? '1px solid rgba(0,230,118,0.45)' : '1px solid rgba(255,255,255,0.08)',
-                                    display: 'inline-flex', alignItems: 'center', gap: 3,
-                                  }} title={esSiguiente ? 'Próximo cliente a marcar' : `Turno #${turno}`}>
-                                    {esSiguiente && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>arrow_forward</span>}
-                                    {turno}
-                                  </span>
-                                ) : (
-                                  <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>
-                                )}
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }} title={esSiguiente ? 'Próximo cliente a marcar' : (turno ? `Turno #${turno}` : '')}>
+                                {(() => {
+                                  const contrato = meta['Nº CONTRATO'] || meta['CONTRATO'] || meta['NRO CONTRATO'] || '';
+                                  if (!contrato) return <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>;
+                                  return (
+                                    <span className="text-mono" style={{
+                                      fontSize: 12, fontWeight: 700,
+                                      color: esSiguiente ? 'var(--color-primary)' : 'rgba(255,255,255,0.8)',
+                                    }}>
+                                      {esSiguiente && <span className="material-symbols-outlined" style={{ fontSize: 12, verticalAlign: 'middle', marginRight: 2 }}>arrow_forward</span>}
+                                      {contrato}
+                                    </span>
+                                  );
+                                })()}
                               </td>
-                              <td style={{ padding: '8px 10px' }}>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
                                 <span style={{
                                   fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                   background: est.bg, color: est.fg, whiteSpace: 'nowrap',
@@ -2663,7 +2978,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   {est.label}
                                 </span>
                               </td>
-                              <td style={{ padding: '8px 10px', fontWeight: 600 }}>
+                              <td style={{ padding: '8px 10px', fontWeight: 600, verticalAlign: 'middle' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                   <span>{c.nombre_deudor || '—'}</span>
                                   {llamadoCel1 && (
@@ -2688,12 +3003,27 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   )}
                                 </div>
                               </td>
-                              <td style={{ padding: '8px 10px' }}><span className="text-mono">{c.cedula || '—'}</span></td>
-                              <td style={{ padding: '8px 10px' }}><span className="text-mono">{c.telefono || '—'}</span></td>
-                              <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--color-danger)' }}>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
+                                {(() => {
+                                  const emp = empresaDeMeta(meta);
+                                  if (!emp) return <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>;
+                                  const esTec = emp.toUpperCase().includes('TEC') || emp.toUpperCase().includes('SAS');
+                                  return (
+                                    <span style={{
+                                      fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+                                      background: esTec ? 'rgba(126,184,255,0.12)' : 'rgba(0,230,118,0.1)',
+                                      color: esTec ? '#7eb8ff' : '#00e676',
+                                      border: `1px solid ${esTec ? 'rgba(126,184,255,0.35)' : 'rgba(0,230,118,0.3)'}`,
+                                    }}>{emp}</span>
+                                  );
+                                })()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}><span className="text-mono">{c.cedula || '—'}</span></td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}><span className="text-mono">{c.telefono || '—'}</span></td>
+                              <td style={{ padding: '8px 10px', textAlign: 'right', verticalAlign: 'middle', fontWeight: 700, color: 'var(--color-danger)' }}>
                                 {mora ? `$${Number(mora).toFixed(2)}` : '—'}
                               </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: diasMora && parseInt(diasMora, 10) > 0 ? '#ff9800' : 'rgba(255,255,255,0.4)' }}>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle', fontWeight: 700, color: diasMora && parseInt(diasMora, 10) > 0 ? '#ff9800' : 'rgba(255,255,255,0.4)' }}>
                                 {diasMora ? `${parseInt(diasMora, 10) || diasMora}` : '—'}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
@@ -2838,6 +3168,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         cuelga: 'CUE', no_contesta: 'NC', referencia: 'REF',
                                         equivocado: 'EQ', suspendido: 'SUS', negativa_pago: 'NEG',
                                         promesa_pago: 'PMP', tercero: 'TER', volver_llamar: 'VOL_CALL', buzon_voz: 'BUZON',
+                                        apagado: 'APAGADO', no_disponible: 'NO_DISP', no_whatsapp: 'NO_WSP',
+                                        incorrecto: 'INCORRECTO', referencia_elimina: 'REF_ELIM', ocupado: 'NO_CON_OCU',
+                                        notificado: 'NOTIFICADO',
                                       };
                                       const code = codeMap[val] || val;
                                       if (code === 'PMP') {
@@ -2858,16 +3191,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     }}
                                   >
                                     <option value="" disabled style={{ background: '#1e1e1e' }}>⚡ Tipificar...</option>
-                                    <option value="cuelga" style={{ background: '#1e1e1e' }}>Cuelga</option>
-                                    <option value="no_contesta" style={{ background: '#1e1e1e' }}>No contesta</option>
-                                    <option value="referencia" style={{ background: '#1e1e1e' }}>Referencia</option>
-                                    <option value="equivocado" style={{ background: '#1e1e1e' }}>Equivocado</option>
-                                    <option value="suspendido" style={{ background: '#1e1e1e' }}>Suspendido</option>
-                                    <option value="negativa_pago" style={{ background: '#1e1e1e' }}>Negativa de pago</option>
-                                    <option value="promesa_pago" style={{ background: '#1e1e1e' }}>Promesa agendada</option>
-                                    <option value="tercero" style={{ background: '#1e1e1e' }}>Tercero</option>
-                                    <option value="volver_llamar" style={{ background: '#1e1e1e' }}>Volver a llamar</option>
-                                    <option value="buzon_voz" style={{ background: '#1e1e1e' }}>Buzón de voz</option>
+                                    {[
+                                      { value: 'promesa_pago',   label: '🤝 Promesa de pago' },
+                                      { value: 'cuelga',         label: 'Cuelga' },
+                                      { value: 'no_contesta',    label: 'No contesta' },
+                                      { value: 'equivocado',     label: 'Equivocado' },
+                                      { value: 'suspendido',     label: 'Suspendido' },
+                                      { value: 'negativa_pago',  label: 'Negativa de pago' },
+                                      { value: 'tercero',        label: 'Tercero' },
+                                      { value: 'volver_llamar',  label: 'Volver a llamar' },
+                                      { value: 'buzon_voz',      label: 'Buzón de voz' },
+                                      { value: 'ocupado',        label: 'Ocupado' },
+                                      { value: 'apagado',        label: 'Apagado' },
+                                      { value: 'no_disponible',  label: 'No disponible' },
+                                      { value: 'no_whatsapp',    label: 'No tiene WhatsApp' },
+                                      { value: 'incorrecto',     label: 'Incorrecto' },
+                                      { value: 'notificado',     label: 'Notificado' },
+                                    ].map(o => (
+                                      <option key={o.value} value={o.value} style={{ background: '#1e1e1e' }}>{o.label}</option>
+                                    ))}
                                   </select>
                                   {!tipifSelects[c.id] && (
                                     <button type="button"
@@ -2883,6 +3225,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       PROMESA DE PAGO
                                     </button>
                                   )}
+                                  <button type="button"
+                                    onClick={() => handleMarcarYaPago(c)}
+                                    title="Cliente declara que ya pagó — pasa a Pendiente de comprobación (validación bancaria del supervisor)"
+                                    style={{
+                                      alignSelf: 'center', padding: '1px 4px', fontSize: 9, fontWeight: 600,
+                                      background: 'transparent', border: 'none',
+                                      color: 'rgba(255,213,79,0.7)', cursor: 'pointer', letterSpacing: '0.02em',
+                                      display: 'inline-flex', alignItems: 'center', gap: 3, opacity: 0.85,
+                                    }}
+                                    onMouseEnter={e => { e.currentTarget.style.color = '#ffd54f'; e.currentTarget.style.opacity = 1; }}
+                                    onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,213,79,0.7)'; e.currentTarget.style.opacity = 0.85; }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 11 }}>task_alt</span>
+                                    ya pagó
+                                  </button>
                                 </div>
                               </td>
                               {/* ── Columna ADB Celular 1 — siempre visible y activa ── */}
@@ -2946,6 +3303,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       </tbody>
                     </table>
                   </div>
+                 </>
                 );
               })()}
               </div>
@@ -3178,6 +3536,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     callApi={callApi}
                     refreshTrigger={dashRefreshTrigger}
                     totalClientesCampana={progresoCampana?.total || 0}
+                    campana={campana}
+                    cartera={cartera}
+                    tiempoProductivoSeg={tiempoTotalProductivo}
+                    tiempoImproductivoSeg={tiempoTotalImproductivo}
                   />
                 ) : (
                 <div className="widget-card customer-card">
@@ -3654,102 +4016,78 @@ export default function AsesorPanel({ usuario, onLogout }) {
               <div className="asesor-side-column">
                 {/* ── Columna lateral: Estado + Métricas ── */}
                 {true && (<>
-                  {/* ── Estado Asesor Premium ── */}
+                  {/* ── Estado Asesor (Compact Two-row) ── */}
                   <div style={{
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    borderRadius: 16,
+                    background: 'rgba(255,255,255,0.025)',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                    borderRadius: 14,
                     overflow: 'hidden',
                   }}>
                     {/* Header */}
                     <div style={{
-                      padding: '12px 16px 10px',
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
+                      padding: '8px 10px',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
                       display: 'flex', alignItems: 'center', gap: 8,
                     }}>
-                      <span className="material-symbols-outlined" style={{ fontSize: 15, color: 'var(--color-primary)', opacity: 0.8 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--color-primary)', opacity: 0.95 }}>
                         person_pin_circle
                       </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.5 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1.1, textTransform: 'uppercase', opacity: 0.75, color: 'rgba(255,255,255,0.92)' }}>
                         Estado Asesor
                       </span>
                     </div>
 
-                    {/* Estado Activo destacado */}
-                    {estadoActual && (() => {
-                      const colorMap = { 1: '#00e676', 2: '#ff9800', 3: '#64b5f6', 4: '#ce93d8', 5: '#ffb74d' };
-                      const color = colorMap[estadoActual.id] || '#00e676';
+                    {/* Compact body: fila 1 = estado activo o placeholder, fila 2 = botones icon-only */}
+                    {(() => {
+                      const selectedState = estadoActual || { id: 0, nombre: 'Seleccione estado', icon: 'help_outline' };
+                      const colorMap = { 0: '#999999', 1: '#00e676', 2: '#ff9800', 3: '#64b5f6', 4: '#ce93d8', 5: '#ffb74d' };
+                      const color = colorMap[selectedState.id] || '#999999';
+                      const timerText = estadoActual ? formatTimer(tiempoEstado) : '00:00:00';
                       return (
-                        <div style={{
-                          margin: '10px 12px',
-                          background: `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)`,
-                          border: `1px solid ${color}30`,
-                          borderRadius: 12,
-                          padding: '10px 14px',
-                          display: 'flex', alignItems: 'center', gap: 10,
-                        }}>
-                          <div style={{
-                            width: 36, height: 36, borderRadius: 10,
-                            background: `${color}22`,
-                            border: `1.5px solid ${color}50`,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                          }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 18, color }}>{estadoActual.icon}</span>
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color, lineHeight: 1.2 }}>{estadoActual.nombre}</div>
-                            <div style={{ fontSize: 12, opacity: 0.5, marginTop: 1 }}>estado actual</div>
-                          </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, fontFamily: 'monospace', color, letterSpacing: 1 }}>
-                              {formatTimer(tiempoEstado)}
+                        <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {/* Row 1: active state */}
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                              <div style={{ width: 12, height: 12, borderRadius: 3, background: color, boxShadow: `0 0 10px ${color}55` }} />
+                              <span className="material-symbols-outlined" style={{ fontSize: 20, color }}>{selectedState.icon}</span>
+                              <div style={{ fontSize: 14, fontWeight: 800, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedState.nombre}</div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end', marginTop: 2 }}>
-                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, boxShadow: `0 0 6px ${color}`, animation: 'pulse 1.5s infinite' }} />
-                              <span style={{ fontSize: 12, color, opacity: 0.7, letterSpacing: 0.5 }}>ACTIVO</span>
+                            <div style={{ textAlign: 'right', minWidth: 76 }}>
+                              <div style={{ fontSize: 15, fontWeight: 800, fontFamily: 'monospace', color: 'rgba(255,255,255,0.95)' }}>{timerText}</div>
                             </div>
+                          </div>
+
+                          {/* Row 2: quick state buttons */}
+                          <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                            {ESTADOS.map(estado => {
+                              const isActive = selectedState.id === estado.id;
+                              const c = colorMap[estado.id] || '#ffffff';
+                              return (
+                                <button key={estado.id} type="button" onClick={() => handleEstadoChange(estado)}
+                                  title={estado.nombre}
+                                  style={{
+                                    width: 50, minWidth: 50, height: 58, borderRadius: 16,
+                                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                                    gap: 4, padding: '8px 6px',
+                                    background: isActive ? `${c}26` : 'rgba(255,255,255,0.08)',
+                                    border: isActive ? `1.5px solid ${c}55` : '1px solid rgba(255,255,255,0.16)',
+                                    cursor: 'pointer', transition: 'transform .1s ease, background .12s, box-shadow .12s',
+                                    boxShadow: isActive ? `0 10px 22px ${c}18` : '0 0 0 rgba(0,0,0,0)',
+                                  }}
+                                  onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                                  onMouseUp={e => e.currentTarget.style.transform = ''}
+                                  onMouseEnter={e => { e.currentTarget.style.background = isActive ? `${c}30` : 'rgba(255,255,255,0.14)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.18)'; }}
+                                  onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.background = isActive ? `${c}26` : 'rgba(255,255,255,0.08)'; e.currentTarget.style.boxShadow = isActive ? `0 10px 22px ${c}18` : '0 0 0 rgba(0,0,0,0)'; }}
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: isActive ? c : 'rgba(255,255,255,0.95)' }}>{estado.icon}</span>
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.88)', textAlign: 'center', lineHeight: 1.1, whiteSpace: 'nowrap' }}>{estado.nombre}</span>
+                                </button>
+                              );
+                            })}
                           </div>
                         </div>
                       );
                     })()}
-
-                    {/* Lista de otros estados */}
-                    <div style={{ padding: '4px 8px 10px' }}>
-                      {ESTADOS.map(estado => {
-                        const isActive = estadoActual?.id === estado.id;
-                        if (isActive) return null; // El activo ya se muestra arriba
-                        const colorMap = { 1: '#00e676', 2: '#ff9800', 3: '#64b5f6', 4: '#ce93d8', 5: '#ffb74d' };
-                        const color = colorMap[estado.id] || '#ffffff';
-                        const acum = tiemposAcumulados[estado.id] || 0;
-                        return (
-                          <button type="button"
-                            key={estado.id}
-                            onClick={() => handleEstadoChange(estado)}
-                            style={{
-                              display: 'flex', alignItems: 'center', gap: 10,
-                              width: '100%', padding: '8px 8px',
-                              background: 'transparent', border: 'none', cursor: 'pointer',
-                              borderRadius: 9, transition: 'background 0.15s',
-                              color: 'rgba(255,255,255,0.6)',
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.background = `${color}10`}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                          >
-                            <div style={{
-                              width: 28, height: 28, borderRadius: 8,
-                              background: `${color}12`,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                            }}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 15, color: `${color}aa` }}>{estado.icon}</span>
-                            </div>
-                            <span style={{ flex: 1, fontSize: 12, textAlign: 'left', fontWeight: 500 }}>{estado.nombre}</span>
-                            <span style={{ fontSize: 12, fontFamily: 'monospace', opacity: acum > 0 ? 0.6 : 0.25 }}>
-                              {formatTimer(acum)}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
                   </div>
 
                   {/* ── Indicador de Ritmo ── */}
@@ -3966,6 +4304,45 @@ export default function AsesorPanel({ usuario, onLogout }) {
         let meta = {};
         try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
         const mora = meta['VALOR EN MORA'] || c.monto_deuda;
+        // Campos extra desde metadata de la cartera (apertura)
+        const g = (k) => (meta[k] != null && String(meta[k]).trim() !== '') ? String(meta[k]).trim() : null;
+        const serialToFecha = (s) => {
+          const str = String(s).trim();
+          const n = parseFloat(str);
+          let d;
+          if (isFinite(n) && n > 1 && !/[a-zA-Z]/.test(str)) {
+            d = new Date(Date.UTC(1899, 11, 30) + n * 86400000); // serial Excel
+          } else {
+            d = new Date(str); // string de fecha
+          }
+          return isNaN(d) ? str : d.toISOString().slice(0, 10);
+        };
+        const productoTxt = [g('MARCA'), g('MODELO')].filter(Boolean).join(' ') || c.producto || null;
+        const cuotaTxt = (() => {
+          const val = g('VALOR CUOTA'); const num = g('NUMERO CUOTA');
+          if (val && num) return `$${Number(String(val).replace(/[^0-9.]/g,'')||0).toFixed(2)} · cuota ${num}`;
+          if (val) return `$${Number(String(val).replace(/[^0-9.]/g,'')||0).toFixed(2)}`;
+          return num ? `Cuota ${num}` : null;
+        })();
+        const fventa = g('FECHA DE VENTA');
+        // Empresa: usa metadata EMPRESA, o la deriva de FECHA DE VENTA (>= 2026-01-01 → TEC SAS).
+        const empresaCliente = empresaDeMeta(meta);
+        const extraFields = [
+          { icon: 'tag',        label: 'Contrato',     value: g('Nº CONTRATO') },
+          { icon: 'business',   label: 'Empresa',      value: empresaCliente, color: (empresaCliente||'').toUpperCase().includes('TEC') ? '#7eb8ff' : '#00e676' },
+          { icon: 'smartphone', label: 'Producto',     value: productoTxt },
+          { icon: 'pin',        label: 'IMEI',         value: g('IMEI') },
+          { icon: 'event_busy', label: 'Días mora',    value: g('DIAS IMPAGO') || g('DIAS EN MORA') || g('DIAS EN INPAGO') || g('DIAS MORA'), color: '#ff9800' },
+          { icon: 'receipt_long', label: 'Cuota',      value: cuotaTxt },
+          { icon: 'schedule',   label: 'Plazo',        value: g('PLAZO') },
+          { icon: 'sell',       label: 'Fecha venta',  value: fventa ? serialToFecha(fventa) : null },
+          { icon: 'payments',   label: 'Monto total',  value: g('MONTO TOTAL') ? `$${Number(String(g('MONTO TOTAL')).replace(/[^0-9.]/g,'')||0).toFixed(2)}` : null },
+          { icon: 'store',      label: 'Distribuidor', value: g('DISTRIBUIDOR') },
+          { icon: 'badge',      label: 'Gestor',       value: g('GESTOR') },
+          { icon: 'call',       label: 'Teléfono 2',   value: g('TELEFONO 2') },
+          { icon: 'home',       label: 'Dirección',    value: g('DIRECCION CLIENTE') },
+          { icon: 'mail',       label: 'Correo',       value: g('CORREO CLIENTE') },
+        ].filter(f => f.value);
         const ESTADO_LABEL = {
           PENDIENTE: 'Pendiente', EN_INTENTOS: 'En intentos', AGENDADO: 'Agendado',
           GESTIONADO: 'Gestionado', YA_PAGO: 'Ya pagó',
@@ -3981,7 +4358,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
             onClick={() => setContactoInfoPopup(null)}
           >
             <div
-              style={{ background: '#1a1a1f', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: '24px 28px', minWidth: 340, maxWidth: 420, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+              style={{ background: '#1a1a1f', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: '24px 28px', minWidth: 340, maxWidth: 440, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
               onClick={e => e.stopPropagation()}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -4025,6 +4402,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     {c.ultima_tipificacion ? `${c.ultima_tipificacion}${c.ultima_tip_codigo ? ` (${c.ultima_tip_codigo})` : ''}` : 'Sin gestiones'}
                   </span>
                 </div>
+                {extraFields.length > 0 && (
+                  <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+                )}
+                {extraFields.map(({ icon, label, value, color }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'rgba(255,255,255,0.35)', flexShrink: 0 }}>{icon}</span>
+                    <span style={{ fontSize: 12, opacity: 0.5, width: 80, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: color || '#fff', wordBreak: 'break-word' }}>{value}</span>
+                  </div>
+                ))}
               </div>
               <button type="button" onClick={() => setContactoInfoPopup(null)}
                 style={{ marginTop: 20, width: '100%', padding: '10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
@@ -4093,44 +4480,28 @@ export default function AsesorPanel({ usuario, onLogout }) {
         </div>
       )}
 
-      {/* ── Panel flotante "En llamada" ADB desde cartera ── */}
+      {/* ── Pill discreta "En llamada" ADB desde cartera ── */}
       {carteraLlamada && (
         <div style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 6000,
-          background: 'var(--color-surface-container)',
-          border: '1px solid rgba(0,230,118,0.35)',
-          borderRadius: 14, padding: '14px 18px',
-          minWidth: 260, maxWidth: 320,
-          boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
-          display: 'flex', flexDirection: 'column', gap: 10,
+          position: 'fixed', bottom: 16, right: 16, zIndex: 6000,
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(15,20,15,0.92)',
+          border: '1px solid rgba(0,230,118,0.25)',
+          borderRadius: 999, padding: '6px 12px 6px 8px',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.5)',
+          backdropFilter: 'blur(6px)',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{
-              width: 8, height: 8, borderRadius: '50%', background: '#00e676',
-              boxShadow: '0 0 6px #00e676', animation: 'pulse 1.2s ease-in-out infinite',
-            }} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#00e676', letterSpacing: '0.08em' }}>EN LLAMADA</span>
-          </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
-              {carteraLlamada.contacto?.nombre_deudor || 'Cliente'}
-            </div>
-            <div style={{ fontSize: 11, opacity: 0.5, fontFamily: 'monospace', marginTop: 2 }}>
-              {carteraLlamada.contacto?.telefono}
-            </div>
-          </div>
+          <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00e676', boxShadow: '0 0 5px #00e676', animation: 'pulse 1.2s ease-in-out infinite', flexShrink: 0 }} />
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {carteraLlamada.contacto?.nombre_deudor || carteraLlamada.contacto?.telefono || 'Llamada'}
+          </span>
           <button
             type="button"
             onClick={handleCarteraHangup}
-            style={{
-              padding: '8px 0', borderRadius: 8, border: 'none',
-              background: '#f44336', color: '#fff',
-              fontWeight: 700, fontSize: 12, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}
+            title="Colgar"
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', border: 'none', background: '#f44336', color: '#fff', cursor: 'pointer', flexShrink: 0 }}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>call_end</span>
-            COLGAR
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>call_end</span>
           </button>
         </div>
       )}

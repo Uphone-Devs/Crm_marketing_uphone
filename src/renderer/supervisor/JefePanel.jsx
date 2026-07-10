@@ -102,6 +102,7 @@ export default function JefePanel({ usuario, onLogout }) {
   const metricasFiltroHastaRef   = useRef('');
   const metricasFiltroCampanaRef = useRef('');
   const activePageRef            = useRef(activePage);
+  const eventoIdRef              = useRef(0);
   useEffect(() => { metricasFiltroDesdeRef.current   = metricasFiltroDesde;   }, [metricasFiltroDesde]);
   useEffect(() => { metricasFiltroHastaRef.current   = metricasFiltroHasta;   }, [metricasFiltroHasta]);
   useEffect(() => { metricasFiltroCampanaRef.current = metricasFiltroCampana; }, [metricasFiltroCampana]);
@@ -374,9 +375,10 @@ export default function JefePanel({ usuario, onLogout }) {
 
   // ── Event log helper ──
   function agregarEvento(tipo, mensaje) {
+    const id = ++eventoIdRef.current;
     setEventos(prev => [
-      { id: Date.now(), tipo, mensaje, timestamp: new Date().toISOString() },
-      ...prev.slice(0, 49), // Keep max 50 events
+      { id, tipo, mensaje, timestamp: new Date().toISOString() },
+      ...prev.slice(0, 49),
     ]);
   }
 
@@ -1372,7 +1374,7 @@ export default function JefePanel({ usuario, onLogout }) {
                     onChange={e => setNewAsesorRol(e.target.value)}
                   >
                     <option value="asesor">Gestor</option>
-                    <option value="supervisor">Jefe de Area</option>
+                    <option value="jefe_area">Jefe de Area</option>
                   </select>
                 </div>
               )}
@@ -1401,16 +1403,23 @@ export default function JefePanel({ usuario, onLogout }) {
                       </div>
                    </div>
                    <div style={{ width: 100 }}>
-                      <span className="badge" style={{ 
-                        fontSize: 12, 
-                        background: u.rol === 'supervisor' ? 'var(--color-primary)' : 'transparent',
-                        color: u.rol === 'supervisor' ? 'white' : 'var(--color-primary)',
-                        border: u.rol === 'supervisor' ? 'none' : '1px solid var(--color-primary)',
-                        padding: '2px 8px',
-                        borderRadius: 4
-                      }}>
-                        {u.rol.toUpperCase()}
-                      </span>
+                      {(() => {
+                        const esJefe = u.rol === 'supervisor' || u.rol === 'jefe_area' || u.rol === 'jefe';
+                        const label = u.rol === 'asesor' ? 'GESTOR' : esJefe ? 'JEFE DE ÁREA' : u.rol.toUpperCase();
+                        return (
+                          <span className="badge" style={{
+                            fontSize: 12,
+                            background: esJefe ? 'var(--color-primary)' : 'transparent',
+                            color: esJefe ? 'white' : 'var(--color-primary)',
+                            border: esJefe ? 'none' : '1px solid var(--color-primary)',
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                    </div>
                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: 220, justifyContent: 'flex-end' }}>
                       <span className="text-label-sm" style={{ marginRight: 8, opacity: 0.5, fontSize: 12 }}>{u.estado.toUpperCase()}</span>

@@ -34,7 +34,7 @@ function getSegmentoLabel(segmento) {
   return SEGMENTOS_LABEL[segmento] || segmento.replace('_', ' ');
 }
 
-export default function AsesorMensajes({ usuario, cartera, compact = false }) {
+export default function AsesorMensajes({ usuario, cartera, compact = false, callApi }) {
   const [mensajes, setMensajes] = useState([]);
   const [inactivos, setInactivos] = useState([]);
   const [mostrarInactivos, setMostrarInactivos] = useState(false);
@@ -42,7 +42,9 @@ export default function AsesorMensajes({ usuario, cartera, compact = false }) {
 
   const cargarMensajes = useCallback(async () => {
     try {
-      const data = await window.api.invoke('db:getMensajesBroadcast');
+      const data = callApi
+        ? await callApi('db:getMensajesBroadcast')
+        : await window.api.invoke('db:getMensajesBroadcast');
       const latestPerSegment = {};
       const arr = data || [];
       arr.filter(m => m.activo === 1).forEach(msg => {

@@ -90,6 +90,28 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   const [reagendaGuardando, setReagendaGuardando] = useState(false);
   // Estado botón compromiso incumplido
   const [incumpGuardandoId, setIncumpGuardandoId] = useState(null);
+  // Canal de llamada del botón LLAMAR: 'normal' (ADB Cel 1) | 'whatsapp' (voz por WhatsApp, Cel 2)
+  const [canalLlamada, setCanalLlamada] = useState('normal');
+
+  const llamarContacto = async (telefono) => {
+    let tel = String(telefono || '').replace(/\D/g, '');
+    if (tel && !tel.startsWith('0')) tel = '0' + tel;
+    if (!tel) { showToast?.('Sin teléfono válido', 'warning'); return; }
+    try {
+      const res = canalLlamada === 'whatsapp'
+        ? await window.api.invoke('adb:whatsappCall', tel, 1)
+        : await window.api.invoke('adb:dial', tel, 0);
+      if (res?.success) {
+        showToast?.(canalLlamada === 'whatsapp' ? `Llamando por WhatsApp ${tel}…` : `Llamando ${tel}…`, 'success');
+      } else if (canalLlamada === 'whatsapp' && res?.chatOpened) {
+        showToast?.('Chat WhatsApp abierto — toca el botón de llamar en el celular', 'info');
+      } else {
+        showToast?.(res?.error || 'Sin conexión ADB — verifica depuración USB', 'warning');
+      }
+    } catch {
+      showToast?.('Error ADB — verifica depuración USB', 'error');
+    }
+  };
 
   const cargar = async () => {
     if (!usuario?.id) return;
@@ -733,15 +755,50 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                 )}
                               </>
                             )}
-                            {onGestionar && r.contacto_id && (
-                              <button type="button"
-                                className="btn btn-primary btn-sm"
-                                style={{ padding: '4px 12px', fontSize: 12 }}
-                                onClick={(e) => { e.stopPropagation(); onGestionar(r.contacto_id); }}
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>phone_forwarded</span>
-                                Gestionar
-                              </button>
+                            {r.telefono && (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {/* Switch canal: normal (Cel 1) / WhatsApp (Cel 2) */}
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 7, overflow: 'hidden' }}
+                                >
+                                  <button type="button"
+                                    title="Llamada normal (Celular 1)"
+                                    onClick={(e) => { e.stopPropagation(); setCanalLlamada('normal'); }}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                      width: 28, height: 26, border: 'none', cursor: 'pointer',
+                                      background: canalLlamada === 'normal' ? 'rgba(0,230,118,0.2)' : 'transparent',
+                                      color: canalLlamada === 'normal' ? '#00e676' : 'rgba(255,255,255,0.45)',
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>call</span>
+                                  </button>
+                                  <button type="button"
+                                    title="Llamada de voz por WhatsApp (Celular 2)"
+                                    onClick={(e) => { e.stopPropagation(); setCanalLlamada('whatsapp'); }}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                      width: 28, height: 26, border: 'none', borderLeft: '1px solid rgba(255,255,255,0.15)', cursor: 'pointer',
+                                      background: canalLlamada === 'whatsapp' ? 'rgba(37,211,102,0.22)' : 'transparent',
+                                      color: canalLlamada === 'whatsapp' ? '#25D366' : 'rgba(255,255,255,0.45)',
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>chat</span>
+                                  </button>
+                                </div>
+                                <button type="button"
+                                  className="btn btn-primary btn-sm"
+                                  style={{ padding: '4px 12px', fontSize: 12 }}
+                                  title={canalLlamada === 'whatsapp' ? 'Llamar por WhatsApp (Cel 2)' : 'Llamada normal (Cel 1)'}
+                                  onClick={(e) => { e.stopPropagation(); llamarContacto(r.telefono); }}
+                                >
+                                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                                    {canalLlamada === 'whatsapp' ? 'chat' : 'call'}
+                                  </span>
+                                  {canalLlamada === 'whatsapp' ? 'Llamar WSP' : 'Llamar'}
+                                </button>
+                              </div>
                             )}
                           </div>
                         </td>

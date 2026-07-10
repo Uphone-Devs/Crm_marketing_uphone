@@ -54,6 +54,11 @@ async function main() {
     { codigo: 'PAGO_REAL',   descripcion: 'Pago real confirmado',                   requiereAgd: false },
     { codigo: 'AB_PARC',     descripcion: 'Abono parcial',                          requiereAgd: false },
     { codigo: 'PEND_COMP',   descripcion: 'Compromiso pendiente',                   requiereAgd: false },
+    { codigo: 'APAGADO',     descripcion: 'Teléfono apagado',                       requiereAgd: false },
+    { codigo: 'NO_DISP',     descripcion: 'No disponible',                          requiereAgd: false },
+    { codigo: 'NO_WSP',      descripcion: 'No tiene WhatsApp',                      requiereAgd: false },
+    { codigo: 'REF_ELIM',    descripcion: 'Referencia - eliminar',                  requiereAgd: false },
+    { codigo: 'NOTIFICADO',  descripcion: 'Cliente notificado',                     requiereAgd: false },
   ];
 
   await Promise.all(tipificaciones.map(tipData =>

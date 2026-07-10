@@ -8,12 +8,13 @@ const { Router } = require('express');
 const { Prisma } = require('@prisma/client');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
+const { broadcastToAll, getConnectedStats } = require('../wsServer');
 
 const router = Router();
 router.use(authMiddleware);
 
 function isSupervisor(rol) {
-  return rol === 'supervisor' || rol === 'jefe_area' || rol === 'jefe' || rol === 'admin';
+  return rol === 'jefe_area' || rol === 'jefe' || rol === 'admin';
 }
 
 // ── Helper: Resolve contacto WHERE with JSON metadata filters ─────────────────
@@ -164,12 +165,19 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'INCUMP'    } }).catch(() => 0),
     ]);
 
-    const [cdrsConTipif, tiemposEstado] = await Promise.all([
+    const [cdrsConTipif, pmpHoy, tiemposEstado] = await Promise.all([
       db.cdr.count({
         where: {
           usuarioId: targetId,
           timestampInicio: { gte: inicio, lte: fin },
           tipificacion: { codigo: { in: codigosCompromiso } },
+        },
+      }).catch(() => 0),
+      db.cdr.count({
+        where: {
+          usuarioId: targetId,
+          timestampInicio: { gte: inicio, lte: fin },
+          tipificacion: { codigo: 'PMP' },
         },
       }).catch(() => 0),
       db.evento.groupBy({
@@ -189,6 +197,18 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       .filter(e => e.estadoId !== 1)
       .reduce((acc, e) => acc + Number(e._sum?.duracionSeg || 0), 0);
 
+    // Monto comprometido (compromisos del día) · recaudado (compromisos cumplidos) ·
+    // mora base (deuda asignada) · total/gestionados de cartera — para las cards del jefe.
+    const [aggComprometido, aggRecaudado, aggMoraBase, totalAsignados] = await Promise.all([
+      db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, montoAcordado: { not: null } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
+      db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: { in: ['PAGO_REAL', 'COMP_CUM'] } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
+      db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: targetId } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
+      db.contacto.count({ where: { asignadoA: targetId } }).catch(() => 0),
+    ]);
+    const montoComprometido = Number(aggComprometido._sum.montoAcordado || 0);
+    const montoRecaudado    = Number(aggRecaudado._sum.montoAcordado || 0);
+    const moraTotalBase     = Number(aggMoraBase._sum.montoDeuda || 0);
+
     res.json({
       usuario_id: targetId,
       fecha: inicio.toISOString().slice(0, 10),
@@ -197,6 +217,11 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       cdrs_total: cdrsHoy,
       agendados,
       gestionados,
+      total_asignados:   totalAsignados,
+      gestionados_base:  gestionados,
+      monto_comprometido: montoComprometido,
+      monto_recaudado:    montoRecaudado,
+      mora_total_base:    moraTotalBase,
       conectado: false,
       tiempo_al_aire: tiempoAlAire,
       tiempo_muerto:  tiempoMuerto,
@@ -207,6 +232,7 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       sms_detalle:      [rcsEnv,    rcsActivo,    0],
       email_detalle:    [correoEnv, correoActivo, 0],
       total_compromisos:       cdrsConTipif,
+      promesas_pago:           pmpHoy,
       compromisos_cumplidos:   compCumpl,
       compromisos_reagendados: compReag,
       compromisos_incumplidos: compIncump,
@@ -230,10 +256,16 @@ router.get('/metricas-equipo', async (req, res, next) => {
     const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
     const asesorIds = asesores.map(a => a.id);
 
-    const [cdrs, gestionados, pagados] = await Promise.all([
-      db.cdr.count({ where: { usuarioId: { in: asesorIds }, timestampInicio: { gte: inicio, lte: fin } } }),
+    const cdrWhere = { usuarioId: { in: asesorIds }, timestampInicio: { gte: inicio, lte: fin } };
+    const [cdrs, gestionados, pagados, efectivos, neutros, noContact, aggRecaudado, compromisos] = await Promise.all([
+      db.cdr.count({ where: cdrWhere }),
       db.contacto.count({ where: { asignadoA: { in: asesorIds }, estadoMarcacion: 'GESTIONADO' } }),
       db.contacto.count({ where: { asignadoA: { in: asesorIds }, yaPago: true } }),
+      db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }),
+      db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_NEUTRO', 'CONTACTO NEUTRO'] } } } }),
+      db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO', 'NO CONTACTADO'] } } } }),
+      db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { ...cdrWhere, resultado: { in: ['PAGO_REAL', 'COMP_CUM'] } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
+      db.cdr.count({ where: { ...cdrWhere, tipificacion: { codigo: { in: ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'] } } } }),
     ]);
 
     const porAsesor = await Promise.all(asesores.map(async (a) => {
@@ -241,7 +273,17 @@ router.get('/metricas-equipo', async (req, res, next) => {
       return { asesor_id: a.id, nombre: a.nombre, marcaciones: m };
     }));
 
-    res.json({ total_marcaciones: cdrs, gestionados, pagados, asesores: porAsesor });
+    res.json({
+      total_marcaciones: cdrs, gestionados, pagados, asesores: porAsesor,
+      // Totales que consume AdvancedMetricsCharts (Contactabilidad / Proyecciones)
+      marcacionesTotales:      cdrs,
+      cdrsTotalEquipo:         cdrs,
+      contactosEfectivosTotal: efectivos,
+      cdrsNeutrosTotal:        neutros,
+      cdrsNoContactadosTotal:  noContact,
+      montoRecaudadoTotal:     Number(aggRecaudado._sum.montoAcordado || 0),
+      totalCompromisosEquipo:  compromisos,
+    });
   } catch (err) { next(err); }
 });
 
@@ -260,7 +302,7 @@ router.get('/config', async (req, res, next) => {
 });
 
 // ── POST /api/config — Guardar configuración ─────────────────────────────────
-router.post('/config', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/config', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const entries = Object.entries(req.body);
     if (!entries.length) return res.json({ ok: true });
@@ -279,7 +321,7 @@ router.post('/config', requireRole('supervisor', 'jefe_area', 'admin'), async (r
 
 // ── GET /api/cartera-equipo — Cartera asignada del equipo completo ───────────
 // Devuelve array PLANO con asesor_nombre por fila (mismo formato que local SQLite).
-router.get('/cartera-equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const rows = await db.$queryRaw`
       SELECT
@@ -342,7 +384,7 @@ router.get('/cartera-equipo', requireRole('supervisor', 'jefe_area', 'admin'), a
 });
 
 // ── POST /api/cartera/reordenar — Reordenar cartera de un asesor ─────────────
-router.post('/cartera/reordenar', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/cartera/reordenar', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const { asesorId, contactoIdsEnOrden } = req.body;
     if (!asesorId || !Array.isArray(contactoIdsEnOrden)) {
@@ -372,37 +414,55 @@ router.get('/asesores/:id/progreso', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/validacion/historial — Contactos con pago validado ───────────────
-router.get('/validacion/historial', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+// ── GET /api/validacion/historial — Historial real desde validacion_pagos ─────
+router.get('/validacion/historial', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const where = { validadoPago: true };
+    let teamFilter = Prisma.empty;
     if (req.user.rol !== 'admin') {
       const ids = await getAsesorIdsDelEquipo(req.user);
-      if (ids) where.asignadoA = { in: ids };
+      if (ids && ids.length) teamFilter = Prisma.sql`AND ct.asignado_a IN (${Prisma.join(ids)})`;
     }
-    const historial = await db.contacto.findMany({
-      where,
-      select: {
-        id: true, nombreDeudor: true, cedula: true, montoDeuda: true, yaPago: true,
-        asesor: { select: { id: true, nombre: true } },
-        campana: { select: { nombre: true } },
-      },
-      orderBy: { id: 'desc' },
-      take: 200,
-    });
-    res.json(historial);
+    const rows = await db.$queryRaw(Prisma.sql`
+      SELECT vp.id, vp.sesion_id, vp.contacto_id, vp.nombre_deudor, vp.cedula, vp.contrato,
+             vp.empresa, vp.campana_nombre, vp.asesor_nombre, vp.estado_pago,
+             vp.valor_en_mora, vp.monto_pagado, vp.validado_en,
+             u.nombre AS validado_por_nombre
+      FROM validacion_pagos vp
+      LEFT JOIN usuarios u ON vp.validado_por = u.id
+      LEFT JOIN contactos ct ON vp.contacto_id = ct.id
+      WHERE 1=1 ${teamFilter}
+      ORDER BY vp.validado_en DESC
+      LIMIT 500
+    `);
+    res.json(rows.map(r => ({
+      ...r,
+      valor_en_mora: r.valor_en_mora != null ? Number(r.valor_en_mora) : 0,
+      monto_pagado:  r.monto_pagado  != null ? Number(r.monto_pagado)  : 0,
+    })));
   } catch (err) { next(err); }
 });
 
 // ── GET /api/validacion/sesiones ──────────────────────────────────────────────
-router.get('/validacion/sesiones', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/validacion/sesiones', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    res.json([]);
+    const rows = await db.$queryRaw`
+      SELECT vs.id, vs.creado_en, vs.n_pagado, vs.n_excedente, vs.n_abono,
+             vs.monto_real, vs.monto_abono, vs.registros, u.nombre AS supervisor_nombre
+      FROM validacion_sesiones vs
+      LEFT JOIN usuarios u ON vs.supervisor_id = u.id
+      ORDER BY vs.creado_en DESC
+      LIMIT 50
+    `;
+    res.json(rows.map(r => ({
+      ...r,
+      monto_real:  Number(r.monto_real  || 0),
+      monto_abono: Number(r.monto_abono || 0),
+    })));
   } catch (err) { next(err); }
 });
 
 // ── GET /api/validacion/metricas — Contadores de validación de pagos ──────────
-router.get('/validacion/metricas', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/validacion/metricas', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const where = {};
     if (req.user.rol !== 'admin') {
@@ -418,43 +478,157 @@ router.get('/validacion/metricas', requireRole('supervisor', 'jefe_area', 'admin
   } catch (err) { next(err); }
 });
 
-// ── POST /api/validacion/correlacionar — Cruzar pagos por cédula ──────────────
-router.post('/validacion/correlacionar', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+// ── POST /api/validacion/correlacionar — Cruce por Nº CONTRATO ────────────────
+// Agrupa los pagos del reporte de cuotas por contrato y los cruza contra el
+// metadata."Nº CONTRATO" de los contactos. Devuelve la shape rica que espera
+// ValidacionPagos.jsx: { matches[], totalContratos, totalMatches }.
+router.post('/validacion/correlacionar', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const { pagosData = [] } = req.body;
-    const matches = [];
-    const no_encontrados = [];
+    const { pagosData = [], opts = {} } = req.body;
+    const { asesorId = null, fecha = null, campanaId = null } = opts;
 
-    pagosData.filter(p => !p.cedula).forEach(p => no_encontrados.push(p));
-    const lookups = await Promise.all(
-      pagosData
-        .filter(p => p.cedula)
-        .map(pago => db.contacto.findFirst({
-          where: { cedula: String(pago.cedula) },
-          select: { id: true, nombreDeudor: true, cedula: true, montoDeuda: true, asignadoA: true },
-        }).then(contacto => ({ pago, contacto })))
-    );
-    for (const { pago, contacto } of lookups) {
-      if (contacto) {
-        matches.push({ ...pago, contacto_id: contacto.id, nombre: contacto.nombreDeudor });
-      } else {
-        no_encontrados.push(pago);
+    const norm = (s) => String(s ?? '').replace(/\D/g, '').trim();
+    const porContrato = new Map();
+    for (const p of pagosData) {
+      const key = norm(p.contrato);
+      if (!key) continue;
+      if (!porContrato.has(key)) {
+        porContrato.set(key, {
+          contrato: key, cedula: p.cedula, nombreCliente: p.nombreCliente,
+          empresa: p.empresa, montoPagadoTotal: 0, ultimaFecha: p.fechaPago, cuotas: 0,
+        });
       }
+      const e = porContrato.get(key);
+      e.montoPagadoTotal += parseFloat(p.montoPagado) || 0;
+      e.cuotas++;
+      if ((p.fechaPago || '') > (e.ultimaFecha || '')) e.ultimaFecha = p.fechaPago;
     }
-    res.json({ matches, no_encontrados });
+
+    const contratos = [...porContrato.keys()];
+    if (!contratos.length) return res.json({ matches: [], totalContratos: 0, totalMatches: 0 });
+
+    const extra = [];
+    if (asesorId)  extra.push(Prisma.sql`AND ct.asignado_a = ${Number(asesorId)}`);
+    if (campanaId) extra.push(Prisma.sql`AND ct.campana_id = ${Number(campanaId)}`);
+    if (fecha)     extra.push(Prisma.sql`AND DATE(ct.fecha_asignacion) = ${fecha}::date`);
+    if (req.user.rol !== 'admin') {
+      const teamIds = await getAsesorIdsDelEquipo(req.user);
+      if (teamIds && teamIds.length) extra.push(Prisma.sql`AND ct.asignado_a IN (${Prisma.join(teamIds)})`);
+    }
+    const extraWhere = extra.length ? Prisma.join(extra, ' ') : Prisma.empty;
+    const contractList = Prisma.join(contratos.map(c => Prisma.sql`${c}`));
+
+    // Se normaliza a solo-dígitos en SQL para tolerar formatos ('123.0', espacios, etc.).
+    const rows = await db.$queryRaw(Prisma.sql`
+      SELECT ct.id, ct.nombre_deudor, ct.cedula, ct.ya_pago, ct.campana_id, ct.asignado_a,
+             ct.metadata, ct.monto_deuda,
+             c.nombre AS campana_nombre, u.nombre AS asesor_nombre,
+             regexp_replace(COALESCE(ct.metadata->>'Nº CONTRATO',''), '\\D', '', 'g') AS contrato_norm
+      FROM contactos ct
+      JOIN campanas c ON ct.campana_id = c.id
+      LEFT JOIN usuarios u ON ct.asignado_a = u.id
+      WHERE regexp_replace(COALESCE(ct.metadata->>'Nº CONTRATO',''), '\\D', '', 'g') IN (${contractList})
+      ${extraWhere}
+    `);
+
+    const matches = [];
+    for (const row of rows) {
+      const pago = porContrato.get(String(row.contrato_norm));
+      if (!pago) continue;
+      const meta = row.metadata || {};
+      const moraRaw = meta['VALOR EN MORA'] ?? meta['MONTO POR COBRAR'] ?? '';
+      const moraMeta = parseFloat(String(moraRaw).replace(/[^0-9.-]/g, ''));
+      const montoDeuda = row.monto_deuda != null ? Number(row.monto_deuda) : 0;
+      const valorEnMora = (!isNaN(moraMeta) && moraMeta > 0) ? moraMeta : (montoDeuda > 0 ? montoDeuda : 0);
+      const diff = pago.montoPagadoTotal - valorEnMora;
+      const estadoPago = valorEnMora <= 0
+        ? 'SIN_MORA'
+        : diff >= -0.01 ? (diff > 0.01 ? 'PAGO_EXCEDENTE' : 'PAGADO_COMPLETO') : 'ABONO_PARCIAL';
+
+      matches.push({
+        contactoId: Number(row.id),
+        nombreDeudor: row.nombre_deudor,
+        cedula: row.cedula,
+        campanaId: Number(row.campana_id),
+        campanaNombre: row.campana_nombre,
+        asesorNombre: row.asesor_nombre || 'Sin asignar',
+        contrato: String(row.contrato_norm),
+        empresa: meta['EMPRESA'] || pago.empresa || '',
+        montoPagado: pago.montoPagadoTotal,
+        valorEnMora,
+        diferencia: diff,
+        estadoPago,
+        ultimaFecha: pago.ultimaFecha,
+        cuotas: pago.cuotas,
+        yaPago: row.ya_pago === true,
+      });
+    }
+    res.json({ matches, totalContratos: contratos.length, totalMatches: matches.length });
   } catch (err) { next(err); }
 });
 
-// ── POST /api/validacion/confirmar — Marcar contactos como validadoPago ───────
-router.post('/validacion/confirmar', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+// ── POST /api/validacion/confirmar — Excluir del marcador los pagos validados ──
+router.post('/validacion/confirmar', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const { contacto_ids = [] } = req.body;
-    if (!contacto_ids.length) return res.json({ confirmados: 0 });
-    const result = await db.contacto.updateMany({
-      where: { id: { in: contacto_ids.map(Number) } },
-      data: { validadoPago: true, yaPago: true },
+    const { contactoIds = [], matches = [] } = req.body;
+    if (!contactoIds.length) return res.json({ success: true, updated: 0 });
+    const ids = contactoIds.map(Number);
+    const byId = new Map(matches.map(m => [m.contactoId, m]));
+    const matchesSel = matches.filter(m => ids.includes(m.contactoId));
+
+    const excluir = ids.filter(id => byId.get(id)?.estadoPago !== 'ABONO_PARCIAL');
+    const abonos  = ids.filter(id => byId.get(id)?.estadoPago === 'ABONO_PARCIAL');
+
+    // Crear sesión de validación
+    const nPagado   = matchesSel.filter(m => m.estadoPago === 'PAGADO_COMPLETO').length;
+    const nExced    = matchesSel.filter(m => m.estadoPago === 'PAGO_EXCEDENTE').length;
+    const montoReal = matchesSel.filter(m => m.estadoPago !== 'ABONO_PARCIAL').reduce((s, m) => s + (Number(m.montoPagado) || 0), 0);
+    const montoAb   = matchesSel.filter(m => m.estadoPago === 'ABONO_PARCIAL').reduce((s, m) => s + (Number(m.montoPagado) || 0), 0);
+
+    const [sesion] = await db.$queryRaw`
+      INSERT INTO validacion_sesiones (supervisor_id, n_pagado, n_excedente, n_abono, monto_real, monto_abono, registros)
+      VALUES (${req.user.id}, ${nPagado}, ${nExced}, ${abonos.length}, ${montoReal}, ${montoAb}, ${ids.length})
+      RETURNING id
+    `;
+
+    // Guardar cada registro en validacion_pagos
+    for (const m of matchesSel) {
+      await db.$executeRaw`
+        INSERT INTO validacion_pagos
+          (sesion_id, contacto_id, nombre_deudor, cedula, contrato, empresa, campana_nombre,
+           asesor_nombre, estado_pago, valor_en_mora, monto_pagado, validado_por)
+        VALUES (
+          ${sesion.id}, ${m.contactoId}, ${m.nombreDeudor ?? ''}, ${m.cedula ?? ''},
+          ${m.contrato ?? ''}, ${m.empresa ?? ''}, ${m.campanaNombre ?? ''},
+          ${m.asesorNombre ?? ''}, ${m.estadoPago}, ${Number(m.valorEnMora) || 0},
+          ${Number(m.montoPagado) || 0}, ${req.user.id}
+        )
+      `;
+    }
+
+    // Excluir pagados del marcador
+    if (excluir.length) {
+      await db.contacto.updateMany({
+        where: { id: { in: excluir } },
+        data: { yaPago: true, validadoPago: true, estadoMarcacion: 'YA_PAGO', ordenMarcacion: null },
+      });
+    }
+
+    // Notificar asesores en tiempo real
+    broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: excluir, abonoIds: abonos });
+
+    res.json({ success: true, updated: excluir.length });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/validacion/revertir/:id — Devolver contacto validado a la cola ───
+router.post('/validacion/revertir/:id', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    await db.contacto.update({
+      where: { id: parseInt(req.params.id) },
+      data: { validadoPago: false, yaPago: false, estadoMarcacion: 'GESTIONADO' },
     });
-    res.json({ confirmados: result.count });
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 
@@ -477,11 +651,35 @@ router.get('/cartera/analisis', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/cartera/rotacion — Sin histórico de asignaciones en DB ───────────
+// ── GET /api/cartera/rotacion — Avance por asesor (total vs gestionado) ────────
+// Devuelve [{ asesor:{id,nombre}, metricas:{total_asignados, gestionados_base} }]
+// que consume AdvancedMetricsCharts (card "Rotación de Cartera").
 router.get('/cartera/rotacion', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
-    res.json([]);
+    const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
+    const fechaInicio = req.query.fechaInicio ? new Date(req.query.fechaInicio + 'T00:00:00') : null;
+    const fechaFin    = req.query.fechaFin    ? new Date(req.query.fechaFin    + 'T23:59:59') : fechaInicio ? new Date(req.query.fechaInicio + 'T23:59:59') : null;
+
+    const whereU = { rol: 'asesor', estado: 'activo' };
+    if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
+    const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
+
+    const detalle = await Promise.all(asesores.map(async (a) => {
+      const baseWhere = { asignadoA: a.id, ...(campanaId ? { campanaId } : {}) };
+      let gestionados;
+      if (fechaInicio) {
+        // Con filtro de fecha: contar CDRs (llamadas) del período para ese asesor
+        const cdrWhere = { usuarioId: a.id, timestampInicio: { gte: fechaInicio, lte: fechaFin } };
+        if (campanaId) cdrWhere.contacto = { campanaId };
+        gestionados = await db.cdr.count({ where: cdrWhere });
+      } else {
+        gestionados = await db.contacto.count({ where: { ...baseWhere, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } });
+      }
+      const total = await db.contacto.count({ where: baseWhere });
+      return { asesor: { id: a.id, nombre: a.nombre }, metricas: { total_asignados: total, gestionados_base: gestionados } };
+    }));
+    res.json(detalle);
   } catch (err) { next(err); }
 });
 
@@ -520,16 +718,40 @@ router.get('/cartera/refinanciada', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/cartera/detalle-contactabilidad ─────────────────────────────────
+// ── GET /api/cartera/detalle-contactabilidad — CDRs por hora del equipo ───────
+// Devuelve una fila por CDR: { hora_bucket, usuario_id, categoria } para la card
+// "Contactabilidad por Hora".
 router.get('/cartera/detalle-contactabilidad', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
-    res.json([]);
+    const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
+    const desde = req.query.fecha ? new Date(req.query.fecha) : new Date();
+    const inicio = new Date(desde); inicio.setHours(0, 0, 0, 0);
+    const fin = req.query.fecha_fin ? new Date(req.query.fecha_fin) : new Date(desde);
+    fin.setHours(23, 59, 59, 999);
+
+    const asesorIds = await getAsesorIdsDelEquipo(req.user);
+
+    const conds = [Prisma.sql`cr.timestamp_inicio >= ${inicio} AND cr.timestamp_inicio <= ${fin}`];
+    if (asesorIds && asesorIds.length) conds.push(Prisma.sql`AND cr.usuario_id IN (${Prisma.join(asesorIds)})`);
+    if (campanaId) conds.push(Prisma.sql`AND ct.campana_id = ${campanaId}`);
+    const whereSql = Prisma.join(conds, ' ');
+
+    const rows = await db.$queryRaw(Prisma.sql`
+      SELECT EXTRACT(HOUR FROM cr.timestamp_inicio)::int AS hora_bucket,
+             cr.usuario_id AS usuario_id,
+             COALESCE(t.categoria, 'NO_CONTACTADO') AS categoria
+      FROM cdrs cr
+      JOIN contactos ct ON ct.id = cr.contacto_id
+      LEFT JOIN tipificaciones t ON cr.tipificacion_id = t.id
+      WHERE ${whereSql}
+    `);
+    res.json(rows.map(r => ({ hora_bucket: Number(r.hora_bucket), usuario_id: Number(r.usuario_id), categoria: r.categoria })));
   } catch (err) { next(err); }
 });
 
 // ── GET /api/pagos-verificados — Contactos con pago validado del equipo ───────
-router.get('/pagos-verificados', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/pagos-verificados', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const where = { validadoPago: true };
     if (req.user.rol !== 'admin') {
@@ -552,7 +774,7 @@ router.get('/pagos-verificados', requireRole('supervisor', 'jefe_area', 'admin')
 });
 
 // ── GET /api/compromisos-equipo — CDRs de compromisos del equipo ──────────────
-router.get('/compromisos-equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/compromisos-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const fechaStr = req.query.fecha || new Date().toISOString().slice(0, 10);
     const asesorIdParam = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
@@ -655,7 +877,7 @@ router.get('/compromisos-equipo', requireRole('supervisor', 'jefe_area', 'admin'
 });
 
 // ── DELETE /api/compromisos/:id — Eliminar CDR compromiso ────────────────────
-router.delete('/compromisos/:id', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.delete('/compromisos/:id', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const cdrId = parseInt(req.params.id);
     if (!cdrId) return res.status(400).json({ error: 'ID inválido' });
@@ -675,7 +897,7 @@ router.delete('/compromisos/:id', requireRole('supervisor', 'jefe_area', 'admin'
 });
 
 // ── GET /api/jefe/meta-diaria-campanas ───────────────────────────────────────
-router.get('/jefe/meta-diaria-campanas', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.get('/jefe/meta-diaria-campanas', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const hoy = new Date();
     const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -687,13 +909,13 @@ router.get('/jefe/meta-diaria-campanas', requireRole('supervisor', 'jefe_area', 
       orderBy: { id: 'desc' },
     });
 
+    // cobrado_hoy = pagos validados bancariamente hoy
     const cobradosPorCampana = await db.$queryRaw`
-      SELECT ct.campana_id, COALESCE(SUM(CAST(cdr.monto_acordado AS DOUBLE PRECISION)), 0) AS cobrado_hoy
-      FROM cdrs cdr
-      JOIN contactos ct ON cdr.contacto_id = ct.id
-      WHERE cdr.timestamp_inicio >= ${inicioDia}
-        AND cdr.timestamp_inicio <= ${finDia}
-        AND cdr.monto_acordado IS NOT NULL
+      SELECT ct.campana_id, COALESCE(SUM(vp.monto_pagado::DOUBLE PRECISION), 0) AS cobrado_hoy
+      FROM validacion_pagos vp
+      JOIN contactos ct ON vp.contacto_id = ct.id
+      WHERE vp.validado_en >= ${inicioDia} AND vp.validado_en <= ${finDia}
+        AND vp.estado_pago != 'ABONO_PARCIAL'
       GROUP BY ct.campana_id
     `;
 
@@ -715,14 +937,152 @@ router.get('/jefe/meta-diaria-campanas', requireRole('supervisor', 'jefe_area', 
   } catch (err) { next(err); }
 });
 
+// ── GET /api/campana/meta-diaria — accesible por asesor, filtra por campana_id ─
+router.get('/campana/meta-diaria', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
+  try {
+    const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
+    const hoy = new Date();
+    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const finDia    = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 23, 59, 59, 999);
+
+    const where = { estado: 'activa' };
+    if (campanaId) where.id = campanaId;
+
+    const campanas = await db.campana.findMany({
+      where,
+      select: { id: true, nombre: true, metaDiaria: true },
+      orderBy: { id: 'desc' },
+    });
+
+    // cobrado_hoy = pagos validados bancariamente hoy (validacion_pagos.monto_pagado)
+    const cobradosPorCampana = campanaId
+      ? await db.$queryRaw`
+          SELECT ct.campana_id, COALESCE(SUM(vp.monto_pagado::DOUBLE PRECISION), 0) AS cobrado_hoy
+          FROM validacion_pagos vp
+          JOIN contactos ct ON vp.contacto_id = ct.id
+          WHERE vp.validado_en >= ${inicioDia} AND vp.validado_en <= ${finDia}
+            AND vp.estado_pago != 'ABONO_PARCIAL'
+            AND ct.campana_id = ${campanaId}
+          GROUP BY ct.campana_id`
+      : await db.$queryRaw`
+          SELECT ct.campana_id, COALESCE(SUM(vp.monto_pagado::DOUBLE PRECISION), 0) AS cobrado_hoy
+          FROM validacion_pagos vp
+          JOIN contactos ct ON vp.contacto_id = ct.id
+          WHERE vp.validado_en >= ${inicioDia} AND vp.validado_en <= ${finDia}
+            AND vp.estado_pago != 'ABONO_PARCIAL'
+          GROUP BY ct.campana_id`;
+
+    const cobradoMap = {};
+    cobradosPorCampana.forEach(r => { cobradoMap[Number(r.campana_id)] = Number(r.cobrado_hoy); });
+
+    const resultado = campanas.map(c => {
+      const cobrado_hoy = cobradoMap[c.id] ?? 0;
+      return {
+        id: c.id,
+        nombre: c.nombre,
+        meta_diaria: c.metaDiaria ?? 0,
+        cobrado_hoy,
+        pct_cumplimiento: (c.metaDiaria ?? 0) > 0
+          ? Math.round((cobrado_hoy / c.metaDiaria) * 10000) / 100 : 0,
+      };
+    });
+
+    res.json(campanaId ? resultado[0] || null : resultado);
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/jefe/meta-diaria-campana ───────────────────────────────────────
-router.post('/jefe/meta-diaria-campana', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/jefe/meta-diaria-campana', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const { campanaId, valor } = req.body;
     const id  = parseInt(campanaId);
     const val = parseFloat(valor);
     if (!id || isNaN(val) || val < 0) return res.status(400).json({ error: 'campanaId y valor requeridos' });
     await db.campana.update({ where: { id }, data: { metaDiaria: val } });
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/campana/metas-segmentos?campana_id=X ────────────────────────────
+// Devuelve metas configuradas (monto y unidades por S0/S1/S2/global)
+// + avance real del día (pagos validados hoy, segmentados)
+router.get('/campana/metas-segmentos', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
+  try {
+    const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
+    if (!campanaId) return res.status(400).json({ error: 'campana_id requerido' });
+
+    // Leer metas del config
+    const segs = ['0','1','2','global'];
+    const claves = segs.flatMap(s => [
+      `meta_monto_s${s}_c${campanaId}`,
+      `meta_unidades_s${s}_c${campanaId}`,
+    ]);
+    const cfgRows = await db.config.findMany({ where: { clave: { in: claves } } });
+    const cfgMap  = Object.fromEntries(cfgRows.map(r => [r.clave, parseFloat(r.valor) || 0]));
+
+    const getMeta = (seg, tipo) => cfgMap[`meta_${tipo}_s${seg}_c${campanaId}`] || 0;
+
+    // Avance: pagos validados hoy segmentados (contamos días impago del metadata del contacto)
+    const hoy = new Date();
+    const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    const finDia    = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate(), 23, 59, 59, 999);
+
+    const pagoRows = await db.$queryRaw`
+      SELECT ct.metadata, vp.monto_pagado, vp.estado_pago
+      FROM validacion_pagos vp
+      JOIN contactos ct ON vp.contacto_id = ct.id
+      WHERE vp.validado_en >= ${inicioDia} AND vp.validado_en <= ${finDia}
+        AND vp.estado_pago != 'ABONO_PARCIAL'
+        AND ct.campana_id = ${campanaId}
+    `;
+
+    const avance = { '0': { monto: 0, unidades: 0 }, '1': { monto: 0, unidades: 0 }, '2': { monto: 0, unidades: 0 }, global: { monto: 0, unidades: 0 } };
+    for (const row of pagoRows) {
+      let meta = {};
+      try { meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata) : (row.metadata || {}); } catch (_) {}
+      const d = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || meta['DIAS EN MORA'] || meta['dias impago'] || meta['dias mora'] || '0', 10);
+      const seg = isNaN(d) || d <= 0 ? '0' : d === 1 ? '1' : '2';
+      const m = Number(row.monto_pagado || 0);
+      avance[seg].monto    += m;
+      avance[seg].unidades += 1;
+      avance.global.monto    += m;
+      avance.global.unidades += 1;
+    }
+
+    res.json({
+      campana_id: campanaId,
+      segmentos: segs.map(s => ({
+        seg: s,
+        meta_monto:    getMeta(s, 'monto'),
+        meta_unidades: getMeta(s, 'unidades'),
+        cobrado_hoy:   avance[s].monto,
+        unidades_hoy:  avance[s].unidades,
+        pct_monto:     getMeta(s, 'monto') > 0 ? Math.min(100, Math.round(avance[s].monto / getMeta(s, 'monto') * 100)) : null,
+        pct_unidades:  getMeta(s, 'unidades') > 0 ? Math.min(100, Math.round(avance[s].unidades / getMeta(s, 'unidades') * 100)) : null,
+      })),
+    });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/jefe/metas-segmentos ───────────────────────────────────────────
+// Guarda metas de monto y unidades por segmento para una campaña
+router.post('/jefe/metas-segmentos', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const { campanaId, metas } = req.body;
+    // metas: { s0: { monto, unidades }, s1: {...}, s2: {...}, global: {...} }
+    const id = parseInt(campanaId);
+    if (!id || !metas) return res.status(400).json({ error: 'campanaId y metas requeridos' });
+
+    const ops = [];
+    for (const [seg, vals] of Object.entries(metas)) {
+      if (vals.monto    != null) ops.push(db.config.upsert({ where: { clave: `meta_monto_s${seg}_c${id}` },    create: { clave: `meta_monto_s${seg}_c${id}`,    valor: String(parseFloat(vals.monto)    || 0) }, update: { valor: String(parseFloat(vals.monto)    || 0) } }));
+      if (vals.unidades != null) ops.push(db.config.upsert({ where: { clave: `meta_unidades_s${seg}_c${id}` }, create: { clave: `meta_unidades_s${seg}_c${id}`, valor: String(parseFloat(vals.unidades) || 0) }, update: { valor: String(parseFloat(vals.unidades) || 0) } }));
+    }
+    // Si viene meta global de monto, también actualizar campana.meta_diaria
+    if (metas.global?.monto != null) {
+      ops.push(db.campana.update({ where: { id }, data: { metaDiaria: parseFloat(metas.global.monto) || 0 } }));
+    }
+    await db.$transaction(ops);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -735,7 +1095,7 @@ router.get('/indicadores/config', async (req, res, next) => {
 });
 
 // ── POST /api/indicadores/config ─────────────────────────────────────────────
-router.post('/indicadores/config', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/indicadores/config', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     res.json({ success: true });
   } catch (err) { next(err); }
@@ -768,7 +1128,7 @@ router.get('/jefe/meta-mensual', async (req, res, next) => {
 });
 
 // ── POST /api/jefe/meta-mensual ───────────────────────────────────────────────
-router.post('/jefe/meta-mensual', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/jefe/meta-mensual', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const val = parseFloat(req.body.meta);
     if (!val || isNaN(val) || val < 0) return res.status(400).json({ error: 'Meta inválida' });
@@ -786,6 +1146,14 @@ router.get('/jefe/indicadores', async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
     const where = await resolveContactoWhere(req.query);
+    // Filtro de fecha para CDRs (PMP subquery)
+    const hoyInd = new Date(); hoyInd.setHours(0,0,0,0);
+    const mañanaInd = new Date(hoyInd); mañanaInd.setDate(mañanaInd.getDate() + 1);
+    const fDesdeInd = req.query.fechaDesde ? new Date(req.query.fechaDesde + 'T00:00:00') : hoyInd;
+    const fHastaInd = req.query.fechaHasta ? new Date(req.query.fechaHasta + 'T23:59:59') : mañanaInd;
+    const pmpFechaRaw = req.query.fechaDesde || !req.query.sinFecha
+      ? Prisma.sql`AND cd.timestamp_inicio >= ${fDesdeInd} AND cd.timestamp_inicio < ${fHastaInd}`
+      : Prisma.sql``;
 
     const [aggVencido, aggCobrado, unidades_vencidas, unidades_cobradas] = await Promise.all([
       db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { ...where, yaPago: false } }),
@@ -828,6 +1196,7 @@ router.get('/jefe/indicadores', async (req, res, next) => {
         JOIN tipificaciones t ON cd.tipificacion_id = t.id
         WHERE t.codigo = 'PMP'
         AND ${Prisma.raw('COALESCE(NULLIF(c.metadata->>\'DIAS IMPAGO\',\'\'),NULLIF(c.metadata->>\'DIAS EN MORA\',\'\'),NULLIF(c.metadata->>\'DIAS MORA\',\'\'))')} ~ '^[0-2]$'
+        ${pmpFechaRaw}
         ${cdrWhere}
         GROUP BY segmento
       `),
@@ -905,14 +1274,25 @@ router.get('/jefe/top-asesores', async (req, res, next) => {
     const cWhere = await resolveContactoWhere(req.query);
     const cdrContacto = Object.keys(cWhere).length > 0 ? { contacto: cWhere } : {};
 
+    // Filtro de fecha para CDRs
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const manana = new Date(hoy); manana.setDate(manana.getDate() + 1);
+    const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde + 'T00:00:00') : hoy;
+    const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta + 'T23:59:59') : manana;
+    const cdrFechaWhere = req.query.fechaDesde || !req.query.sinFecha
+      ? { timestampInicio: { gte: fechaDesde, lt: fechaHasta } } : {};
+
     const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
 
     const cdrRawWhere = buildCdrContactoRawWhere(cWhere);
+    const fechaRaw = req.query.fechaDesde || !req.query.sinFecha
+      ? Prisma.sql`AND cd.timestamp_inicio >= ${fechaDesde} AND cd.timestamp_inicio < ${fechaHasta}`
+      : Prisma.sql``;
     const C_DIAS = `COALESCE(NULLIF(c.metadata->>'DIAS IMPAGO',''),NULLIF(c.metadata->>'DIAS EN MORA',''),NULLIF(c.metadata->>'DIAS MORA',''))`;
 
     const result = await Promise.all(asesores.map(async (a) => {
       const [total_gestiones, segRows] = await Promise.all([
-        db.cdr.count({ where: { usuarioId: a.id, ...cdrContacto } }),
+        db.cdr.count({ where: { usuarioId: a.id, ...cdrContacto, ...cdrFechaWhere } }),
         db.$queryRaw(Prisma.sql`
           SELECT
             CAST(${Prisma.raw(C_DIAS)} AS INTEGER) AS segmento,
@@ -925,6 +1305,7 @@ router.get('/jefe/top-asesores', async (req, res, next) => {
           LEFT JOIN tipificaciones t ON cd.tipificacion_id = t.id
           WHERE cd.usuario_id = ${a.id}
           AND ${Prisma.raw(C_DIAS)} ~ '^[0-2]$'
+          ${fechaRaw}
           ${cdrRawWhere}
           GROUP BY segmento ORDER BY segmento
         `),
@@ -1040,7 +1421,7 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
 });
 
 // ── Mensajes Broadcast ───────────────────────────────────────────
-router.get('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin', 'asesor'), async (req, res, next) => {
+router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
   try {
     const rows = await db.mensajeBroadcast.findMany({
       orderBy: { creadoEn: 'desc' },
@@ -1058,7 +1439,7 @@ router.get('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin'
   } catch (err) { next(err); }
 });
 
-router.post('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const { mensaje, segmento_destino = 'TODOS' } = req.body;
     if (!mensaje?.trim()) return res.status(400).json({ error: 'Mensaje requerido' });
@@ -1066,7 +1447,7 @@ router.post('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin
       data: { supervisorId: req.user.id, mensaje: mensaje.trim(), segmentoDestino: segmento_destino },
       include: { supervisor: { select: { nombre: true } } },
     });
-    res.status(201).json({
+    const payload = {
       id:               m.id,
       mensaje:          m.mensaje,
       segmento_destino: m.segmentoDestino,
@@ -1074,20 +1455,23 @@ router.post('/mensajes-broadcast', requireRole('supervisor', 'jefe_area', 'admin
       supervisor_nombre: m.supervisor?.nombre ?? null,
       creado_en:        m.creadoEn,
       pagos_posteriores: 0,
-    });
+    };
+    broadcastToAll({ tipo: 'NUEVO_MENSAJE_BROADCAST', mensaje: payload });
+    res.status(201).json(payload);
   } catch (err) { next(err); }
 });
 
-router.delete('/mensajes-broadcast/:id', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.delete('/mensajes-broadcast/:id', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
     await db.mensajeBroadcast.update({ where: { id }, data: { activo: false } });
+    broadcastToAll({ tipo: 'MENSAJE_BROADCAST_DESACTIVADO', id });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
 // ── Segmentos / Tramos dinámicos ──────────────────────────────────────────
-router.get('/segmentos', requireRole('supervisor', 'jefe_area', 'asesor', 'admin'), async (req, res) => {
+router.get('/segmentos', requireRole('jefe_area', 'asesor', 'admin'), async (req, res) => {
   try {
     await db.$executeRaw`
       CREATE TABLE IF NOT EXISTS segmentos_config (
@@ -1108,7 +1492,7 @@ router.get('/segmentos', requireRole('supervisor', 'jefe_area', 'asesor', 'admin
   }
 });
 
-router.post('/segmentos', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+router.post('/segmentos', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     const { clave, etiqueta, color } = req.body;
     if (!clave || !etiqueta) return res.status(400).json({ error: 'clave y etiqueta son requeridos' });
@@ -1249,13 +1633,13 @@ router.get('/cartera', async (req, res, next) => {
         metadata: ct.metadata,
         estado_marcacion: ct.estadoMarcacion,
         intentos_realizados: ct.intentosRealizados,
-        ya_pago: ct.yaPago,
+        ya_pago: ct.yaPago ? 1 : 0,
         campana_id: ct.campanaId,
         campana_nombre: ct.campana?.nombre || null,
         whatsapp_status: wspStatus,
         rcs_status: rcsStatus,
         correo_status: correoStatus,
-        validado_pago: ct.validadoPago,
+        validado_pago: ct.validadoPago ? 1 : 0,
         orden_marcacion: ct.ordenMarcacion,
         fecha_asignacion: ct.fechaAsignacion,
         ultima_tip_codigo: tip?.codigo || null,
@@ -1344,13 +1728,23 @@ router.get('/ranking-general', async (req, res, next) => {
   try {
     const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
 
+    // Solo asesores actualmente conectados por WS
+    const { asesores: conectados } = getConnectedStats();
+    const idsConectados = new Set(conectados.map(a => Number(a.asesor_id)));
+
+    // Si no hay nadie conectado, devolver array vacío
+    if (idsConectados.size === 0) return res.json([]);
+
     const asesores = await db.$queryRaw`
       SELECT id, nombre FROM usuarios
       WHERE rol = 'asesor' AND estado = 'activo'
       ORDER BY nombre ASC
     `;
 
-    const ranking = asesores.map(a => ({
+    // Filtrar solo los que están conectados ahora mismo
+    const asesoresFiltrados = asesores.filter(a => idsConectados.has(Number(a.id)));
+
+    const ranking = asesoresFiltrados.map(a => ({
       id: Number(a.id),
       nombre: a.nombre,
       canales: {
@@ -1374,7 +1768,7 @@ router.get('/ranking-general', async (req, res, next) => {
       } catch { return '0'; }
     };
 
-    // CDRs del día
+    // CDRs del día — competencia diaria, cuenta todas las llamadas del día
     const cdrs = await db.$queryRaw`
       SELECT c.usuario_id, ct.metadata
       FROM cdrs c
@@ -1390,7 +1784,7 @@ router.get('/ranking-general', async (req, res, next) => {
       }
     }
 
-    // Eventos ACCION_RAPIDA del día
+    // Eventos ACCION_RAPIDA del día — competencia diaria, cuenta todas las acciones del día
     const eventos = await db.$queryRaw`
       SELECT e.usuario_id, e.metadata, ct.metadata AS contacto_metadata
       FROM eventos e
@@ -1454,21 +1848,25 @@ router.get('/proyeccion-mensual', async (req, res, next) => {
 // ── GET /api/indicadores-cobranza ─────────────────────────────────────────────
 router.get('/indicadores-cobranza', async (req, res, next) => {
   try {
-    const global = await db.$queryRaw`
+    const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
+    const campanaFilter = campanaId ? Prisma.sql`WHERE campana_id = ${campanaId}` : Prisma.empty;
+
+    const global = await db.$queryRaw(Prisma.sql`
       SELECT
         COALESCE(SUM(monto_deuda), 0)::float                                          AS valor_vencido,
         COALESCE(SUM(CASE WHEN ya_pago = true THEN monto_deuda ELSE 0 END), 0)::float AS valor_cobrado,
         COUNT(*)::int                                                                  AS unidades_vencidas,
         SUM(CASE WHEN ya_pago = true THEN 1 ELSE 0 END)::int                          AS unidades_cobradas
       FROM contactos
-    `;
+      ${campanaFilter}
+    `);
     const g = global[0] || {};
     const gVen = Number(g.valor_vencido || 0);
     const gCob = Number(g.valor_cobrado || 0);
     const gUVen = Number(g.unidades_vencidas || 0);
     const gUCob = Number(g.unidades_cobradas || 0);
 
-    const segRows = await db.$queryRaw`
+    const segRows = await db.$queryRaw(Prisma.sql`
       SELECT
         CASE
           WHEN (
@@ -1516,8 +1914,9 @@ router.get('/indicadores-cobranza', async (req, res, next) => {
         COUNT(*)::int                                                                  AS unidades_vencidas,
         SUM(CASE WHEN ya_pago = true THEN 1 ELSE 0 END)::int                          AS unidades_cobradas
       FROM contactos
+      ${campanaFilter}
       GROUP BY 1
-    `;
+    `);
 
     const segmentos = {};
     for (const row of segRows) {

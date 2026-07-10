@@ -29,7 +29,7 @@ const {
   getAsesores, getCampanas, getCampanasPorAsesor, getCampanaById, getSiguienteContacto,
   insertCdr, updateCdr, getCdrsByUsuario, getSubGestionesByAsesor, getSubGestionesByContacto, getCdrsByContacto, insertSubGestion, getBitacoraAsesor, getRefsBitacora, getCarteraAsesor, getCarteraEquipo, setOrdenMarcacionBatch, getTipificaciones,
   insertEvento, getMetricasDia, getMetricasEquipo, getCompromisosEquipo, confirmarPagoCompromiso, reagendarCompromiso, marcarCompromisoIncumplido, getPagosVerificadosPorAsesor,
-  getAllConfig, setConfig, marcarContactoGestionado, getProgresoCampana,
+  getAllConfig, setConfig, marcarContactoGestionado, marcarYaPagoDeclarado, getProgresoCampana,
   incrementarIntentoContacto, resetearIntentosContacto, getContactoById,
   insertAgendamiento,
   getAllUsuariosAdmin, insertUsuario, updateUsuarioAdmin, toggleUsuarioEstado, changePasswordAdmin,
@@ -335,6 +335,16 @@ function initApiServer(port = 3001) {
   app.patch('/api/contactos/:id/gestionar', requireAuth, (req, res) => {
     try {
       marcarContactoGestionado(parseInt(req.params.id));
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Asesor declara "ya pagó" → pendiente de comprobación (validación bancaria del supervisor).
+  app.patch('/api/contactos/:id/ya-pago', requireAuth, (req, res) => {
+    try {
+      marcarYaPagoDeclarado(parseInt(req.params.id));
       res.json({ ok: true });
     } catch (err) {
       res.status(500).json({ error: err.message });

@@ -9,7 +9,6 @@ datasource db {
 // ── Enums ────────────────────────────────────────────────────────────────────
 
 enum Rol {
-  supervisor
   jefe_area
   asesor
   admin
