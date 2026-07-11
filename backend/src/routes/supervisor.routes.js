@@ -98,6 +98,103 @@ router.get('/asesores', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── GET /api/actividad-tipificacion — Matriz gestores × tipificación (día) ───
+// Panel "Actividad Gestores": conteo + tiempo al aire por categoría y por
+// código de tipificación, para todos los asesores activos del equipo
+// (incluidos los que tienen 0 gestiones ese día).
+router.get('/actividad-tipificacion', async (req, res, next) => {
+  try {
+    if (!isSupervisor(req.user.rol)) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+
+    // 'T00:00:00' fuerza parseo en tz local (sin sufijo, Date parsea UTC y corre el día)
+    const base = req.query.fecha ? new Date(`${req.query.fecha}T00:00:00`) : new Date();
+    if (isNaN(base.getTime())) {
+      return res.status(400).json({ error: 'Fecha inválida' });
+    }
+    const inicio = new Date(base); inicio.setHours(0, 0, 0, 0);
+    const fin    = new Date(base); fin.setHours(23, 59, 59, 999);
+
+    const asesorIds = await getAsesorIdsDelEquipo(req.user); // null = admin (todos)
+    const usuarioWhere = { estado: 'activo', rol: 'asesor' };
+    if (asesorIds) usuarioWhere.id = { in: asesorIds };
+    const asesores = await db.usuario.findMany({
+      where: usuarioWhere,
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+
+    const [grupos, tipifs] = await Promise.all([
+      db.cdr.groupBy({
+        by: ['usuarioId', 'tipificacionId'],
+        where: {
+          usuarioId: { in: asesores.map(a => a.id) },
+          timestampInicio: { gte: inicio, lte: fin },
+          tipificacionId: { not: null },
+        },
+        _count: { _all: true },
+        _sum: { duracionSeg: true },
+      }),
+      db.tipificacion.findMany({
+        select: { id: true, codigo: true, descripcion: true, categoria: true },
+      }),
+    ]);
+
+    const tipMap = new Map(tipifs.map(t => [t.id, t]));
+    const CAT_CANON = {
+      'CONTACTO_EFECTIVO': 'CONTACTO EXITOSO',
+      'CONTACTO EXITOSO':  'CONTACTO EXITOSO',
+      'CONTACTO_NEUTRO':   'CONTACTO NEUTRO',
+      'CONTACTO NEUTRO':   'CONTACTO NEUTRO',
+      'NO_CONTACTADO':     'NO CONTACTADO',
+      'NO CONTACTADO':     'NO CONTACTADO',
+    };
+    const categoriasVacias = () => ({
+      'CONTACTO EXITOSO': { count: 0, tiempo_seg: 0 },
+      'CONTACTO NEUTRO':  { count: 0, tiempo_seg: 0 },
+      'NO CONTACTADO':    { count: 0, tiempo_seg: 0 },
+    });
+
+    const porAsesor = new Map(asesores.map(a => [a.id, {
+      asesor_id: a.id,
+      nombre: a.nombre,
+      categorias: categoriasVacias(),
+      detalle: [],
+      total_count: 0,
+      total_tiempo_seg: 0,
+    }]));
+
+    for (const g of grupos) {
+      const entry = porAsesor.get(g.usuarioId);
+      const tip = tipMap.get(g.tipificacionId);
+      if (!entry || !tip) continue;
+      const count  = g._count._all;
+      const tiempo = Number(g._sum.duracionSeg || 0);
+      const cat = CAT_CANON[tip.categoria] || 'NO CONTACTADO';
+      entry.categorias[cat].count      += count;
+      entry.categorias[cat].tiempo_seg += tiempo;
+      entry.detalle.push({
+        codigo: tip.codigo,
+        descripcion: tip.descripcion,
+        categoria: cat,
+        count,
+        tiempo_seg: tiempo,
+      });
+      entry.total_count      += count;
+      entry.total_tiempo_seg += tiempo;
+    }
+
+    const salida = [...porAsesor.values()];
+    salida.forEach(a => a.detalle.sort((x, y) => y.count - x.count));
+
+    const y = inicio.getFullYear();
+    const m = String(inicio.getMonth() + 1).padStart(2, '0');
+    const d = String(inicio.getDate()).padStart(2, '0');
+    res.json({ fecha: `${y}-${m}-${d}`, asesores: salida });
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/metricas/:usuario_id — Métricas diarias de un asesor ────────────
 router.get('/metricas/:usuario_id', async (req, res, next) => {
   try {
