@@ -594,7 +594,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
                     onChange={e => setForm(f => ({ ...f, supervisor_id: e.target.value ? Number(e.target.value) : null }))}
                   >
                     <option value="">— Sin asignar —</option>
-                    {(users || []).filter(u => u.rol === 'supervisor').map(s => (
+                    {(users || []).filter(u => u.rol === 'supervisor' || u.rol === 'jefe_area').map(s => (
                       <option key={s.id} value={s.id}>{s.nombre}</option>
                     ))}
                   </select>

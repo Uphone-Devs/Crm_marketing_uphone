@@ -277,6 +277,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
   const handleDialRef = useRef(null);
   const enviarMetricasWSRef = useRef(null);
+  const carteraLastLoadRef = useRef(0); // timestamp última carga de cartera
   const estadoRef = useRef(estadoActual);
   const historialGestionesRef = useRef([]);
   const tiempoEstadoRef = useRef(0);
@@ -301,8 +302,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // ══════════════════════════════════════════════════════════
   // UNIVERSAL DATA FETCHING (Local vs Remote)
   // ══════════════════════════════════════════════════════════
-  const isRemote = wsIp && wsIp !== '127.0.0.1' && wsIp !== 'localhost';
-  const apiBase = (wsIp?.startsWith('http') ? wsIp.replace(/\/$/, '') : `http://${wsIp}:3001`) + '/api';
+  const effectiveIp = wsIp || '127.0.0.1';
+  const isRemote = true; // siempre backend PostgreSQL
+  const apiBase = (effectiveIp.startsWith('http') ? effectiveIp.replace(/\/$/, '') : `http://${effectiveIp}:3001`) + '/api';
   const authToken = localStorage.getItem('auth_token');
 
   // C2: limpia credenciales y vuelve al login cuando el token caduca.
@@ -920,6 +922,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         }
 
         if (msg.tipo === 'CARTERA_ASIGNADA') {
+          carteraLastLoadRef.current = 0; // forzar recarga fresca al navegar
           cargarCartera();
           showToast('Nueva cartera asignada — actualizando...', 'info');
         }
@@ -933,6 +936,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 : c
             ));
           }
+          setDashRefreshTrigger(p => p + 1);
+        }
+
+        if (msg.tipo === 'META_ACTUALIZADA') {
           setDashRefreshTrigger(p => p + 1);
         }
 
@@ -1019,14 +1026,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
       setRitmoTick(n => n + 1);
 
       const META = 30;
-      const VENTANA_MIN = 40;
+      const VENTANA_MIN = 30; // ventana de alerta cada 30 min
       const VENTANA_MS = VENTANA_MIN * 60 * 1000;
 
       // Solo cuando asesor está "En Gestión"
       if (estadoRef.current?.id !== 1) return;
 
       const minActivos = Math.floor(tiempoEstadoRef.current / 60);
-      if (minActivos < VENTANA_MIN) return; // aún no completó primera ventana
+      if (minActivos < VENTANA_MIN) return; // espera primera ventana completa
 
       const ventanaActual = Math.floor(minActivos / VENTANA_MIN);
       if (ventanaActual <= ritmoAlertaRef.current) return; // ya alertamos esta ventana
@@ -1044,9 +1051,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const deficit = Math.max(0, META - cuenta);
 
       if (cuenta >= META) {
-        // En ritmo — felicitar asesor
         showToast(
-          `¡Cumpliste el ritmo! ${cuenta}/${META} gestiones en ${VENTANA_MIN} min. ¡Excelente!`,
+          `¡En ritmo! ${cuenta}/${META} gestiones en ${VENTANA_MIN} min. ¡Excelente!`,
           'success', 8000
         );
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -1059,13 +1065,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
           }));
         }
       } else {
-        // Fuera de ritmo — alertar asesor
-        const paraPonerseAlDia = META + deficit; // normal + deuda
+        // Alerta persistente al asesor — se mantiene hasta que la cierre
         showToast(
-          `Fuera de ritmo: ${cuenta}/${META} gestiones en ${VENTANA_MIN} min. Llevas ${deficit} clientes de atraso. Debes gestionar ${paraPonerseAlDia} en los próximos ${VENTANA_MIN} min.`,
+          `⚠️ RITMO BAJO: ${cuenta}/${META} gestiones en ${VENTANA_MIN} min. Llevas ${deficit} clientes de atraso. Debes hacer ${META + deficit} gestiones en los próximos ${VENTANA_MIN} min.`,
           'error', 0
         );
-        // Alertar supervisor vía WS automáticamente
         if (wsRef.current?.readyState === WebSocket.OPEN) {
           wsRef.current.send(JSON.stringify({
             tipo: 'RITMO_BAJO',
@@ -1446,6 +1450,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const cargarCartera = useCallback(async () => {
     if (!usuario?.id) return;
     setCarteraLoading(true);
+    carteraLastLoadRef.current = Date.now();
     try {
       const data = await callApi('db:getCarteraAsesor', usuario.id, campana?.id);
       const arr = Array.isArray(data) ? data : [];
@@ -1490,10 +1495,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
       .catch(err => console.warn('[Mensajes] Error cargando mensajes broadcast:', err?.message || err));
   }, [callApi]);
 
-  // Recargar cartera al navegar a páginas que la muestran
+  // Recargar cartera al navegar a páginas que la muestran — solo si datos son viejos (>5 min)
   useEffect(() => {
     if (activePage === 'cartera' || activePage === 'campanas_wsp' || activePage === 'campanas_rcs') {
-      cargarCartera();
+      const staleMs = Date.now() - carteraLastLoadRef.current;
+      if (staleMs > 5 * 60 * 1000) cargarCartera();
     }
   }, [activePage, cargarCartera]);
 
@@ -1509,15 +1515,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
   function getMensajeParaContacto(contacto, diasMoraVal) {
     const dias = parseInt(diasMoraVal, 10) || 0;
     let segmento;
-    if (dias === 0)        segmento = 'TRAMO_0';
-    else if (dias <= 30)   segmento = 'TRAMO_1';
-    else if (dias <= 60)   segmento = 'TRAMO_2';
-    else                   segmento = 'PLAZO';
-    console.log('[Mensajes] total cargados:', mensajesBroadcast.length, '| segmento cliente:', segmento, '| dias:', dias);
+    if (dias === 0)      segmento = 'TRAMO_0';
+    else if (dias === 1) segmento = 'TRAMO_1';
+    else                 segmento = 'TRAMO_2';
+    console.log('[Mensajes] total:', mensajesBroadcast.length, '| segmento:', segmento, '| dias:', dias);
+    console.log('[Mensajes] lista:', mensajesBroadcast.map(m => `${m.segmento_destino}(activo=${m.activo})`).join(', '));
     if (!mensajesBroadcast.length) return '';
-    const activos = mensajesBroadcast.filter(m => m.activo === 1);
+    // Tolerante: activo puede ser 1 (SQLite int) o true (Postgres bool)
+    const activos = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
     const match = activos.find(m => m.segmento_destino === segmento)
                || activos.find(m => m.segmento_destino === 'TODOS');
+    console.log('[Mensajes] activos:', activos.length, '| match:', match?.segmento_destino || 'NINGUNO');
     if (!match) { console.warn('[Mensajes] Sin mensaje activo para segmento:', segmento); return ''; }
     return match.mensaje
       .replace(/\{nombre\}/gi, contacto.nombre_deudor || '')
@@ -1729,6 +1737,15 @@ export default function AsesorPanel({ usuario, onLogout }) {
     // Solo cuenta como marcación si NO hubo LLAMAR previo (tipificación manual sin llamada).
     if (_marcacion && !cdrPrevio) setMarcaciones(prev => prev + 1);
 
+    // Optimistic UI: INMEDIATO — antes de cualquier await para que el contador suba al instante
+    if (contactoSnapshot?.id) {
+      setCartera(prev => prev.map(x =>
+        x.id === contactoSnapshot.id
+          ? { ...x, estado_marcacion: 'GESTIONADO', gestiones_count: (x.gestiones_count || 0) + 1 }
+          : x
+      ));
+    }
+
     try {
       // Prioridad del CDR a finalizar: el del LLAMAR de ESTE contacto (cdrPrevio) SIEMPRE primero,
       // para no actualizar por error un cdrId viejo de otra llamada (evita doble registro/tipif).
@@ -1760,15 +1777,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
       intentosContactoRef.current += 1;
       const nIntentosActual = intentosContactoRef.current;
       const nIntentosMax = Number(intentosConfig);
-
-      // Optimistic UI: actualizar cartera al instante (estado + gestiones_count)
-      if (contactoSnapshot?.id) {
-        setCartera(prev => prev.map(x =>
-          x.id === contactoSnapshot.id
-            ? { ...x, estado_marcacion: 'GESTIONADO', gestiones_count: (x.gestiones_count || 0) + 1 }
-            : x
-        ));
-      }
 
       // Paralelizar todas las escrituras a BD — reduce latencia de ~6s a ~1-2s
       const dbWrites = [];
@@ -4095,7 +4103,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     void ritmoTick; // fuerza re-render cada 60s
                     const META_TOTAL = 30;
                     const VENTANA_MAX_MIN = 40;
-                    // Ventana dinámica: usa tiempoEstado cuando está "En Gestión", capped en 40 min
+                    const GRACIA_MIN = 5; // primeros 5 min: sin alerta de ritmo
                     const enGestion = estadoActual?.id === 1;
                     const minutosActivos = enGestion
                       ? Math.max(1, Math.min(VENTANA_MAX_MIN, Math.floor(tiempoEstado / 60)))
@@ -4112,10 +4120,18 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     });
                     const cuenta = enVentana.length;
                     const pct = Math.min(100, Math.round((cuenta / META) * 100));
-                    const color = cuenta >= META ? '#00e676' : cuenta >= Math.ceil(META * 0.6) ? '#ffb74d' : '#ff5252';
-                    const label = cuenta >= META ? 'En ritmo ✓' : cuenta >= Math.ceil(META * 0.6) ? 'Levemente lento' : 'Por debajo del ritmo';
+                    // Primeros 5 min: color neutro, sin alarma
+                    const enGracia = enGestion && minutosActivos < GRACIA_MIN;
+                    const color = enGracia ? 'rgba(255,255,255,0.35)'
+                      : cuenta >= META ? '#00e676'
+                      : cuenta >= Math.ceil(META * 0.6) ? '#ffb74d'
+                      : '#ff5252';
+                    const label = enGracia ? 'Iniciando...'
+                      : cuenta >= META ? 'En ritmo ✓'
+                      : cuenta >= Math.ceil(META * 0.6) ? 'Levemente lento'
+                      : 'Por debajo del ritmo';
                     const proyeccion = minutosActivos > 0 ? Math.round((cuenta / minutosActivos) * 60) : 0;
-                    const deficit = Math.max(0, META - cuenta);
+                    const deficit = enGracia ? 0 : Math.max(0, META - cuenta);
                     const paraPonerseAlDia = deficit > 0 ? META_TOTAL + deficit : 0;
                     return (
                       <div style={{

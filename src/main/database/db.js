@@ -287,9 +287,9 @@ function initDatabase() {
         ('MENSUALES', 'Campaña Mensual', '#29b6f6', 'calendar_month'),
         ('QUINCENALES', 'Campaña Quincenal', '#ce93d8', 'event_repeat'),
         ('TRAMO_0', 'Tramo 0 · 0 días', '#90a4ae', 'circle'),
-        ('TRAMO_1', 'Tramo 1 · 1-30 días', '#ffd54f', 'trending_up'),
-        ('TRAMO_2', 'Tramo 2 · 31-60 días', '#ffb74d', 'warning'),
-        ('PLAZO', 'Plazo · +60 días', '#ef5350', 'priority_high');
+        ('TRAMO_1', 'Tramo 1 · 1 día', '#ffd54f', 'trending_up'),
+        ('TRAMO_2', 'Tramo 2 · 2 días', '#ffb74d', 'warning'),
+        ('PLAZO', 'Plazo · +2 días', '#ef5350', 'priority_high');
       `);
       console.log('[DB] Seed de segmentos_config completado');
     }

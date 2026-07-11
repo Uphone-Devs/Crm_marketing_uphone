@@ -1,11 +1,10 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+﻿import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { showToast } from '../shared/Toast';
 import { todayLocalISO } from '../shared/timeUtils';
 import ExcelJS from 'exceljs';
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
-  if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 async function vmFetch(apiBase, token, path, options = {}) {

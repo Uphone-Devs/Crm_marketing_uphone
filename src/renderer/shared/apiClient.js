@@ -55,3 +55,30 @@ export function handleAuthStatus(status, onUnauthorized) {
     throw new SessionExpiredError();
   }
 }
+
+/**
+ * Helper de fetch al backend PostgreSQL.
+ * Lee wsIp y auth_token de localStorage automáticamente.
+ */
+export function getApiBase() {
+  const wsIp = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
+  return (wsIp.startsWith('http') ? wsIp.replace(/\/$/, '') : `http://${wsIp}:3001`) + '/api';
+}
+
+export async function apiFetch(path, options = {}) {
+  const base = getApiBase();
+  const token = localStorage.getItem('auth_token') || '';
+  const res = await fetch(`${base}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}

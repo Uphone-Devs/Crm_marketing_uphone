@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { apiFetch } from '../shared/apiClient';
 
 const TIPO_LABEL = {
   PMP: 'Promesa de Pago',
@@ -47,7 +48,9 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
   useEffect(() => {
     let cancelled = false;
     setCargando(true);
-    window.api.invoke('db:getCompromisosEquipo', fecha || null, null)
+    const qs = new URLSearchParams();
+    if (fecha) qs.set('fecha', fecha);
+    apiFetch(`/compromisos-equipo?${qs}`)
       .then(data => {
         if (cancelled) return;
         const arr = Array.isArray(data) ? data : [];

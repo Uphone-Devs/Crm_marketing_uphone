@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import { showToast } from '../shared/Toast';
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
-  if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 
@@ -12,9 +11,9 @@ const INITIAL_SEGMENTOS = [
   { key: 'MENSUALES',   label: 'Campaña Mensual',        icon: 'calendar_month', color: '#29b6f6', gradient: 'linear-gradient(135deg,#29b6f6,#1565c0)' },
   { key: 'QUINCENALES', label: 'Campaña Quincenal',      icon: 'event_repeat',   color: '#ce93d8', gradient: 'linear-gradient(135deg,#ce93d8,#7b1fa2)' },
   { key: 'TRAMO_0',     label: 'Tramo 0  ·  0 días',    icon: 'circle',         color: '#90a4ae', gradient: 'linear-gradient(135deg,#90a4ae,#546e7a)' },
-  { key: 'TRAMO_1',     label: 'Tramo 1  ·  1-30 días', icon: 'trending_up',    color: '#ffd54f', gradient: 'linear-gradient(135deg,#ffd54f,#f9a825)' },
-  { key: 'TRAMO_2',     label: 'Tramo 2  ·  31-60 días',icon: 'warning',        color: '#ffb74d', gradient: 'linear-gradient(135deg,#ffb74d,#e65100)' },
-  { key: 'PLAZO',       label: 'Plazo  ·  +60 días',    icon: 'priority_high',  color: '#ef5350', gradient: 'linear-gradient(135deg,#ef5350,#b71c1c)' },
+  { key: 'TRAMO_1',     label: 'Tramo 1  ·  1 día',     icon: 'trending_up',    color: '#ffd54f', gradient: 'linear-gradient(135deg,#ffd54f,#f9a825)' },
+  { key: 'TRAMO_2',     label: 'Tramo 2  ·  2 días',    icon: 'warning',        color: '#ffb74d', gradient: 'linear-gradient(135deg,#ffb74d,#e65100)' },
+  { key: 'PLAZO',       label: 'Plazo  ·  +2 días',     icon: 'priority_high',  color: '#ef5350', gradient: 'linear-gradient(135deg,#ef5350,#b71c1c)' },
 ];
 
 

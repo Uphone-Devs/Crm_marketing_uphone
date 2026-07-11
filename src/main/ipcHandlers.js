@@ -548,7 +548,13 @@ function registerIpcHandlers() {
   ipcMain.handle('validacion:confirmarPagos', async (event, contactoIds, matches, supervisorId) => {
     if (!Array.isArray(contactoIds) || contactoIds.length === 0)
       return { success: false, error: 'Sin IDs' };
-    return confirmarPagos(contactoIds, supervisorId, matches);
+    const res = confirmarPagos(contactoIds, supervisorId, matches);
+    if (res.success) {
+      const payload = { tipo: 'PAGO_VALIDADO', contactoIds: res.excluir || contactoIds, abonoIds: res.abonos || [] };
+      BrowserWindow.getAllWindows().forEach(w => { if (!w.isDestroyed()) w.webContents.send('ws:message', payload); });
+      broadcastToAll(payload);
+    }
+    return res;
   });
   ipcMain.handle('validacion:getMetricas',   async (event, fecha, opts) => getMetricasValidacion(fecha || null, opts || {}));
   ipcMain.handle('validacion:getHistorial', async () => getHistorialValidaciones());
@@ -863,7 +869,7 @@ function registerIpcHandlers() {
     try {
       const http   = require('http');
       const https  = require('https');
-      const target = `${vmUrl.replace(/\/$/, '')}/api/health`;
+      const target = `${vmUrl.replace(/\/$/, '')}/health`;
       const parsed = new URL(target);
       const proto  = parsed.protocol === 'https:' ? https : http;
       const start  = Date.now();
