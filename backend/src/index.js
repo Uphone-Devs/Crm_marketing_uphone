@@ -1,4 +1,7 @@
-require('dotenv').config();
+// .env SIEMPRE el de backend/ (path absoluto): dotenv por defecto lee el del
+// directorio actual, y arrancar desde la raíz del proyecto conectaba a otra
+// base de datos (la de desarrollo de Prisma) en vez de crm_marketing.
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const http = require('http');
 const path = require('path');
