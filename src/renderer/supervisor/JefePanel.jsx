@@ -27,6 +27,7 @@ import HistoryPage from './HistoryPage';
 import Campaigns from './Campaigns';
 import ValidacionPagos from './ValidacionPagos';
 import Compromisos from './Compromisos';
+import ActividadGestores from './ActividadGestores';
 import CarterasEquipo from './CarterasEquipo';
 import DetalleMetricaModal from './DetalleMetricaModal';
 import ContactabilidadModal from './ContactabilidadModal';
@@ -79,6 +80,7 @@ export default function JefePanel({ usuario, onLogout }) {
   // ── State ──
   const [activePage, setActivePage] = useState('dashboard_directivo'); // 'dashboard_directivo' | 'monitoreo' | 'metricas' | 'reportes' | 'config'
   const [dashDirectivoRefresh, setDashDirectivoRefresh] = useState(0);
+  const [actividadRefresh, setActividadRefresh] = useState(0);
   const [asesoresAtrasados, setAsesoresAtrasados] = useState({}); // asesor_id → { nombre, gestiones, meta, deficit, ts }
   const [asesores, setAsesores] = useState([]);
   const [estadosWS, setEstadosWS] = useState({});
@@ -305,6 +307,7 @@ export default function JefePanel({ usuario, onLogout }) {
         if (msg.tipo === 'TIPIFICACION_REALIZADA') {
           agregarEvento('LLAMADA_TIPIFICADA', `${msg.nombre} tipificó contacto como: ${msg.tipificacion}`);
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
+          setActividadRefresh(p => p + 1);
         }
         if (msg.tipo === 'RITMO_BAJO') {
           const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
@@ -1602,6 +1605,14 @@ export default function JefePanel({ usuario, onLogout }) {
           {/* ═══ TABS LIVIANAS — mount/unmount normal (sin charts pesados) ═══ */}
           {activePage === 'campanas' && renderTabCampanas()}
           {activePage === 'validacion' && <ValidacionPagos usuario={usuario} />}
+          {activePage === 'actividad' && (
+            <ActividadGestores
+              apiBase={apiBase}
+              authToken={authToken}
+              refreshSignal={actividadRefresh}
+              estadosWS={estadosWS}
+            />
+          )}
           {activePage === 'compromisos' && (
             <Compromisos
               callApi={async (ch, ...args) => {

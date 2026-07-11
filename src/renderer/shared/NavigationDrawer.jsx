@@ -19,6 +19,7 @@ const NAV_ITEMS_SUPERVISOR = [
   { id: 'carteras',    icon: 'folder_shared', label: 'Carteras' },
   { id: 'validacion',  icon: 'verified',      label: 'Validación Pagos' },
   { id: 'metricas',    icon: 'analytics',     label: 'Métricas' },
+  { id: 'actividad',   icon: 'monitor_heart', label: 'Actividad Gestores' },
   { id: 'compromisos', icon: 'handshake',     label: 'Compromisos' },
   { id: 'reportes',    icon: 'description',   label: 'Reportes' },
   { id: 'indicadores', icon: 'bar_chart',     label: 'Indicadores de Recaudo' },
