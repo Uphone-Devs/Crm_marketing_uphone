@@ -261,6 +261,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
   const [moraFiltro, setMoraFiltro] = useState('todos'); // todos | alto | medio | bajo — solo cartera asesor
   const [vistaYaPago, setVistaYaPago] = useState(false); // true = apartado "Ya pagó" (declarados + validados)
+  const [confirmYaPago, setConfirmYaPago] = useState(null); // contacto pendiente de confirmar "ya pagó" (Modal propio — window.confirm congela el renderer en Electron/Windows)
   const [carteraDesde, setCarteraDesde] = useState('');
   const [carteraHasta, setCarteraHasta] = useState('');
   const [contactoInfoPopup, setContactoInfoPopup] = useState(null);
@@ -750,9 +751,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // #5 — Asesor declara "ya pagó": el cliente sale de la cola activa y pasa al apartado
   // "Pendiente de comprobación" (ya_pago=1, validado_pago=0). Sale definitivo cuando el
   // supervisor confirma el cruce bancario en Validación de Pagos (validado_pago=1).
+  // Ejecuta el "ya pagó" (la confirmación vive en un Modal propio: window.confirm
+  // nativo congela el input del renderer en Electron/Windows tras cerrarse).
   const handleMarcarYaPago = useCallback(async (c) => {
     if (!c?.id) return;
-    if (!window.confirm(`¿Marcar a "${c.nombre_deudor}" como YA PAGÓ?\n\nSaldrá de tu cola activa y quedará pendiente de comprobación hasta la validación bancaria del supervisor.`)) return;
     // Optimista
     setCartera(prev => prev.map(x =>
       x.id === c.id ? { ...x, ya_pago: 1, validado_pago: 0, estado_marcacion: 'YA_PAGO', orden_marcacion: null } : x
@@ -3240,7 +3242,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     </button>
                                   )}
                                   <button type="button"
-                                    onClick={() => handleMarcarYaPago(c)}
+                                    onClick={() => setConfirmYaPago(c)}
                                     title="Cliente declara que ya pagó — pasa a Pendiente de comprobación (validación bancaria del supervisor)"
                                     style={{
                                       alignSelf: 'center', padding: '1px 4px', fontSize: 9, fontWeight: 600,
@@ -4546,6 +4548,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={() => setShowWifiModal(false)}>Cancelar</button>
             <button type="button" className="btn btn-primary" onClick={handleConnectWifi}>Conectar</button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirmación "Ya pagó" — Modal propio (window.confirm congela el renderer en Electron) */}
+      <Modal open={!!confirmYaPago} onClose={() => setConfirmYaPago(null)} title="Confirmar YA PAGÓ" width={460}>
+        <div style={{ padding: '1rem' }}>
+          <p className="text-body-md" style={{ marginBottom: 8 }}>
+            ¿Marcar a <strong>{confirmYaPago?.nombre_deudor}</strong> como YA PAGÓ?
+          </p>
+          <p className="text-body-sm" style={{ opacity: 0.6, marginBottom: 16 }}>
+            Saldrá de tu cola activa y quedará pendiente de comprobación hasta la validación bancaria del supervisor.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button type="button" className="btn btn-ghost" onClick={() => setConfirmYaPago(null)}>Cancelar</button>
+            <button type="button" className="btn btn-primary"
+              onClick={() => { const c = confirmYaPago; setConfirmYaPago(null); handleMarcarYaPago(c); }}>
+              Sí, ya pagó
+            </button>
           </div>
         </div>
       </Modal>
