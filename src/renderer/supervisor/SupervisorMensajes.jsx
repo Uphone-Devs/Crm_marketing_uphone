@@ -5,10 +5,10 @@ const SEGMENTOS_BASE = [
   { id: 'TODOS',      label: 'Todos los asesores' },
   { id: 'MENSUALES',  label: 'Campaña Mensual' },
   { id: 'QUINCENALES',label: 'Campaña Quincenal' },
-  { id: 'TRAMO_0',    label: 'Tramo 0' },
-  { id: 'TRAMO_1',    label: 'Tramo 1' },
-  { id: 'TRAMO_2',    label: 'Tramo 2' },
-  { id: 'PLAZO',      label: 'Plazo' },
+  { id: 'TRAMO_0',    label: 'Tramo 0 · 0 días' },
+  { id: 'TRAMO_1',    label: 'Tramo 1 · 1 día' },
+  { id: 'TRAMO_2',    label: 'Tramo 2 · 2 días' },
+  { id: 'PLAZO',      label: 'Plazo · +2 días' },
 ];
 
 function CollapsibleSection({ sec, renderMensajeCard }) {
@@ -368,7 +368,12 @@ export default function SupervisorMensajes({ usuario }) {
                     name="segmento"
                     value={seg.id}
                     checked={segmentoDestino === seg.id}
-                    onChange={() => setSegmentoDestino(seg.id)}
+                    onChange={() => {
+                      setSegmentoDestino(seg.id);
+                      const activo = historial.find(m => (m.activo === 1 || m.activo === true) && m.segmento_destino === seg.id);
+                      if (activo) setMensaje(activo.mensaje);
+                      else setMensaje('');
+                    }}
                     style={{ accentColor: 'var(--color-primary)' }}
                   />
                   {seg.label}

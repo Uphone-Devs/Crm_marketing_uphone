@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import Modal from '../shared/Modal';
+import { apiFetch } from '../shared/apiClient';
 
 /**
  * ContactabilidadDrillDown — Lista de CDRs filtrados por asesor + categoría.
@@ -45,7 +46,12 @@ export default function ContactabilidadDrillDown({ open, onClose, asesorId, ases
   useEffect(() => {
     if (!open || !asesorId || !categoria) return;
     setCargando(true);
-    window.api.invoke('db:getDetalleContactabilidad', fecha || null, asesorId, campanaId || null, fechaFin || null)
+    const qs = new URLSearchParams();
+    if (fecha) qs.set('fecha', fecha);
+    if (fechaFin) qs.set('fechaFin', fechaFin);
+    if (asesorId) qs.set('asesorId', String(asesorId));
+    if (campanaId) qs.set('campanaId', String(campanaId));
+    apiFetch(`/cartera/detalle-contactabilidad?${qs}`)
       .then(r => setRegistros(Array.isArray(r) ? r : []))
       .catch(err => { console.error('[DRILL_CONTACT]', err); setRegistros([]); })
       .finally(() => setCargando(false));

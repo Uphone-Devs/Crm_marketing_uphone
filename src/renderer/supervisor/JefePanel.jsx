@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 class MetricasErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { error: null }; }
@@ -46,7 +46,6 @@ const POLLING_MS = 30000; // Fallback: DB polling cada 30s (WS es primario)
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
-  if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 
@@ -79,6 +78,8 @@ function handleIncomingAudio(chunk) {
 export default function JefePanel({ usuario, onLogout }) {
   // ── State ──
   const [activePage, setActivePage] = useState('dashboard_directivo'); // 'dashboard_directivo' | 'monitoreo' | 'metricas' | 'reportes' | 'config'
+  const [dashDirectivoRefresh, setDashDirectivoRefresh] = useState(0);
+  const [asesoresAtrasados, setAsesoresAtrasados] = useState({}); // asesor_id → { nombre, gestiones, meta, deficit, ts }
   const [asesores, setAsesores] = useState([]);
   const [estadosWS, setEstadosWS] = useState({});
   const [tiemposEstado, setTiemposEstado] = useState({});
@@ -306,16 +307,25 @@ export default function JefePanel({ usuario, onLogout }) {
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
         }
         if (msg.tipo === 'RITMO_BAJO') {
+          const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
           showToast(
-            `⚠️ ${msg.nombre} fuera de ritmo — ${msg.gestiones}/${msg.meta} gestiones en ${msg.ventana_min} min. Déficit: ${msg.deficit} clientes.`,
+            `🚨 ${nombre} está atrasado — ${msg.gestiones}/${msg.meta} gestiones (−${msg.deficit} clientes)`,
             'error', 0
           );
+          setAsesoresAtrasados(prev => ({
+            ...prev,
+            [msg.asesor_id]: { nombre, gestiones: msg.gestiones, meta: msg.meta, deficit: msg.deficit, ts: Date.now() },
+          }));
+          agregarEvento('RITMO_BAJO', `${nombre} está atrasado: ${msg.gestiones}/${msg.meta} gestiones, déficit ${msg.deficit} clientes`);
         }
         if (msg.tipo === 'RITMO_OK') {
+          const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
           showToast(
-            `✅ ${msg.nombre} cumplió el ritmo — ${msg.gestiones}/${msg.meta} gestiones en ${msg.ventana_min} min.`,
+            `✅ ${nombre} cumplió el ritmo — ${msg.gestiones}/${msg.meta} gestiones`,
             'success', 6000
           );
+          setAsesoresAtrasados(prev => { const n = { ...prev }; delete n[msg.asesor_id]; return n; });
+          agregarEvento('RITMO_OK', `${nombre} en ritmo: ${msg.gestiones}/${msg.meta} gestiones`);
         }
         if (msg.tipo === 'METRICAS_ASESOR') {
           setMetricasWS(prev => ({
@@ -350,6 +360,13 @@ export default function JefePanel({ usuario, onLogout }) {
         if (msg.tipo === 'LOTE_ENVIADO') {
           // Un asesor marcó un lote de campaña como enviado → refrescar métricas diarias
           cargarMetricasAsesores();
+        }
+        if (msg.tipo === 'PAGO_VALIDADO') {
+          cargarMetricasAsesores();
+          setDashDirectivoRefresh(p => p + 1);
+        }
+        if (msg.tipo === 'META_ACTUALIZADA') {
+          setDashDirectivoRefresh(p => p + 1);
         }
       };
 
@@ -929,8 +946,42 @@ export default function JefePanel({ usuario, onLogout }) {
   // ── Render Tabs ──
   function renderTabMonitoreo() {
     const hayFiltroProgreso = !!(progresoFiltroFecha || progresoFiltroCampana);
+    const atrasadosList = Object.values(asesoresAtrasados);
     return (
       <div className="sup-dashboard-monitoreo">
+        {/* Banner de asesores atrasados */}
+        {atrasadosList.length > 0 && (
+          <div style={{
+            background: 'rgba(255,50,50,0.12)', border: '1.5px solid #ff5252',
+            borderRadius: 10, padding: '10px 14px', marginBottom: 12,
+            display: 'flex', flexDirection: 'column', gap: 6,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#ff5252' }}>warning</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: '#ff5252', textTransform: 'uppercase', letterSpacing: 1 }}>
+                {atrasadosList.length} asesor{atrasadosList.length > 1 ? 'es' : ''} con ritmo bajo
+              </span>
+            </div>
+            {atrasadosList.map(a => (
+              <div key={a.nombre} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                background: 'rgba(255,50,50,0.08)', borderRadius: 7, padding: '5px 10px',
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14, color: '#ff5252' }}>person_alert</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#ff8a80' }}>{a.nombre}</span>
+                <span style={{ fontSize: 12, opacity: 0.7 }}>está atrasado</span>
+                <span style={{ fontSize: 12, color: '#ff5252', fontWeight: 700, marginLeft: 4 }}>
+                  {a.gestiones}/{a.meta} gestiones · −{a.deficit} clientes
+                </span>
+                <button type="button"
+                  onClick={() => setAsesoresAtrasados(prev => { const n = { ...prev }; delete n[Object.keys(asesoresAtrasados).find(k => asesoresAtrasados[k] === a)]; return n; })}
+                  style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+                  title="Descartar alerta"
+                >×</button>
+              </div>
+            ))}
+          </div>
+        )}
         {/* Barra de filtros del progreso */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
@@ -1539,7 +1590,7 @@ export default function JefePanel({ usuario, onLogout }) {
         <div className="app-content">
           {/* ═══ TABS PESADAS — Mount once, hide/show (evita recrear SVG charts cada switch) ═══ */}
           {activePage === 'dashboard_directivo' && (
-            <DashboardDirectivo apiBase={buildApiBase() || 'http://127.0.0.1:3001/api'} token={usuario.token || localStorage.getItem('auth_token')} />
+            <DashboardDirectivo apiBase={buildApiBase() || 'http://127.0.0.1:3001/api'} token={usuario.token || localStorage.getItem('auth_token')} refreshKey={dashDirectivoRefresh} />
           )}
           <div style={{ display: activePage === 'monitoreo' ? 'block' : 'none' }}>
             {renderTabMonitoreo()}

@@ -740,13 +740,24 @@ router.get('/cartera/detalle-contactabilidad', async (req, res, next) => {
     const rows = await db.$queryRaw(Prisma.sql`
       SELECT EXTRACT(HOUR FROM cr.timestamp_inicio)::int AS hora_bucket,
              cr.usuario_id AS usuario_id,
-             COALESCE(t.categoria, 'NO_CONTACTADO') AS categoria
+             u.nombre AS asesor_nombre,
+             COALESCE(t.categoria, 'NO_CONTACTADO') AS tipificacion_categoria,
+             t.codigo AS tipificacion_codigo,
+             t.descripcion AS tipificacion_desc
       FROM cdrs cr
       JOIN contactos ct ON ct.id = cr.contacto_id
       LEFT JOIN tipificaciones t ON cr.tipificacion_id = t.id
+      LEFT JOIN usuarios u ON u.id = cr.usuario_id
       WHERE ${whereSql}
     `);
-    res.json(rows.map(r => ({ hora_bucket: Number(r.hora_bucket), usuario_id: Number(r.usuario_id), categoria: r.categoria })));
+    res.json(rows.map(r => ({
+      hora_bucket:            Number(r.hora_bucket),
+      usuario_id:             Number(r.usuario_id),
+      asesor_nombre:          r.asesor_nombre || null,
+      tipificacion_categoria: r.tipificacion_categoria,
+      tipificacion_codigo:    r.tipificacion_codigo,
+      tipificacion_desc:      r.tipificacion_desc,
+    })));
   } catch (err) { next(err); }
 });
 
@@ -999,6 +1010,7 @@ router.post('/jefe/meta-diaria-campana', requireRole('jefe_area', 'admin'), asyn
     const val = parseFloat(valor);
     if (!id || isNaN(val) || val < 0) return res.status(400).json({ error: 'campanaId y valor requeridos' });
     await db.campana.update({ where: { id }, data: { metaDiaria: val } });
+    broadcastToAll({ tipo: 'META_ACTUALIZADA', campanaId: id });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -1083,6 +1095,7 @@ router.post('/jefe/metas-segmentos', requireRole('jefe_area', 'admin'), async (r
       ops.push(db.campana.update({ where: { id }, data: { metaDiaria: parseFloat(metas.global.monto) || 0 } }));
     }
     await db.$transaction(ops);
+    broadcastToAll({ tipo: 'META_ACTUALIZADA', campanaId: id });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './EstadoSelector.css';
+import { apiFetch } from '../shared/apiClient';
 
 const ESTADOS = [
   { id: 1, nombre: 'En Gestión',       color: '#22C55E', tipo: 'PRODUCTIVO',    icon: '📞' },
@@ -38,13 +39,16 @@ export default function EstadoSelector({ asesorId, ws, onEstadoCambiado }) {
     // Guardar el evento del estado anterior
     if (asesorId) {
       try {
-        await window.api.invoke('db:insertEvento', {
-          asesor_id: asesorId,
-          sesion_id: null,
-          tipo: 'ESTADO',
-          estado_id: estadoActual.id,
-          duracion_seg: duracion,
-          metadata: null
+        await apiFetch('/eventos', {
+          method: 'POST',
+          body: JSON.stringify({
+            asesor_id: asesorId,
+            sesion_id: null,
+            tipo: 'ESTADO',
+            estado_id: estadoActual.id,
+            duracion_seg: duracion,
+            metadata: null,
+          }),
         });
       } catch (e) {
         console.warn('[EstadoSelector] No se pudo insertar evento:', e.message);

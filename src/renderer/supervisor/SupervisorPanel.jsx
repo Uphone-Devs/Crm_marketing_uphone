@@ -1,4 +1,4 @@
-// DEAD CODE — este archivo no se monta. main.jsx carga JefePanel directamente.
+﻿// DEAD CODE — este archivo no se monta. main.jsx carga JefePanel directamente.
 // Conservado como referencia histórica. No editar ni importar.
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
@@ -47,7 +47,6 @@ const POLLING_MS = 30000; // Fallback: DB polling cada 30s (WS es primario)
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
-  if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 

@@ -88,6 +88,18 @@ function setupWsServer(httpServer) {
                         broadcastToSupervisors(msg);
                         break;
 
+                    case 'RITMO_BAJO':
+                    case 'RITMO_OK':
+                        if (clientInfo.rol === 'ASESOR') {
+                            broadcastToSupervisors({
+                                ...msg,
+                                asesor_id: clientInfo.id,
+                                nombre: clientInfo.nombre,
+                                timestamp: new Date().toISOString(),
+                            });
+                        }
+                        break;
+
                     case 'AUDIO_CHUNK':
                         // Relay de audio: transmitir solo si hay un supervisor escuchando
                         // (La lógica de "quién escucha a quién" se maneja en el broadcast filtrado)

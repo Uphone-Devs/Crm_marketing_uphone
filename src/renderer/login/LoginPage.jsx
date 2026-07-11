@@ -15,7 +15,7 @@ export default function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [serverIp, setServerIp] = useState(localStorage.getItem('uphone_ws_ip') || '192.168.1.192');
+  const [serverIp, setServerIp] = useState(localStorage.getItem('uphone_ws_ip') || '127.0.0.1');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [welcomeData, setWelcomeData] = useState(null);
 

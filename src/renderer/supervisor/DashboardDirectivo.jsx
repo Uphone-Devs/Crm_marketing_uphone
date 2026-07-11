@@ -104,7 +104,7 @@ function AvanceCartera({ avance, gestiones, total }) {
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function DashboardDirectivo({ apiBase, token }) {
+export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(null);
   const initialLoadDone = React.useRef(false);
@@ -205,6 +205,12 @@ export default function DashboardDirectivo({ apiBase, token }) {
     const iv = setInterval(fetchMetasDiarias, 30000);
     return () => clearInterval(iv);
   }, [fetchMetasDiarias]);
+
+  // Refresh externo (META_ACTUALIZADA / PAGO_VALIDADO)
+  useEffect(() => {
+    if (refreshKey > 0) { fetchMetasDiarias(); fetchData(); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   const handleGuardarMetaCampana = async (campanaId) => {
     const val = parseFloat(editsMeta[campanaId]);

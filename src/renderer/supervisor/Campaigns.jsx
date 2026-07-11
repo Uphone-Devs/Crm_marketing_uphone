@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+﻿import React, { useState, useRef, useEffect } from 'react';
 import { showToast } from '../shared/Toast';
 import ExcelJS from 'exceljs';
 const _EMPTY_ARR = [];
@@ -10,7 +10,6 @@ const normalizarNombre = (s) => (s || '').toLowerCase().trim().replace(/\s+/g, '
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
-  if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 

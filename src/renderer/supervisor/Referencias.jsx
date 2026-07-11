@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import ExcelJS from 'exceljs';
 import { showToast } from '../shared/Toast';
 const _EMPTY_ARR = [];
@@ -6,7 +6,6 @@ const _EMPTY_OBJ = {};
 
 function buildApiBase() {
   const ws = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
-  if (!ws || ws === '127.0.0.1' || ws === 'localhost') return null;
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 async function vmFetch(apiBase, token, path, options = _EMPTY_OBJ) {
