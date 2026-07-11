@@ -356,6 +356,11 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
       LEFT JOIN usuarios u   ON ct.asignado_a = u.id
       LEFT JOIN campanas cmp ON ct.campana_id  = cmp.id
       LEFT JOIN cdrs cdr     ON cdr.contacto_id = ct.id
+        AND (
+          (ct.fecha_asignacion::date = CURRENT_DATE AND cdr.timestamp_inicio >= CURRENT_DATE::timestamp)
+          OR
+          (ct.fecha_asignacion IS NULL OR ct.fecha_asignacion::date < CURRENT_DATE)
+        )
       WHERE ct.asignado_a IS NOT NULL
       GROUP BY ct.id, u.nombre, cmp.nombre, cmp.fecha_inicio
       ORDER BY
@@ -1621,6 +1626,23 @@ router.get('/cartera', async (req, res, next) => {
       if (!tipMap.has(cdr.contactoId)) tipMap.set(cdr.contactoId, cdr.tipificacion);
     }
 
+    // gestiones_count: cartera nueva (asignada hoy) → solo CDRs hoy; cartera anterior → histórico
+    const gestionesRaw = contactoIds.length > 0 ? await db.$queryRaw`
+      SELECT
+        ct.id,
+        COUNT(cdr.id)::int AS gestiones_count
+      FROM contactos ct
+      LEFT JOIN cdrs cdr ON cdr.contacto_id = ct.id
+        AND (
+          (ct.fecha_asignacion::date = CURRENT_DATE AND cdr.timestamp_inicio >= CURRENT_DATE::timestamp)
+          OR
+          (ct.fecha_asignacion IS NULL OR ct.fecha_asignacion::date < CURRENT_DATE)
+        )
+      WHERE ct.id = ANY(${contactoIds})
+      GROUP BY ct.id
+    ` : [];
+    const gestionesMap = new Map(gestionesRaw.map(r => [r.id, Number(r.gestiones_count ?? 0)]));
+
     const today = new Date().toISOString().slice(0, 10);
 
     res.json(contactos.map(ct => {
@@ -1657,6 +1679,7 @@ router.get('/cartera', async (req, res, next) => {
         fecha_asignacion: ct.fechaAsignacion,
         ultima_tip_codigo: tip?.codigo || null,
         ultima_tipificacion: tip?.descripcion || null,
+        gestiones_count: gestionesMap.get(ct.id) ?? 0,
       };
     }));
   } catch (err) { next(err); }
