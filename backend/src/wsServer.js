@@ -67,8 +67,15 @@ function setupWsServer(httpServer) {
 
                     case 'ESTADO_ASESOR':
                         if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
+                            // Si la entrada fue borrada (reconexión/carrera), re-adjuntar
+                            // SIEMPRE el socket actual: una entrada sin socket crashea
+                            // broadcastToAll ('readyState' of undefined) y tumba con 500
+                            // cualquier endpoint que notifique (ej. validacion/confirmar).
                             estadosAsesores[clientInfo.id] = {
                                 ...estadosAsesores[clientInfo.id],
+                                socket: estadosAsesores[clientInfo.id]?.socket || ws,
+                                asesor_id: clientInfo.id,
+                                nombre: clientInfo.nombre,
                                 estado_id: msg.estado_id,
                                 nombre_estado: msg.nombre_estado,
                                 timestamp: new Date().toISOString()
@@ -118,7 +125,7 @@ function setupWsServer(httpServer) {
                         // Comandos del supervisor al asesor
                         if (clientInfo.rol === 'SUPERVISOR' && msg.asesor_id) {
                             const target = estadosAsesores[msg.asesor_id];
-                            if (target && target.socket.readyState === ws.OPEN) {
+                            if (target && target.socket && target.socket.readyState === ws.OPEN) {
                                 target.socket.send(JSON.stringify(msg));
                             }
                         }
@@ -167,9 +174,9 @@ function broadcastToAll(data) {
     const payload = JSON.stringify(data);
     // Notificar a supervisores
     supervisores.forEach(s => s.readyState === 1 && s.send(payload));
-    // Notificar a asesores
+    // Notificar a asesores (guard: entradas sin socket no deben tumbar el broadcast)
     Object.values(estadosAsesores).forEach(a => {
-        if (a.socket.readyState === 1) a.socket.send(payload);
+        if (a.socket && a.socket.readyState === 1) a.socket.send(payload);
     });
 }
 
