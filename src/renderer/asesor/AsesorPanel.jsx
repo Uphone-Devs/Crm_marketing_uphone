@@ -1796,8 +1796,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
         console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
       }
       if (contactoSnapshot?.id && typeof contactoSnapshot.id === 'number') {
-        dbWrites.push(callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax));
-        dbWrites.push(callApi('db:marcarContactoGestionado', contactoSnapshot.id));
+        // SECUENCIAL, no paralelo: /intentar también escribe estado_marcacion
+        // (EN_INTENTOS) y en paralelo pisaba al GESTIONADO de /gestionar según
+        // quién llegara último (race) — al recargar cartera los contadores
+        // "se reiniciaban". Orden fijo: intentar primero, GESTIONADO gana.
+        dbWrites.push(
+          callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax)
+            .then(() => callApi('db:marcarContactoGestionado', contactoSnapshot.id))
+        );
       }
       await Promise.all(dbWrites);
 
