@@ -51,6 +51,21 @@ router.patch('/:id', async (req, res, next) => {
       data.scheduledDatetime = new Date(sd);
     }
 
+    // El cliente asesor cierra el CDR con timestampFin pero sin duracionSeg,
+    // y el default 0 del schema dejaba todos los tiempos al aire en cero.
+    // Derivarla del rango inicio→fin al cerrar (mismo criterio que el
+    // fallback de /cartera en supervisor.routes.js).
+    if (data.duracionSeg == null && data.timestampFin) {
+      const prev = await db.cdr.findUnique({
+        where: { id: parseInt(req.params.id) },
+        select: { timestampInicio: true },
+      });
+      if (prev?.timestampInicio) {
+        const seg = Math.round((data.timestampFin - prev.timestampInicio) / 1000);
+        if (seg >= 0) data.duracionSeg = seg;
+      }
+    }
+
     const updated = await db.cdr.update({ where: { id: parseInt(req.params.id) }, data });
     res.json(updated);
   } catch (err) { next(err); }
