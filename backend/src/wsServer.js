@@ -161,23 +161,28 @@ function setupWsServer(httpServer) {
     return wss;
 }
 
+// Los broadcasts son "best effort": jamás deben propagar una excepción al
+// caller (rutas HTTP como /validacion/confirmar hacen commit de datos y luego
+// notifican — un socket corrupto no puede convertir eso en un 500).
+function safeSend(socket, payload) {
+    try {
+        if (socket && socket.readyState === 1) socket.send(payload); // 1 = OPEN
+    } catch (err) {
+        console.warn('[WS] safeSend fallo (ignorado):', err.message);
+    }
+}
+
 function broadcastToSupervisors(data) {
     const payload = JSON.stringify(data);
-    supervisores.forEach(socket => {
-        if (socket.readyState === 1) { // 1 = OPEN
-            socket.send(payload);
-        }
-    });
+    supervisores.forEach(socket => safeSend(socket, payload));
 }
 
 function broadcastToAll(data) {
     const payload = JSON.stringify(data);
     // Notificar a supervisores
-    supervisores.forEach(s => s.readyState === 1 && s.send(payload));
-    // Notificar a asesores (guard: entradas sin socket no deben tumbar el broadcast)
-    Object.values(estadosAsesores).forEach(a => {
-        if (a.socket && a.socket.readyState === 1) a.socket.send(payload);
-    });
+    supervisores.forEach(s => safeSend(s, payload));
+    // Notificar a asesores (entradas sin socket no deben tumbar el broadcast)
+    Object.values(estadosAsesores).forEach(a => safeSend(a.socket, payload));
 }
 
 function getConnectedStats() {
