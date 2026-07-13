@@ -48,7 +48,7 @@
     "react-dom": "^18.2.0",
     "supertest": "^7.2.2",
     "vite": "^7.3.5",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.10"
   },
   "build": {
     "extends": "./electron-builder.yml"
