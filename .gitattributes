@@ -1,3 +1,4 @@
+*.zip filter=lfs diff=lfs merge=lfs -text
 dist2/CRM[[:space:]]Marketing[[:space:]]Uphone[[:space:]]Setup[[:space:]]3.0.0.exe filter=lfs diff=lfs merge=lfs -text
 dist2/win-unpacked/CRM[[:space:]]Marketing[[:space:]]Uphone.exe filter=lfs diff=lfs merge=lfs -text
 dist2/win-unpacked/resources/app.asar filter=lfs diff=lfs merge=lfs -text
