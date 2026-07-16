@@ -34,7 +34,7 @@ const fmtFecha = (raw) => {
   } catch { return raw; }
 };
 
-export default function CarterasEquipo({ callApi }) {
+export default function CarterasEquipo({ callApi, refreshSignal }) {
   const [registros, setRegistros] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [filtroAsesor, setFiltroAsesor] = useState('');
@@ -43,7 +43,7 @@ export default function CarterasEquipo({ callApi }) {
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [agrupar, setAgrupar] = useState(true);
-  const [colapsados, setColapsados] = useState(new Set());
+  const [expandidos, setExpandidos] = useState(new Set());
 
   const cargar = async () => {
     setCargando(true);
@@ -58,7 +58,19 @@ export default function CarterasEquipo({ callApi }) {
     }
   };
 
-  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, []);
+  // Carga inicial + polling 30s
+  useEffect(() => {
+    cargar();
+    const iv = setInterval(cargar, 30000);
+    return () => clearInterval(iv);
+  /* eslint-disable-next-line */ }, []);
+
+  // Refresh en PAGO_VALIDADO / TIPIFICACION_REALIZADA (debounce 1.5s)
+  useEffect(() => {
+    if (!refreshSignal) return;
+    const t = setTimeout(cargar, 1500);
+    return () => clearTimeout(t);
+  /* eslint-disable-next-line */ }, [refreshSignal]);
 
   const asesores = useMemo(() => {
     const set = new Map();
@@ -128,7 +140,7 @@ export default function CarterasEquipo({ callApi }) {
   };
 
   const toggleColapso = (id) => {
-    setColapsados(prev => {
+    setExpandidos(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
@@ -345,7 +357,7 @@ export default function CarterasEquipo({ callApi }) {
       ) : agrupar ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {grupos.map(g => {
-            const isCol = colapsados.has(g.id);
+            const isCol = !expandidos.has(g.id);
             const cntEst = (e) => g.items.filter(r => r.estado_marcacion === e).length;
             return (
               <div key={`gr-${g.id}`} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)' }}>

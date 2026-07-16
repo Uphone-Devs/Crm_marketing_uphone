@@ -1350,7 +1350,11 @@ function getCdrsGestiones(asesorId = null, fecha = null) {
           const parsed = parseFloat(String(moraRaw).replace(/[^0-9.-]/g, ''));
           c.valor_mora = isNaN(parsed) ? null : parsed;
         }
+        const diasRaw = m['DIAS IMPAGO'] ?? m['DIAS EN INPAGO'] ?? m['DIAS MORA'];
+        c.dias_mora = diasRaw != null && diasRaw !== '' ? (parseInt(diasRaw, 10) || null) : null;
       } catch (_) {}
+    } else {
+      c.dias_mora = null;
     }
     const ag = c.contacto_id ? getAg.get(c.contacto_id, c.usuario_id) : null;
     c.fecha_promesa = ag ? ag.fecha_hora : null;
@@ -3555,6 +3559,332 @@ function saveIndicadoresRecaudo(asesorId, datosArray) {
   tx(datosArray);
 }
 
+// ─── REPORTE VENCIMIENTOS Y NÚMERO DE GESTIONES ──────────────────────────────
+function getVencimientosGestiones(fechaInicio, fechaFin) {
+  const db = getDb();
+
+  // Expresiones de días mora por alias de tabla
+  const _diasExpr = (alias) => `CAST(COALESCE(
+    NULLIF(json_extract(${alias}.metadata, '$."DIAS IMPAGO"'), ''),
+    NULLIF(json_extract(${alias}.metadata, '$."DIAS EN INPAGO"'), ''),
+    NULLIF(json_extract(${alias}.metadata, '$."DIAS MORA"'), ''),
+    '-1'
+  ) AS INTEGER)`;
+
+  const DIAS_C  = _diasExpr('c');
+  const DIAS_CT = _diasExpr('ct');
+
+  // UNIDADES: contactos de la apertura diaria (fecha_asignacion = ese día)
+  const unidadesRows = db.prepare(`
+    SELECT ${_dateLocalExpr('c.fecha_asignacion')} AS fecha,
+      ${DIAS_C} AS dias,
+      COUNT(*) AS unidades,
+      COALESCE(SUM(CAST(NULLIF(TRIM(json_extract(c.metadata, '$."VALOR EN MORA"')), '') AS REAL)), 0) AS dinero
+    FROM contactos c
+    WHERE ${_dateLocalExpr('c.fecha_asignacion')} BETWEEN ? AND ?
+      AND ${DIAS_C} IN (0, 1, 2)
+    GROUP BY fecha, dias
+  `).all(fechaInicio, fechaFin);
+
+  const unidadesMap = {};
+  for (const r of unidadesRows) {
+    if (!unidadesMap[r.fecha]) unidadesMap[r.fecha] = {};
+    unidadesMap[r.fecha][r.dias] = { unidades: r.unidades, dinero: r.dinero };
+  }
+
+  // Total del día (todos los segmentos) para total_unidades y total_dinero
+  const totalDiaRows = db.prepare(`
+    SELECT ${_dateLocalExpr('fecha_asignacion')} AS fecha,
+      COUNT(*) AS u,
+      COALESCE(SUM(CAST(NULLIF(TRIM(json_extract(metadata, '$."VALOR EN MORA"')), '') AS REAL)), 0) AS d
+    FROM contactos
+    WHERE ${_dateLocalExpr('fecha_asignacion')} BETWEEN ? AND ?
+    GROUP BY fecha
+  `).all(fechaInicio, fechaFin);
+
+  const totalDiaMap = {};
+  for (const r of totalDiaRows) totalDiaMap[r.fecha] = { u: r.u, d: r.d };
+
+  // CDRs diarios por segmento — fecha local timezone-safe
+  const cdrDateExpr = _dateLocalExpr('c.timestamp_inicio');
+  const cdrsRows = db.prepare(`
+    SELECT ${cdrDateExpr} AS fecha,
+      ${DIAS_CT} AS dias,
+      COUNT(*) AS gestiones,
+      SUM(CASE WHEN c.canal = 'whatsapp' THEN 1 ELSE 0 END) AS whasp,
+      SUM(CASE WHEN c.canal = 'llamada'  THEN 1 ELSE 0 END) AS llamadas
+    FROM cdrs c
+    JOIN contactos ct ON ct.id = c.contacto_id
+    WHERE (
+      substr(c.timestamp_inicio, 1, 10) BETWEEN ? AND ?
+      OR date(c.timestamp_inicio, 'localtime') BETWEEN ? AND ?
+    )
+    AND ${DIAS_CT} IN (0, 1, 2)
+    GROUP BY fecha, dias
+  `).all(fechaInicio, fechaFin, fechaInicio, fechaFin);
+
+  const cdrsMap = {};
+  for (const r of cdrsRows) {
+    if (!cdrsMap[r.fecha]) cdrsMap[r.fecha] = {};
+    cdrsMap[r.fecha][r.dias] = { gestiones: r.gestiones, whasp: r.whasp, llamadas: r.llamadas };
+  }
+
+  // Envíos masivos (WhatsApp/RCS/correo bulk) — en contactos.wsp/rcs/correo_enviado_fecha
+  const _bulkQuery = (fechaCol) => db.prepare(`
+    SELECT c.${fechaCol} AS fecha,
+      ${DIAS_C} AS dias,
+      COUNT(*) AS cnt
+    FROM contactos c
+    WHERE c.${fechaCol} BETWEEN ? AND ?
+      AND ${DIAS_C} IN (0, 1, 2)
+    GROUP BY fecha, dias
+  `).all(fechaInicio, fechaFin);
+
+  const bulkMap = {};
+  const _addBulk = (rows, field) => {
+    for (const r of rows) {
+      if (!bulkMap[r.fecha]) bulkMap[r.fecha] = {};
+      if (!bulkMap[r.fecha][r.dias]) bulkMap[r.fecha][r.dias] = { whasp: 0, rcs: 0, correo: 0 };
+      bulkMap[r.fecha][r.dias][field] += r.cnt;
+    }
+  };
+  _addBulk(_bulkQuery('wsp_enviado_fecha'),    'whasp');
+  _addBulk(_bulkQuery('rcs_enviado_fecha'),    'rcs');
+  _addBulk(_bulkQuery('correo_enviado_fecha'), 'correo');
+
+  // Compromisos diarios por segmento — fecha local timezone-safe
+  const compRows = db.prepare(`
+    SELECT ${cdrDateExpr} AS fecha,
+      ${DIAS_CT} AS dias,
+      COUNT(*) AS compromisos
+    FROM cdrs c
+    JOIN contactos ct ON ct.id = c.contacto_id
+    JOIN tipificaciones t ON t.id = c.tipificacion_id
+    WHERE (
+      substr(c.timestamp_inicio, 1, 10) BETWEEN ? AND ?
+      OR date(c.timestamp_inicio, 'localtime') BETWEEN ? AND ?
+    )
+    AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+    AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
+    AND ${DIAS_CT} IN (0, 1, 2)
+    GROUP BY fecha, dias
+  `).all(fechaInicio, fechaFin, fechaInicio, fechaFin);
+
+  const compMap = {};
+  for (const r of compRows) {
+    if (!compMap[r.fecha]) compMap[r.fecha] = {};
+    compMap[r.fecha][r.dias] = r.compromisos;
+  }
+
+  const DIAS_SEMANA = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+  const inicio = new Date(fechaInicio + 'T12:00:00');
+  const fin    = new Date(fechaFin    + 'T12:00:00');
+  const rows   = [];
+
+  for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+    const fecha   = d.toISOString().slice(0, 10);
+    const dia     = DIAS_SEMANA[d.getDay()];
+    const totDia  = totalDiaMap[fecha] || { u: 0, d: 0 };
+    const row     = { fecha, dia, total_unidades: totDia.u, total_dinero: totDia.d, segmentos: {} };
+
+    for (const dias of [0, 1, 2]) {
+      const s = (unidadesMap[fecha] || {})[dias] || { unidades: 0, dinero: 0 };
+      const c = (cdrsMap[fecha]    || {})[dias] || { gestiones: 0, whasp: 0, llamadas: 0 };
+      const b = (bulkMap[fecha]    || {})[dias] || { whasp: 0, rcs: 0, correo: 0 };
+      const compromisos    = (compMap[fecha] || {})[dias] || 0;
+      const totalWhasp     = c.whasp + b.whasp;
+      const totalGestiones = c.gestiones + b.whasp + b.rcs + b.correo;
+      row.segmentos[dias] = {
+        unidades:    s.unidades,
+        dinero:      s.dinero,
+        gestiones:   totalGestiones,
+        whasp:       totalWhasp,
+        llamadas:    c.llamadas,
+        compromisos,
+        pct_cartera: s.unidades > 0 ? Math.min(1, totalGestiones / s.unidades) : 0,
+      };
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+// ─── REPORTE INDICADORES DE COMPROMISOS DE PAGO ─────────────────────────────
+function getIndicadoresCompromisos(fechaInicio, fechaFin) {
+  const DIAS_CT = `CAST(COALESCE(
+    NULLIF(json_extract(ct.metadata, '$."DIAS IMPAGO"'), ''),
+    NULLIF(json_extract(ct.metadata, '$."DIAS EN INPAGO"'), ''),
+    NULLIF(json_extract(ct.metadata, '$."DIAS MORA"'), ''),
+    '-1'
+  ) AS INTEGER)`;
+
+  const db = getDb();
+  const cdrFechaExpr = _dateLocalExpr('c.timestamp_inicio');
+
+  // Compromisos por día y segmento — fecha local timezone-safe
+  const compRows = db.prepare(`
+    SELECT ${cdrFechaExpr} AS fecha,
+      ${DIAS_CT} AS dias,
+      COUNT(*) AS compromisos,
+      SUM(CASE WHEN c.resultado = 'COMP_CUM' OR t.codigo = 'PAGO_REAL' THEN 1 ELSE 0 END) AS cumplidos
+    FROM cdrs c
+    JOIN contactos ct ON ct.id = c.contacto_id
+    JOIN tipificaciones t ON t.id = c.tipificacion_id
+    WHERE (
+      substr(c.timestamp_inicio, 1, 10) BETWEEN ? AND ?
+      OR date(c.timestamp_inicio, 'localtime') BETWEEN ? AND ?
+    )
+    AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+    AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
+    AND ${DIAS_CT} IN (0, 1, 2)
+    GROUP BY fecha, dias
+  `).all(fechaInicio, fechaFin, fechaInicio, fechaFin);
+
+  const compMap = {};
+  for (const r of compRows) {
+    if (!compMap[r.fecha]) compMap[r.fecha] = {};
+    compMap[r.fecha][r.dias] = { compromisos: r.compromisos, cumplidos: r.cumplidos };
+  }
+
+  // Semana anterior: porcentaje global por día
+  const offsetMs   = 7 * 24 * 60 * 60 * 1000;
+  const prevInicio = new Date(new Date(fechaInicio + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+  const prevFin    = new Date(new Date(fechaFin    + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+
+  const prevRows = db.prepare(`
+    SELECT ${_dateLocalExpr('c.timestamp_inicio')} AS fecha,
+      COUNT(*) AS compromisos,
+      SUM(CASE WHEN c.resultado = 'COMP_CUM' OR t.codigo = 'PAGO_REAL' THEN 1 ELSE 0 END) AS cumplidos
+    FROM cdrs c
+    JOIN tipificaciones t ON t.id = c.tipificacion_id
+    WHERE (
+      substr(c.timestamp_inicio, 1, 10) BETWEEN ? AND ?
+      OR date(c.timestamp_inicio, 'localtime') BETWEEN ? AND ?
+    )
+    AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+    AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
+    GROUP BY fecha
+  `).all(prevInicio, prevFin, prevInicio, prevFin);
+
+  const prevByDate = {};
+  for (const r of prevRows) {
+    prevByDate[r.fecha] = r.compromisos > 0 ? r.cumplidos / r.compromisos : 0;
+  }
+
+  const prevDates = [];
+  const pI = new Date(prevInicio + 'T12:00:00');
+  const pF = new Date(prevFin    + 'T12:00:00');
+  for (let d = new Date(pI); d <= pF; d.setDate(d.getDate() + 1))
+    prevDates.push(d.toISOString().slice(0, 10));
+
+  const DIAS_SEMANA = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+  const inicio = new Date(fechaInicio + 'T12:00:00');
+  const fin    = new Date(fechaFin    + 'T12:00:00');
+  const rows   = [];
+  let   dayIdx = 0;
+
+  for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+    const fecha   = d.toISOString().slice(0, 10);
+    const dia     = DIAS_SEMANA[d.getDay()];
+    const dayData = compMap[fecha] || {};
+
+    let totalComp = 0, totalCum = 0;
+    const segmentos = {};
+    for (const dias of [0, 1, 2]) {
+      const s = dayData[dias] || { compromisos: 0, cumplidos: 0 };
+      const pct = s.compromisos > 0 ? s.cumplidos / s.compromisos : null;
+      segmentos[dias] = { compromisos: s.compromisos, cumplidos: s.cumplidos, pct };
+      totalComp += s.compromisos;
+      totalCum  += s.cumplidos;
+    }
+
+    const prevFecha  = prevDates[dayIdx] || null;
+    const prevPct    = prevFecha ? (prevByDate[prevFecha] ?? null) : null;
+
+    rows.push({
+      fecha, dia, segmentos,
+      total_compromisos: totalComp,
+      total_cumplidos:   totalCum,
+      total_pct:         totalComp > 0 ? totalCum / totalComp : null,
+      semana_anterior:   prevPct,
+    });
+    dayIdx++;
+  }
+  return rows;
+}
+
+// ─── REPORTE GESTOR DE MARKETING ────────────────────────────────────────────
+function getGestoresMarketing(fechaInicio, fechaFin) {
+  const asesores = db.prepare(
+    `SELECT id, nombre FROM usuarios WHERE rol = 'asesor' AND estado = 'activo' ORDER BY nombre`
+  ).all();
+
+  // CDRs por día y asesor en rango solicitado
+  const cdrRows = db.prepare(`
+    SELECT DATE(c.timestamp_inicio) AS fecha, c.usuario_id, COUNT(*) AS gestiones
+    FROM cdrs c
+    WHERE DATE(c.timestamp_inicio) BETWEEN ? AND ?
+    GROUP BY fecha, c.usuario_id
+  `).all(fechaInicio, fechaFin);
+
+  const cdrMap = {};
+  for (const r of cdrRows) {
+    if (!cdrMap[r.fecha]) cdrMap[r.fecha] = {};
+    cdrMap[r.fecha][r.usuario_id] = r.gestiones;
+  }
+
+  // Semana anterior (mismo número de días, shifted -7)
+  const offsetMs     = 7 * 24 * 60 * 60 * 1000;
+  const prevInicio   = new Date(new Date(fechaInicio + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+  const prevFin      = new Date(new Date(fechaFin    + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+
+  const prevRows = db.prepare(`
+    SELECT DATE(c.timestamp_inicio) AS fecha, COUNT(*) AS gestiones
+    FROM cdrs c
+    WHERE DATE(c.timestamp_inicio) BETWEEN ? AND ?
+    GROUP BY fecha
+  `).all(prevInicio, prevFin);
+
+  // Promedio diario semana anterior por índice de día en el rango
+  const prevByIndex = {};
+  prevRows.forEach((r, i) => { prevByIndex[r.fecha] = r.gestiones; });
+  const prevDates = [];
+  const pI = new Date(prevInicio + 'T12:00:00');
+  const pF = new Date(prevFin    + 'T12:00:00');
+  for (let d = new Date(pI); d <= pF; d.setDate(d.getDate() + 1))
+    prevDates.push(d.toISOString().slice(0, 10));
+
+  const DIAS_SEMANA = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+  const inicio = new Date(fechaInicio + 'T12:00:00');
+  const fin    = new Date(fechaFin    + 'T12:00:00');
+  const rows   = [];
+  let   dayIdx = 0;
+
+  for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+    const fecha      = d.toISOString().slice(0, 10);
+    const dia        = DIAS_SEMANA[d.getDay()];
+    const dayData    = cdrMap[fecha] || {};
+    const valores    = {};
+    let   suma       = 0;
+    let   count      = 0;
+
+    for (const a of asesores) {
+      const v = dayData[a.id] || 0;
+      valores[a.id] = v;
+      if (v > 0) { suma += v; count++; }
+    }
+
+    const diasProm = count > 0 ? +(suma / count).toFixed(2) : null;
+    const prevFecha = prevDates[dayIdx] || null;
+    const prevGest  = prevFecha != null ? (prevByIndex[prevFecha] || 0) : 0;
+    const prevProm  = prevGest > 0 ? +(prevGest / Math.max(1, asesores.length)).toFixed(2) : null;
+
+    rows.push({ fecha, dia, valores, dias_prom: diasProm, anterior_semana: prevProm, asesores });
+    dayIdx++;
+  }
+  return { asesores, rows };
+}
+
 module.exports = {
   // Auth
   findUserByEmail, findUserById,
@@ -3584,6 +3914,7 @@ module.exports = {
   getSesionesValidacion, eliminarSesion,
   // Métricas
   getMetricasDia, getMetricasEquipo, getCompromisosEquipo, getProgresoAsesor, getDetalleContactabilidad, getPagosVerificadosPorAsesor,
+  getVencimientosGestiones, getGestoresMarketing, getIndicadoresCompromisos,
   // Config
   getConfig, setConfig, getAllConfig,
   // Progreso

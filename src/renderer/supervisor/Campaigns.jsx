@@ -200,10 +200,19 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
 
   // ── Distribution config ──
   const [nombreCampana, setNombreCampana] = useState('');
+  const [campanaExistenteId, setCampanaExistenteId] = useState(null); // null = crear nueva
   // mapeo: { [gestor]: asesorId (string) | 'skip' | '' }
   const [mapeo, setMapeo]           = useState({});
   const [procesando, setProcesando] = useState(false);
   const [lastSummary, setLastSummary] = useState(null);
+  const [archivarAnterior, setArchivarAnterior] = useState(false);
+
+  // ── Ocultar lista específica ──
+  const [ocultarCampanaId, setOcultarCampanaId] = useState('');
+  const [ocultarFile, setOcultarFile]           = useState(null);
+  const [ocultarContactos, setOcultarContactos] = useState(null); // parsed
+  const [ocultarProcesando, setOcultarProcesando] = useState(false);
+  const ocultarFileRef = useRef(null);
 
   // ── Dashboard ──
   const [existingCampaigns, setExistingCampaigns] = useState([]);
@@ -250,6 +259,59 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     }
   };
 
+  const handleRestaurar = async (campanaId, campanaNombre, asesorId, asesorNombre) => {
+    if (!window.confirm(`¿Restaurar los contactos ocultos de "${asesorNombre}" en el lote "${campanaNombre}"?\n\nVolverán a aparecer en la cartera del gestor.`)) return;
+    try {
+      const res = await vmFetch(apiBase, authToken, `/campanas/${campanaId}/restaurar/${asesorId}`, { method: 'POST', body: '{}' });
+      if (res.success) {
+        showToast(`${res.restored} contactos restaurados para ${asesorNombre}`, 'success');
+        fetchCampaigns();
+        // Notificar al asesor
+        window.api.invoke('ws:notifyCarteraAsignada', asesorId).catch(() => {});
+      }
+    } catch (err) {
+      showToast('Error al restaurar: ' + err.message, 'error');
+    }
+  };
+
+  const handleOcultarArchivoChange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setOcultarFile(f);
+    try {
+      const { contactos } = f.name.endsWith('.csv')
+        ? await parsearCSV(await f.text())
+        : await parsearXLSX(f);
+      setOcultarContactos(contactos);
+    } catch (err) {
+      showToast('Error al leer el archivo: ' + err.message, 'error');
+      setOcultarContactos(null);
+    }
+  };
+
+  const handleOcultarLista = async () => {
+    if (!ocultarCampanaId) return showToast('Selecciona una apertura.', 'error');
+    if (!ocultarContactos?.length) return showToast('Sube un Excel con clientes.', 'error');
+    const cedulas   = [...new Set(ocultarContactos.map(c => c.cedula).filter(Boolean))];
+    const telefonos = [...new Set(ocultarContactos.map(c => c.telefono).filter(Boolean))];
+    if (!cedulas.length && !telefonos.length) return showToast('El Excel no tiene columnas de Cédula o Teléfono.', 'error');
+    setOcultarProcesando(true);
+    try {
+      const res = await vmFetch(apiBase, authToken, `/campanas/${ocultarCampanaId}/ocultar-lista`, {
+        method: 'POST',
+        body: JSON.stringify({ cedulas, telefonos }),
+      });
+      showToast(`${res.ocultos} cliente(s) ocultados de la apertura. Los gestores ya no los ven.`, 'success');
+      setOcultarFile(null);
+      setOcultarContactos(null);
+      if (ocultarFileRef.current) ocultarFileRef.current.value = '';
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      setOcultarProcesando(false);
+    }
+  };
+
   // ════════════════════════════════════════════════
   // Upload / Drag & Drop
   // ════════════════════════════════════════════════
@@ -269,6 +331,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     setGrupos(null);
     setMapeo({});
     setNombreCampana('');
+    setCampanaExistenteId(null);
     setTieneColumnaGestor(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -423,7 +486,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
   const handleDistribuir = async () => {
     if (isRemote && (!asesoresVm || asesoresVm.length === 0))
       return showToast('Los asesores de la VM no están cargados. Espera o reintenta la conexión.', 'error');
-    if (!nombreCampana.trim()) return showToast('Asigna un nombre al lote / campaña.', 'error');
+    if (!campanaExistenteId && !nombreCampana.trim()) return showToast('Asigna un nombre al lote / campaña, o selecciona uno existente.', 'error');
 
     const sinConfigurar = [...grupos.entries()].filter(
       ([g, d]) => mapeo[g] !== 'skip' && !mapeo[g] && d.contactos.length > 0
@@ -444,17 +507,22 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     setProcesando(true);
 
     try {
-      const resC = isRemote
-        ? await vmFetch(apiBase, authToken, '/campanas', { method: 'POST', body: JSON.stringify({
-            nombre: nombreCampana.trim(),
-            descripcion: `Cartera general. ${totalContactos} registros. ${gruposActivos.length} asesor(es).`,
-          }) })
-        : await window.api.invoke('db:insertCampana', {
-            nombre: nombreCampana.trim(),
-            descripcion: `Cartera general. ${totalContactos} registros. ${gruposActivos.length} asesor(es).`,
-            supervisor_id: usuario?.id,
-          });
-      if (!resC.success) throw new Error('No se pudo crear la campaña.');
+      let resC;
+      if (campanaExistenteId) {
+        resC = { success: true, id: campanaExistenteId };
+      } else {
+        resC = isRemote
+          ? await vmFetch(apiBase, authToken, '/campanas', { method: 'POST', body: JSON.stringify({
+              nombre: nombreCampana.trim(),
+              descripcion: `Cartera general. ${totalContactos} registros. ${gruposActivos.length} asesor(es).`,
+            }) })
+          : await window.api.invoke('db:insertCampana', {
+              nombre: nombreCampana.trim(),
+              descripcion: `Cartera general. ${totalContactos} registros. ${gruposActivos.length} asesor(es).`,
+              supervisor_id: usuario?.id,
+            });
+        if (!resC.success) throw new Error('No se pudo crear la campaña.');
+      }
 
       let totalInsertados = 0;
       const desglose = [];
@@ -463,7 +531,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
         [...gruposActivos].map(async ([gestor, { contactos }]) => {
           const asesorId = Number(mapeo[gestor]);
           const res = isRemote
-            ? await vmFetch(apiBase, authToken, `/campanas/${resC.id}/contactos`, { method: 'POST', body: JSON.stringify({ asesorId, contactos }) })
+            ? await vmFetch(apiBase, authToken, `/campanas/${resC.id}/contactos`, { method: 'POST', body: JSON.stringify({ asesorId, contactos, archivarAnterior }) })
             : await window.api.invoke('db:insertContactos', resC.id, asesorId, contactos);
           return { gestor, contactos, asesorId, res };
         })
@@ -661,17 +729,40 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
               </button>
             </div>
 
-            {/* Nombre de campaña */}
+            {/* Lote: nueva o existente */}
             <div style={{ marginBottom: 20 }}>
-              <label className="reporte-form__label">Nombre del Lote / Campaña</label>
-              <input aria-label="Nombre del Lote / Campaña"
-                type="text"
-                className="input"
-                placeholder="Ej: Cartera Vencida Mayo 2026"
-                value={nombreCampana}
-                onChange={e => setNombreCampana(e.target.value)}
-                style={{ maxWidth: 400 }}
-              />
+              <label className="reporte-form__label">Lote / Campaña</label>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <button type="button"
+                  className={`btn btn-sm ${!campanaExistenteId ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setCampanaExistenteId(null)}
+                >Nuevo lote</button>
+                <button type="button"
+                  className={`btn btn-sm ${campanaExistenteId ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => { if (existingCampaigns.length) setCampanaExistenteId(existingCampaigns[0].id); }}
+                >Agregar a lote existente</button>
+              </div>
+              {!campanaExistenteId ? (
+                <input aria-label="Nombre del Lote / Campaña"
+                  type="text"
+                  className="input"
+                  placeholder="Ej: Cartera Vencida Julio 2026"
+                  value={nombreCampana}
+                  onChange={e => setNombreCampana(e.target.value)}
+                  style={{ maxWidth: 400 }}
+                />
+              ) : (
+                <select
+                  className="input"
+                  value={campanaExistenteId}
+                  onChange={e => setCampanaExistenteId(Number(e.target.value))}
+                  style={{ maxWidth: 400 }}
+                >
+                  {[...new Map(existingCampaigns.map(c => [c.id, c])).values()].map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* ── Barra de acciones: auto-distribuir + info ── */}
@@ -839,7 +930,18 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             </div>
 
             {/* Botón distribuir */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, opacity: 0.85 }}
+                title="Los contactos anteriores PENDIENTES del gestor se ocultarán (no se borran). Puedes restaurarlos desde el historial de lotes.">
+                <input
+                  type="checkbox"
+                  checked={archivarAnterior}
+                  onChange={e => setArchivarAnterior(e.target.checked)}
+                  style={{ width: 15, height: 15, accentColor: '#ff9800', cursor: 'pointer' }}
+                />
+                <span>Ocultar cartera anterior de los gestores</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.5 }} title="Solo oculta contactos PENDIENTES. Los gestionados y agendados no se tocan.">info</span>
+              </label>
               <button type="button"
                 className="btn btn-primary"
                 onClick={handleDistribuir}
@@ -1053,14 +1155,26 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                             {fmt(fila.monto_mora)}
                           </td>
                           <td style={{ padding: '10px 12px', border: bdr, textAlign: 'center' }}>
-                            <button type="button"
-                              className="btn btn-sm btn-ghost"
-                              style={{ padding: 4, minHeight: 'auto' }}
-                              title={`Eliminar contactos de ${fila.asesor_nombre}`}
-                              onClick={() => handleDeleteAsesorDeBasе(grp.id, grp.nombre, fila.asesor_id, fila.asesor_nombre)}
-                            >
-                              <span className="material-symbols-outlined" style={{ color: 'var(--color-danger)', fontSize: 18 }}>delete</span>
-                            </button>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                              {isRemote && (
+                                <button type="button"
+                                  className="btn btn-sm btn-ghost"
+                                  style={{ padding: 4, minHeight: 'auto' }}
+                                  title={`Restaurar contactos ocultos de ${fila.asesor_nombre}`}
+                                  onClick={() => handleRestaurar(grp.id, grp.nombre, fila.asesor_id, fila.asesor_nombre)}
+                                >
+                                  <span className="material-symbols-outlined" style={{ color: '#ff9800', fontSize: 18 }}>restore</span>
+                                </button>
+                              )}
+                              <button type="button"
+                                className="btn btn-sm btn-ghost"
+                                style={{ padding: 4, minHeight: 'auto' }}
+                                title={`Eliminar contactos de ${fila.asesor_nombre}`}
+                                onClick={() => handleDeleteAsesorDeBasе(grp.id, grp.nombre, fila.asesor_id, fila.asesor_nombre)}
+                              >
+                                <span className="material-symbols-outlined" style={{ color: 'var(--color-danger)', fontSize: 18 }}>delete</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1072,6 +1186,60 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
           })()}
         </div>
       </div>
+
+      {/* ── Ocultar clientes específicos de una apertura ── */}
+      {isRemote && (
+        <div style={{ marginTop: 32, padding: 24, background: 'var(--color-surface-container)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#ff9800' }}>visibility_off</span>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Ocultar clientes específicos de una apertura</h3>
+          </div>
+          <p style={{ fontSize: 12, opacity: 0.6, marginBottom: 16, lineHeight: 1.5 }}>
+            Sube un Excel con los clientes que quieres ocultar a los gestores. Los clientes se ocultan en tiempo real pero <strong>no se borran</strong> de la apertura. Puedes restaurarlos con el botón 🔄 del historial.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            <div>
+              <label style={{ fontSize: 12, opacity: 0.6, display: 'block', marginBottom: 4 }}>Apertura destino</label>
+              <select
+                className="input"
+                value={ocultarCampanaId}
+                onChange={e => setOcultarCampanaId(e.target.value)}
+                style={{ minWidth: 260 }}
+              >
+                <option value="">— Selecciona apertura —</option>
+                {[...new Map(existingCampaigns.map(c => [c.id, c])).values()].map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 12, opacity: 0.6, display: 'block', marginBottom: 4 }}>
+                Excel con clientes a ocultar {ocultarContactos ? <span style={{ color: '#ff9800', fontWeight: 700 }}>({ocultarContactos.length} filas leídas)</span> : ''}
+              </label>
+              <input
+                ref={ocultarFileRef}
+                type="file"
+                accept=".xlsx,.csv"
+                className="input"
+                style={{ minWidth: 260, cursor: 'pointer' }}
+                onChange={handleOcultarArchivoChange}
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!ocultarCampanaId || !ocultarContactos?.length || ocultarProcesando}
+              onClick={handleOcultarLista}
+              style={{ gap: 8, background: 'rgba(255,152,0,0.2)', border: '1px solid rgba(255,152,0,0.5)', color: '#ff9800' }}
+            >
+              {ocultarProcesando
+                ? <><span className="material-symbols-outlined" style={{ fontSize: 16, animation: 'spin 1s linear infinite' }}>sync</span>Ocultando...</>
+                : <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>visibility_off</span>Ocultar clientes</>
+              }
+            </button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

@@ -142,6 +142,38 @@ function runAdbShell(args, timeoutMs = 4000) {
   });
 }
 
+// Tracks first-seen timestamp per serial — fallback order when no pin configured
+const FIRST_SEEN_PATH = path.join(app.getPath('userData'), 'device-first-seen.json');
+let deviceFirstSeen = {};
+try {
+  deviceFirstSeen = JSON.parse(fs.readFileSync(FIRST_SEEN_PATH, 'utf8'));
+} catch {
+  deviceFirstSeen = {};
+}
+
+// Simple order-inversion flag — user can flip Cel1/Cel2 without needing serial detection
+const ORDER_PATH = path.join(app.getPath('userData'), 'device-order.json');
+let deviceOrderInverted = false;
+try {
+  deviceOrderInverted = JSON.parse(fs.readFileSync(ORDER_PATH, 'utf8')).inverted === true;
+} catch {
+  deviceOrderInverted = false;
+}
+
+function setDeviceOrderInverted(inverted) {
+  deviceOrderInverted = !!inverted;
+  try { fs.writeFileSync(ORDER_PATH, JSON.stringify({ inverted: deviceOrderInverted })); } catch {}
+  return { inverted: deviceOrderInverted };
+}
+
+function getDeviceOrderInverted() {
+  return { inverted: deviceOrderInverted };
+}
+
+// Legacy pin API kept for backwards compat — no-op
+function pinDevice() { return { ok: true }; }
+function getPinnedSlots() { return {}; }
+
 function parseDevices(output) {
   if (!output) return [];
   const lines = output.split(/\r?\n/).slice(1);
@@ -155,13 +187,18 @@ function parseDevices(output) {
       const modelMatch = trimmed.match(/model:(\S+)/);
       const model = modelMatch ? modelMatch[1].replace(/_/g, ' ') : 'Desconocido';
       const isWifi = serial.includes(':');
+      if (!deviceFirstSeen[serial]) {
+        deviceFirstSeen[serial] = Date.now();
+        try { fs.writeFileSync(FIRST_SEEN_PATH, JSON.stringify(deviceFirstSeen)); } catch {}
+      }
       devices.push({
         serial,
         status: parts[1],
         model,
         isWifi,
         ip: isWifi ? serial.split(':')[0] : null,
-        isInfinix: isInfinixDevice(model)
+        isInfinix: isInfinixDevice(model),
+        firstSeen: deviceFirstSeen[serial]
       });
     }
   }
@@ -210,7 +247,9 @@ async function getDeviceStats() {
 
     const devicesOut = await runAdbWithTimeout(['devices', '-l'], 3000);
     const devices = parseDevices(devicesOut);
-    devices.sort((a, b) => a.serial.localeCompare(b.serial));
+    // Use same stable order as getSortedDevices so UI slot labels match actual call routing
+    devices.sort((a, b) => a.firstSeen - b.firstSeen || a.serial.localeCompare(b.serial));
+    if (deviceOrderInverted && devices.length >= 2) devices.reverse();
 
     if (devices.length === 0) {
       return { connected: false, scrcpyActive: false, deviceCount: 0 };
@@ -348,7 +387,10 @@ pause`;
 async function getSortedDevices() {
   const devicesOut = await runAdb(['devices']);
   const devices = parseDevices(devicesOut);
-  devices.sort((a, b) => a.serial.localeCompare(b.serial));
+  // Stable sort: firstSeen timestamp, serial as tiebreaker
+  devices.sort((a, b) => a.firstSeen - b.firstSeen || a.serial.localeCompare(b.serial));
+  // User-configured inversion: swap Cel1/Cel2
+  if (deviceOrderInverted && devices.length >= 2) devices.reverse();
   return devices;
 }
 
@@ -861,38 +903,37 @@ async function startRecordOnDevice(isCurrentlyRecording = false) {
 }
 
 /**
- * Consulta el estado actual de la llamada de forma agnóstica a la SIM (Dual SIM compatible)
+ * Consulta el estado actual de la llamada en TODOS los dispositivos conectados.
+ * Detecta tanto llamadas telefónicas (telephony.registry) como llamadas WhatsApp/VOIP
+ * (actividad en primer plano). Necesario porque WhatsApp usa VOIP y no aparece
+ * en telephony.registry, y el cel de WhatsApp es devices[1], no devices[0].
  */
 async function checkCallStatus() {
   try {
     const devicesOut = await runAdb(['devices']);
     const devices = parseDevices(devicesOut);
-    if (devices.length === 0) return { success: true, active: false }; // Si no hay cel, asumimos no hay llamada
-    
-    const serial = devices[0].serial;
-    const res = await runAdbShell(['-s', serial, 'shell', 'dumpsys', 'telephony.registry']);
-    
-    if (res.output) {
-      // mCallState=0 (IDLE), 1 (RINGING), 2 (OFFHOOK - Llamada activa)
-      // Usamos matchAll para capturar todos los slots SIM
-      const matches = res.output.matchAll(/mCallState=(\d)/g);
-      let isAnythingActive = false;
-      
-      for (const match of matches) {
-        const state = match[1];
-        if (state === '1' || state === '2') {
-          isAnythingActive = true;
-          break;
+    if (devices.length === 0) return { success: true, active: false };
+
+    for (const device of devices) {
+      // ── Método 1: llamada telefónica vía telephony.registry ──
+      const tel = await runAdbShell(['-s', device.serial, 'shell', 'dumpsys', 'telephony.registry'], 3000);
+      if (tel.output) {
+        for (const match of tel.output.matchAll(/mCallState=(\d)/g)) {
+          if (match[1] === '1' || match[1] === '2') return { success: true, active: true };
         }
       }
-      
-      return { success: true, active: isAnythingActive };
+
+      // ── Método 2: llamada WhatsApp/VOIP vía actividad en primer plano ──
+      const act = await runAdbShell(['-s', device.serial, 'shell', 'dumpsys activity activities | grep mResumedActivity'], 3000);
+      if (act.output && /whatsapp.*(voip|call|incall|audio)/i.test(act.output)) {
+        return { success: true, active: true };
+      }
     }
-    
-    return { success: true, active: false }; 
+
+    return { success: true, active: false };
   } catch(e) {
     console.error('[ADB] Fallo en checkCallStatus:', e.message);
-    return { success: true, active: false }; // Fail-safe para no bloquear la UI
+    return { success: true, active: false };
   }
 }
 
@@ -903,12 +944,12 @@ function stopAll() {
   childProcesses = [];
 }
 
-module.exports = { 
-  getDevices, 
-  connectUSB_Bat, 
-  connectWifi_Bat, 
+module.exports = {
+  getDevices,
+  connectUSB_Bat,
+  connectWifi_Bat,
   getDeviceStats,
-  stopAll, 
+  stopAll,
   dial,
   hangup,
   toggleHold,
@@ -920,4 +961,8 @@ module.exports = {
   sendSMS,
   openWhatsApp,
   whatsappCall,
+  pinDevice,
+  getPinnedSlots,
+  setDeviceOrderInverted,
+  getDeviceOrderInverted,
 };

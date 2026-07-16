@@ -39,7 +39,7 @@ const fmtHora = (ts) => {
   } catch { return '—'; }
 };
 
-export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
+export default function Compromisos({ callApi, asesores = _EMPTY_ARR, refreshSignal }) {
   const hoy = todayLocalISO();
   const [fecha, setFecha] = useState(hoy);
   const [asesorId, setAsesorId] = useState('');
@@ -49,6 +49,7 @@ export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
   const [cargando, setCargando] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [eliminandoId, setEliminandoId] = useState(null);
+  const [mostrarPagados, setMostrarPagados] = useState(false);
 
   const cargar = async () => {
     setCargando(true);
@@ -63,7 +64,7 @@ export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
     }
   };
 
-  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, asesorId]);
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, asesorId, refreshSignal]);
 
   const handleEliminar = async (cdrId) => {
     if (!window.confirm('¿Eliminar este compromiso? El contacto volverá a estado PENDIENTE.')) return;
@@ -82,6 +83,7 @@ export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
   const filtrados = useMemo(() => {
     const txt = textoFiltro.trim().toLowerCase();
     return registros.filter(r => {
+      if (!mostrarPagados && r.ya_pago) return false;
       if (tipoFiltro && r.tipificacion_codigo !== tipoFiltro) return false;
       if (!txt) return true;
       const hay = [
@@ -90,7 +92,7 @@ export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(txt);
     });
-  }, [registros, textoFiltro, tipoFiltro]);
+  }, [registros, textoFiltro, tipoFiltro, mostrarPagados]);
 
   const activos = filtrados.filter(r => r.tipificacion_codigo !== 'INCUMP' && r.resultado !== 'INCUMP');
   const totalMonto = activos.reduce((s, r) => s + (Number(r.monto_acordado) || 0), 0);
@@ -195,6 +197,22 @@ export default function Compromisos({ callApi, asesores = _EMPTY_ARR }) {
             }}
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setMostrarPagados(p => !p)}
+          style={{
+            padding: '5px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+            background: mostrarPagados ? 'rgba(0,230,118,0.15)' : 'rgba(255,255,255,0.05)',
+            border: mostrarPagados ? '1px solid rgba(0,230,118,0.4)' : '1px solid rgba(255,255,255,0.1)',
+            color: mostrarPagados ? 'var(--color-primary)' : 'rgba(255,255,255,0.5)',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+            {mostrarPagados ? 'visibility' : 'visibility_off'}
+          </span>
+          Pagados
+        </button>
       </div>
 
       {/* ── KPI cards ── */}

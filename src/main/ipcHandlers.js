@@ -45,6 +45,10 @@ const {
   sendSMS,
   openWhatsApp,
   whatsappCall,
+  pinDevice,
+  getPinnedSlots,
+  setDeviceOrderInverted,
+  getDeviceOrderInverted,
 } = require('./adbManager');
 const metricsManager = require('./metricsManager');
 const { startCapture, stopCapture, isCapturing } = require('./audioManager');
@@ -151,6 +155,10 @@ function registerIpcHandlers() {
   ipcMain.handle('adb:openWhatsApp', async (event, phoneNumber, message) => openWhatsApp(phoneNumber, message));
   ipcMain.handle('adb:whatsappCall', async (event, phoneNumber, deviceIndex) => whatsappCall(phoneNumber, deviceIndex == null ? 1 : deviceIndex));
   ipcMain.handle('adb:stop', async () => { stopAll(); return { success: true }; });
+  ipcMain.handle('adb:pinDevice', async (event, serial, slotIndex) => pinDevice(serial, slotIndex));
+  ipcMain.handle('adb:getPinnedSlots', async () => getPinnedSlots());
+  ipcMain.handle('adb:setDeviceOrderInverted', async (event, inverted) => setDeviceOrderInverted(inverted));
+  ipcMain.handle('adb:getDeviceOrderInverted', async () => getDeviceOrderInverted());
 
   // ── AUDIO ──────────────────────────────────────────────
   ipcMain.handle('audio:start', async (event) => {

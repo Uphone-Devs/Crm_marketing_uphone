@@ -44,7 +44,7 @@ const SECTION_HEADER_STYLE = { display: 'flex', alignItems: 'center', gap: 10, m
 const SECTION_TAG_STYLE = { fontSize: 12, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.55 };
 const SECTION_RULE_STYLE = { flex: 1, height: 1, background: 'rgba(255,255,255,0.07)' };
 
-function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, onOpenContactabilidad, onOpenVolumen, filtroFechaDesde, filtroFechaHasta, filtroCampana }) {
+function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, onOpenContactabilidad, onOpenVolumen, filtroFechaDesde, filtroFechaHasta, filtroCampana, metricasLive }) {
   const _api   = buildApiBase();
   const _isRem = !!_api;
   const _tok   = localStorage.getItem('auth_token');
@@ -71,6 +71,15 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     : filtroDesde ? `el ${filtroDesde}` : 'hoy';
 
   const detalleAsesores = metricasEquipo?.detalleAsesores || [];
+
+  // detalleAsesoresLive: usa metricasLive (WS tiempo real) si disponible, fallback a DB
+  const detalleAsesoresLive = React.useMemo(() => {
+    if (!metricasLive || !asesores?.length) return detalleAsesores;
+    return asesores.map(a => ({
+      asesor: a,
+      metricas: metricasLive[a.id] || detalleAsesores.find(d => d.asesor?.id === a.id)?.metricas || {},
+    }));
+  }, [metricasLive, asesores, detalleAsesores]);
 
   // â"€â"€ Filtros locales â€" Rotación de Cartera â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   const [rotFechaInicio, setRotFechaInicio] = useState('');
@@ -175,9 +184,9 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
   // â"€â"€ 5. Proyecciones â€" extrapola rate actual al cierre de jornada â"€â"€
   // Aplicable solo cuando el día filtrado es hoy (o no hay filtro). Para días
-  // pasados, jornada cerrada â†' proyección = actual (sin extrapolar).
+  // pasados, jornada cerrada → proyección = actual (sin extrapolar).
   const PROY_HORA_INICIO = 8;    // 08:00
-  const PROY_HORA_FIN    = 17;   // 17:00 â†' jornada de 9h
+  const PROY_HORA_FIN    = 17;   // 17:00 → jornada de 9h
   const PROY_HORAS_TOTAL = PROY_HORA_FIN - PROY_HORA_INICIO;
   const proyHoyStr = todayLocalISO();
   const proyEsHoy = !esRango && (!filtroDesde || filtroDesde === proyHoyStr);
@@ -190,8 +199,8 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   const proyFactor = proyEsHoy && proyHorasTrans > 0 ? PROY_HORAS_TOTAL / proyHorasTrans : 1;
   const proyectar = (actual) => proyEsHoy ? Math.round(actual * proyFactor) : actual;
 
-  // Por asesor: actual + delta proyectado
-  const dataProyeccion = detalleAsesores
+  // Por asesor: actual + delta proyectado — usa datos live (WS) para tiempo real
+  const dataProyeccion = detalleAsesoresLive
     .map(d => {
       const marc    = d?.metricas?.total_marcaciones || 0;
       const compr   = d?.metricas?.total_compromisos || 0;
@@ -251,7 +260,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
       else if (cat.includes('NEUTRO')) buckets[h].neutros++;
       else if (cat.includes('NO_CONTACTADO')) buckets[h].no_contactados++;
     }
-    // Calcular % efectividad por hora (null si sin datos â†' línea no dibuja ese punto)
+    // Calcular % efectividad por hora (null si sin datos → línea no dibuja ese punto)
     buckets.forEach(b => {
       b.pct_efectividad = b.total > 0 ? Math.round((b.efectivos / b.total) * 100) : null;
     });
@@ -273,7 +282,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   // â"€â"€ 6.5 Volumen de Marcación por Hora â€" stack por asesor â"€â"€â"€â"€â"€
   // Reutiliza detalleContact (mismo dataset que Contactabilidad por Hora) pero
   // agrupa por hora + asesor. Permite correlacionar volumen vs efectividad:
-  // hora con muchas marcaciones pero pocos efectivos â†' mala franja horaria.
+  // hora con muchas marcaciones pero pocos efectivos → mala franja horaria.
 
   const volumenInfo = useMemo(() => {
     // Asesores presentes en el detalle (con al menos 1 CDR)
@@ -1129,7 +1138,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
               <h3 className="widget-title">Proyecciones</h3>
               <p className="text-body-sm" style={{ opacity: 0.5 }}>
                 {esRango
-                  ? <>Período {filtroDesde} â†' {filtroHasta} · totales reales acumulados</>
+                  ? <>Período {filtroDesde} → {filtroHasta} · totales reales acumulados</>
                   : proyEsHoy
                     ? <>Estimación al cierre de jornada (17:00) · <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>{proyHorasTrans.toFixed(1)}h transcurridas, {proyHorasRest.toFixed(1)}h restantes</span> · factor {proyFactor.toFixed(2)}Ã—</>
                     : <>Día cerrado · valores reales finales (sin proyección)</>}
@@ -1198,7 +1207,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       contentStyle={chartTooltipStyle}
                       formatter={(v, name, props) => {
                         if (name === 'marcActual') return [`${v} realizadas`, props.payload.fullName];
-                        if (name === 'marcDelta')  return [`+${v} proyectadas â†' ${props.payload.marcProy} total`, ''];
+                        if (name === 'marcDelta')  return [`+${v} proyectadas → ${props.payload.marcProy} total`, ''];
                         return [v, name];
                       }}
                     />
@@ -1234,17 +1243,17 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                       <td style={{ padding: '7px 8px', color: 'var(--color-on-surface-variant)', fontWeight: 600 }}>{r.fullName}</td>
                       <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                         <span style={{ opacity: 0.6 }}>{r.marcActual}</span>
-                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†'</span>
+                        <span style={{ opacity: 0.3, margin: '0 4px' }}>→</span>
                         <span style={{ fontWeight: 800, color: 'var(--color-primary)' }}>{r.marcProy}</span>
                       </td>
                       <td style={{ padding: '7px 8px', textAlign: 'center' }}>
                         <span style={{ opacity: 0.6 }}>{r.comprActual}</span>
-                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†'</span>
+                        <span style={{ opacity: 0.3, margin: '0 4px' }}>→</span>
                         <span style={{ fontWeight: 800, color: '#1DE9B6' }}>{r.comprProy}</span>
                       </td>
                       <td style={{ padding: '7px 8px', textAlign: 'right' }}>
                         <span style={{ opacity: 0.6 }} className="text-mono">${Number(r.recaudActual).toFixed(2)}</span>
-                        <span style={{ opacity: 0.3, margin: '0 4px' }}>â†'</span>
+                        <span style={{ opacity: 0.3, margin: '0 4px' }}>→</span>
                         <span style={{ fontWeight: 800, color: '#ffc107' }} className="text-mono">${Number(r.recaudProy).toFixed(2)}</span>
                       </td>
                     </tr>

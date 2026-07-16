@@ -186,7 +186,10 @@ function broadcastToAll(data) {
 }
 
 function getConnectedStats() {
-    const asesores = Object.values(estadosAsesores).map(({ socket, ...data }) => data);
+    const asesores = Object.values(estadosAsesores).map(({ socket, ...data }) => ({
+        ...data,
+        metricas: metricasAsesores[data.asesor_id] || null
+    }));
     return {
         asesores,
         supervisores: supervisores.size,

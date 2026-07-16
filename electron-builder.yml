@@ -26,10 +26,10 @@ win:
 
 nsis:
   oneClick: false
-  allowToChangeInstallationDirectory: true
+  allowToChangeInstallationDirectory: false
   unicode: true
   runAfterFinish: true
-  createDesktopShortcut: always
+  createDesktopShortcut: true
   shortcutName: "CRM Marketing Uphone"
   include: installer-hooks.nsi
 

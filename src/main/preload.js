@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
       'adb:getDeviceStats', 'adb:getMPH', 'adb:getROI', 'adb:dial',
       'adb:hangup', 'adb:toggleHold', 'adb:toggleMute', 'adb:toggleSpeaker',
       'adb:startRecordOnDevice', 'adb:checkCallStatus', 'adb:isScrcpyRunning', 'adb:sendSMS', 'adb:openWhatsApp', 'adb:whatsappCall', 'adb:stopAll',
+      'adb:pinDevice', 'adb:getPinnedSlots', 'adb:setDeviceOrderInverted', 'adb:getDeviceOrderInverted',
       // Audio
       'audio:start', 'audio:stop', 'audio:status',
       // Recorder
