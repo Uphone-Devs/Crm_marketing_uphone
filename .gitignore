@@ -3,6 +3,9 @@
 .env.local
 .env.*.local
 
+# graphify output (should not be committed)
+graphify-out/
+
 # Database
 *.db
 *.db-journal
