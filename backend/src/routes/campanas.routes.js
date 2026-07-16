@@ -144,13 +144,31 @@ router.get('/:id/summary', async (req, res, next) => {
 });
 
 // POST /api/campanas/:id/contactos — Insertar contactos en lote para un asesor
+// archivarAnterior=true → oculta los contactos PENDIENTE del asesor antes de insertar
 router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
     const campanaId = parseInt(req.params.id);
-    const { asesorId, contactos } = req.body;
+    const { asesorId, contactos, archivarAnterior } = req.body;
     if (!Array.isArray(contactos) || !contactos.length) {
       return res.status(400).json({ error: 'contactos debe ser array no vacío.' });
     }
+
+    // Ocultar contactos anteriores del asesor (solo PENDIENTE/EN_INTENTOS/CONTACTADO/NO_CONTACTADO)
+    let ocultos = 0;
+    if (archivarAnterior && asesorId) {
+      const aid = parseInt(asesorId);
+      const r = await db.$executeRaw`
+        UPDATE contactos
+        SET asignado_a = NULL,
+            metadata   = COALESCE(metadata::jsonb, '{}'::jsonb)
+                         || jsonb_build_object('_asesorOriginal', ${aid}::int)
+        WHERE asignado_a = ${aid}
+          AND estado_marcacion IN ('PENDIENTE','EN_INTENTOS','CONTACTADO','NO_CONTACTADO')
+          AND (metadata->>'_asesorOriginal') IS NULL
+      `;
+      ocultos = Number(r) || 0;
+    }
+
     const now = new Date();
     const data = contactos.map(c => ({
       campanaId,
@@ -164,7 +182,64 @@ router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res
       fechaAsignacion: now,
     }));
     const result = await db.contacto.createMany({ data });
-    res.json({ success: true, count: result.count });
+    res.json({ success: true, count: result.count, ocultos });
+  } catch (err) { next(err); }
+});
+
+// POST /api/campanas/:id/ocultar-lista — Oculta contactos específicos por cédula/teléfono
+router.post('/:id/ocultar-lista', requireRole('admin', 'jefe_area'), async (req, res, next) => {
+  try {
+    const campanaId = parseInt(req.params.id);
+    const { cedulas = [], telefonos = [] } = req.body;
+    if (!cedulas.length && !telefonos.length)
+      return res.status(400).json({ error: 'Debe enviar al menos una cédula o teléfono.' });
+
+    let ocultos = 0;
+    if (cedulas.length) {
+      const r = await db.$executeRaw`
+        UPDATE contactos
+        SET metadata   = COALESCE(metadata::jsonb, '{}'::jsonb)
+                         || jsonb_build_object('_asesorOriginal', asignado_a),
+            asignado_a = NULL
+        WHERE campana_id = ${campanaId}
+          AND asignado_a IS NOT NULL
+          AND cedula = ANY(${cedulas}::text[])
+          AND (metadata->>'_asesorOriginal') IS NULL
+      `;
+      ocultos += Number(r) || 0;
+    }
+    if (telefonos.length) {
+      const r = await db.$executeRaw`
+        UPDATE contactos
+        SET metadata   = COALESCE(metadata::jsonb, '{}'::jsonb)
+                         || jsonb_build_object('_asesorOriginal', asignado_a),
+            asignado_a = NULL
+        WHERE campana_id = ${campanaId}
+          AND asignado_a IS NOT NULL
+          AND telefono = ANY(${telefonos}::text[])
+          AND (metadata->>'_asesorOriginal') IS NULL
+      `;
+      ocultos += Number(r) || 0;
+    }
+    res.json({ success: true, ocultos });
+  } catch (err) { next(err); }
+});
+
+// POST /api/campanas/:id/restaurar/:asesorId — Restaurar contactos ocultos de un asesor
+router.post('/:id/restaurar/:asesorId', requireRole('admin', 'jefe_area'), async (req, res, next) => {
+  try {
+    const campanaId = parseInt(req.params.id);
+    const asesorId  = parseInt(req.params.asesorId);
+    const restored = await db.$executeRaw`
+      UPDATE contactos
+      SET asignado_a = ${asesorId}::int,
+          metadata   = metadata - '_asesorOriginal'
+      WHERE campana_id = ${campanaId}
+        AND asignado_a IS NULL
+        AND (metadata->>'_asesorOriginal')::int = ${asesorId}
+    `;
+    // Notificar al asesor para que recargue su cartera
+    res.json({ success: true, restored: Number(restored) || 0 });
   } catch (err) { next(err); }
 });
 

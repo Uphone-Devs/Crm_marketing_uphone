@@ -16,6 +16,15 @@ import { assertChannelAllowedLocal, handleAuthStatus } from '../shared/apiClient
 
 const WS_PORT = 3001;
 
+// Labels del select de tipificación por fila (value → texto mostrado al colapsar).
+const TIPIF_ROW_LABELS = {
+  promesa_pago: '🤝 Promesa de pago', cuelga: 'Cuelga', no_contesta: 'No contesta',
+  equivocado: 'Equivocado', suspendido: 'Suspendido', negativa_pago: 'Negativa de pago',
+  tercero: 'Tercero', volver_llamar: 'Volver a llamar', buzon_voz: 'Buzón de voz',
+  ocupado: 'Ocupado', apagado: 'Apagado', no_disponible: 'No disponible',
+  no_whatsapp: 'No tiene WhatsApp', incorrecto: 'Incorrecto', notificado: 'Notificado',
+};
+
 // Empresa según fecha de compra: >= 2026-01-01 → UPHONE TEC SAS; antes → UPHONE SCC.
 // FECHA DE VENTA puede venir como serial Excel (número) o como string de fecha (JS Date).
 const CORTE_EMPRESA = new Date('2026-01-01T00:00:00');
@@ -161,12 +170,24 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [marcaciones, setMarcaciones] = useState(0);
   const [marcacionesDetalle, setMarcacionesDetalle] = useState([0, 0, 0]);
   // Contadores de acciones rápidas del día (WSP/SMS/EMAIL)
-  const [wspEnviados, setWspEnviados] = useState(0);
-  const [wspDetalle, setWspDetalle] = useState({ 0: 0, 1: 0, 2: 0 });
-  const [smsEnviados, setSmsEnviados] = useState(0);
-  const [smsDetalle, setSmsDetalle] = useState({ 0: 0, 1: 0, 2: 0 });
-  const [correosEnviados, setCorreosEnviados] = useState(0);
-  const [emailDetalle, setEmailDetalle] = useState({ 0: 0, 1: 0, 2: 0 });
+  // Persistidos en sessionStorage para sobrevivir recargas (clave: canal_counters_<id>_<fecha>)
+  const _ssKey = () => `canal_counters_${usuario?.id}_${new Date().toISOString().slice(0, 10)}`;
+  const _ssLoad = (field, fallback) => {
+    try { const d = JSON.parse(localStorage.getItem(_ssKey()) || '{}'); return d[field] ?? fallback; } catch { return fallback; }
+  };
+  const _ssSave = (patch) => {
+    try {
+      const k = _ssKey();
+      const d = JSON.parse(localStorage.getItem(k) || '{}');
+      localStorage.setItem(k, JSON.stringify({ ...d, ...patch }));
+    } catch {}
+  };
+  const [wspEnviados,    setWspEnviados]    = useState(() => _ssLoad('wsp', 0));
+  const [wspDetalle,     setWspDetalle]     = useState(() => _ssLoad('wspD', { 0: 0, 1: 0, 2: 0 }));
+  const [smsEnviados,    setSmsEnviados]    = useState(() => _ssLoad('sms', 0));
+  const [smsDetalle,     setSmsDetalle]     = useState(() => _ssLoad('smsD', { 0: 0, 1: 0, 2: 0 }));
+  const [correosEnviados, setCorreosEnviados] = useState(() => _ssLoad('mail', 0));
+  const [emailDetalle,   setEmailDetalle]   = useState(() => _ssLoad('mailD', { 0: 0, 1: 0, 2: 0 }));
   // Sidebar estado colapsado (icon-only)
   const [navCollapsed, setNavCollapsed] = useState(true);
 
@@ -176,9 +197,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
     catch { return null; }
   });
   const [showCampaignSelector, setShowCampaignSelector] = useState(!sessionStorage.getItem('active_campaign:v1'));
+  const [campanasLista, setCampanasLista] = useState([]); // aperturas del asesor (para revisión de métricas)
   const [dialingMode, setDialingMode] = useState('MANUAL');
   const [intentosConfig, setIntentosConfig] = useState(1);
   const [contactoActual, setContactoActual] = useState(null);
+  const contactoActualRef = useRef(null);
   const intentosContactoRef = useRef(0); // intentos acumulados sobre el contacto actual
 
   // ── Llamada Activa ──
@@ -198,6 +221,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [tipifInicial, setTipifInicial] = useState(null);
   const [tipificacionesCache, setTipificacionesCache] = useState([]);
   const [dashRefreshTrigger, setDashRefreshTrigger] = useState(0);
+  const [compromisoRefresh, setCompromisoRefresh] = useState(0);
   const [historialGestiones, setHistorialGestiones] = useState([]);
   const [historialContactoPopup, setHistorialContactoPopup] = useState(null);
   const [ritmoTick, setRitmoTick] = useState(0);
@@ -206,6 +230,24 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [compCumplidos, setCompCumplidos] = useState(0);
   const [compReagendados, setCompReagendados] = useState(0);
   const [compIncumplidos, setCompIncumplidos] = useState(0);
+  const [montoRecaudadoDB, setMontoRecaudadoDB] = useState(0);
+
+  // Revisión de apertura por CAMPAÑA: la barra de métricas muestra los totales
+  // ACUMULADOS (todo el tiempo) de la apertura seleccionada. Nada se pierde ni se
+  // mueve — se releen del backend por campaña. revisionCampanaId null → campaña de
+  // trabajo actual. campStats = totales acumulados de la campaña mostrada.
+  const [revisionCampanaId, setRevisionCampanaId] = useState(null);
+  const [campStats, setCampStats] = useState(null);
+
+  // Snapshot de gestiones_count por contacto en el momento que vuelta 1 llegó a 100%
+  // Key: `vuelta_baseline_${asesorId}_${fecha}`  →  { [contactoId]: gestiones_count }
+  const [vueltaBaseline, setVueltaBaseline] = useState(() => {
+    try {
+      const hoy = new Date().toISOString().slice(0, 10);
+      const raw = localStorage.getItem(`vuelta_baseline_${usuario?.id}_${hoy}`);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  });
 
   // Función Universal de Tiempo (vFinal): Resiliente a nombres de propiedades inconsistentes
   const formatRawTime = useCallback((itemOrStr) => {
@@ -243,6 +285,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // ── WiFi IP Modal ──
   const [showWifiModal, setShowWifiModal] = useState(false);
   const [wifiIp, setWifiIp] = useState('');
+  const [swapCells, setSwapCells] = useState(() => localStorage.getItem('uphone_swap_cells') === '1');
 
   const [progresoCampana, setProgresoCampana] = useState({ total: 0, gestionados: 0 });
   const [showAgendamientoModal, setShowAgendamientoModal] = useState(false);
@@ -278,6 +321,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
   const handleDialRef = useRef(null);
   const enviarMetricasWSRef = useRef(null);
+  const fetchMetricasRef = useRef(null);
   const carteraLastLoadRef = useRef(0); // timestamp última carga de cartera
   const estadoRef = useRef(estadoActual);
   const historialGestionesRef = useRef([]);
@@ -286,19 +330,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const metricasRef = useRef({
     marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
     wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos,
+    marcacionesDetalle,
   });
 
   // Sincronizar Refs con el estado de React (sin disparar re-renderizados)
   useEffect(() => { estadoRef.current = estadoActual; ritmoAlertaRef.current = 0; }, [estadoActual]);
+  useEffect(() => { contactoActualRef.current = contactoActual; }, [contactoActual]);
   useEffect(() => { historialGestionesRef.current = historialGestiones; }, [historialGestiones]);
   useEffect(() => { tiempoEstadoRef.current = tiempoEstado; }, [tiempoEstado]);
   useEffect(() => {
     metricasRef.current = {
       marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
       wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos,
+      marcacionesDetalle,
     };
   }, [marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
-      wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos]);
+      wspDetalle, smsDetalle, emailDetalle, compCumplidos, compReagendados, compIncumplidos,
+      marcacionesDetalle]);
 
   // ══════════════════════════════════════════════════════════
   // UNIVERSAL DATA FETCHING (Local vs Remote)
@@ -359,6 +407,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
           break;
         case 'db:getMetricasDia':
           url = `${apiBase}/metricas/${args[0] || usuario.id}?fecha=${args[1] || ''}&campanaId=${args[2]?.campanaId || ''}`;
+          break;
+        case 'db:getMetricasCampana':
+          url = `${apiBase}/metricas-campana/${args[0]}?usuario_id=${args[1] || usuario.id}`;
           break;
         case 'db:getCdrs':
           url = `${apiBase}/cdrs?fecha=${args[1] || ''}`;
@@ -553,6 +604,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       marcaciones, tiemposAcumulados, totalGestiones, totalCompromisos, tiempoEstado,
       wspDetalle: _wsp, smsDetalle: _sms, emailDetalle: _mail,
       compCumplidos: _cumpl, compReagendados: _reag, compIncumplidos: _incump,
+      marcacionesDetalle: _marcDet,
     } = metricasRef.current;
     const est = estadoRef.current;
 
@@ -589,6 +641,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
       compromisos_cumplidos:   _cumpl  || 0,
       compromisos_reagendados: _reag   || 0,
       compromisos_incumplidos: _incump || 0,
+      // Gestiones por segmento S0/S1/S2
+      marcaciones_detalle: _marcDet || [0, 0, 0],
+      // Segmento del contacto que está gestionando ahora mismo
+      segmento_actual: (() => {
+        const c = contactoActualRef.current;
+        if (!c) return null;
+        const meta = c.metadata || (typeof c.metadata === 'string' ? JSON.parse(c.metadata) : {});
+        const dias = parseInt(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '-1', 10);
+        if (isNaN(dias) || dias < 0) return null;
+        return dias === 0 ? 0 : dias === 1 ? 1 : 2;
+      })(),
     }));
   }, [usuario.id, progresoCampana]);
 
@@ -722,6 +785,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
             cdrIdLocal = r?.id ?? null;
             // Registrar CDR por contacto para que la tipificación lo reutilice (evita doble CDR).
             if (cdrIdLocal && contacto.id) cdrPorContactoRef.current[contacto.id] = cdrIdLocal;
+            // Actualizar gestiones_hoy optimísticamente al crear CDR (tipificación solo marca GESTIONADO).
+            if (cdrIdLocal && contacto.id) {
+              setCartera(prev => prev.map(x =>
+                x.id === contacto.id ? { ...x, gestiones_hoy: (x.gestiones_hoy || 0) + 1, gestiones_count: (x.gestiones_count || 0) + 1 } : x
+              ));
+            }
           } catch { /* no bloquea */ }
         }
         setCarteraLlamada({ contacto: typeof contacto === 'object' ? contacto : { telefono }, cdrId: cdrIdLocal });
@@ -938,7 +1007,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 : c
             ));
           }
+          fetchMetricasRef.current?.(); // refresca montoRecaudadoDB desde CDRs validados
           setDashRefreshTrigger(p => p + 1);
+          setCompromisoRefresh(p => p + 1);
         }
 
         if (msg.tipo === 'META_ACTUALIZADA') {
@@ -1094,7 +1165,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
         if (contacto.metadata && typeof contacto.metadata === 'string') {
           try { contacto.metadata = JSON.parse(contacto.metadata); } catch { /* ignorar */ }
         }
+        contactoActualRef.current = contacto;
         setContactoActual(contacto);
+        enviarMetricasWSRef.current?.();
         setCdrId(null);
         intentosContactoRef.current = 0;
         if (abrirPMP) {
@@ -1245,7 +1318,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         setIsDeviceConnected(!!stats.connected);
         setAdbDeviceCount(stats.deviceCount || 0);
         if (!!stats.connected) {
-          adbErrorNotifiedRef.current = false; // Reset when connected
+          adbErrorNotifiedRef.current = false;
         }
       } catch (err) {
         setIsDeviceConnected(false);
@@ -1287,9 +1360,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
         if (typeof data.tiempo_muerto  === 'number') setTiempoImproductivoDB(data.tiempo_muerto);
         if (Array.isArray(data.marcaciones_detalle))  setMarcacionesDetalle(data.marcaciones_detalle);
         // wsp/sms/email detalle se calculan desde cartera — no sobreescribir con totales históricos del servidor
-        if (typeof data.compromisos_cumplidos   === 'number') setCompCumplidos(data.compromisos_cumplidos);
         if (typeof data.compromisos_reagendados === 'number') setCompReagendados(data.compromisos_reagendados);
         if (typeof data.compromisos_incumplidos === 'number') setCompIncumplidos(data.compromisos_incumplidos);
+        // compromisos_cumplidos: backend actualizado usa tipificacion.codigo='PAGO_REAL'.
+        // Fallback para backend viejo (resultado='PAGO_REAL' siempre=0): query separada.
+        if (typeof data.compromisos_cumplidos === 'number' && data.compromisos_cumplidos > 0) {
+          setCompCumplidos(data.compromisos_cumplidos);
+        } else {
+          // Backend viejo: obtener count de PAGO_REAL desde mis-compromisos del día
+          try {
+            const hoy = new Date().toISOString().slice(0, 10);
+            const comps = await callApi('db:getCompromisosEquipo', hoy, usuario.id, { incluirVolCall: false });
+            if (Array.isArray(comps)) {
+              setCompCumplidos(comps.filter(r => r.tipificacion_codigo === 'PAGO_REAL').length);
+            }
+          } catch (_) { /* no bloquear si falla */ }
+        }
+        if (typeof data.monto_recaudado === 'number') setMontoRecaudadoDB(data.monto_recaudado);
         // Sincronizar contadores de sesión con la BD (cubre reconexiones mid-day)
         if (typeof data.cdrs_total       === 'number') setTotalGestiones(data.cdrs_total);
         if (typeof data.total_compromisos === 'number') setTotalCompromisos(data.total_compromisos);
@@ -1298,11 +1385,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
       console.warn('Error fetching metrics:', err);
     }
   }, [usuario.id, callApi, campana?.id]);
+  fetchMetricasRef.current = fetchMetricas;
 
   // Sincroniza métricas desde DB y luego empuja heartbeat WS con datos frescos.
   // Usado por AsesorCompromisos onCompromisoAction para actualizar supervisor inmediatamente.
   const fetchMetricasYEnviar = useCallback(async () => {
     await fetchMetricas();
+    setGestionTick(t => t + 1); // refresca acumulado por campaña de la barra
     // Esperar un tick para que React propague el nuevo state a metricasRef vía useEffect
     await new Promise(resolve => setTimeout(resolve, 50));
     enviarMetricasWS();
@@ -1313,6 +1402,53 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const refreshInterval = setInterval(fetchMetricas, 30000); // refresh cada 30 seg
     return () => clearInterval(refreshInterval);
   }, [fetchMetricas]);
+
+  // Métricas ACUMULADAS por apertura (campaña). La barra muestra los totales
+  // históricos completos de la campaña seleccionada — nunca se resetean por día ni
+  // se pierden. Se refresca al cambiar de campaña, al trabajar (gestionTick) y cada 30s.
+  const campVista = revisionCampanaId || campana?.id || null;
+  const [gestionTick, setGestionTick] = useState(0);
+  useEffect(() => {
+    if (!campVista || !usuario?.id) { setCampStats(null); return; }
+    let cancelado = false;
+    const cargar = async () => {
+      try {
+        const d = await callApi('db:getMetricasCampana', campVista, usuario.id);
+        if (cancelado || !d) return;
+        const ma = d.msg_acumulado || {};
+        const seg = (o) => ({ 0: o?.[0] || 0, 1: o?.[1] || 0, 2: o?.[2] || 0 });
+        setCampStats({
+          campanaId: d.campana_id,
+          campanaNombre: d.campana_nombre,
+          registros: d.registros || 0,
+          fechaAsignacion: d.fecha_asignacion || null,
+          marcaciones: d.marcaciones || 0,
+          wspEnviados: ma.wsp?.total || 0,
+          wspDetalle: seg(ma.wsp),
+          smsEnviados: ma.rcs?.total || 0,
+          smsDetalle: seg(ma.rcs),
+          correosEnviados: ma.correo?.total || 0,
+          emailDetalle: seg(ma.correo),
+          totalGestiones: d.cdrs_total || 0,
+          totalCompromisos: d.total_compromisos || 0,
+          compromisosCumplidos: d.compromisos_cumplidos || 0,
+          compromisosReagendados: d.compromisos_reagendados || 0,
+          compromisosIncumplidos: d.compromisos_incumplidos || 0,
+        });
+      } catch (err) { console.warn('[CAMP_METRICAS]', err?.message || err); }
+    };
+    cargar();
+    const iv = setInterval(cargar, 30000);
+    return () => { cancelado = true; clearInterval(iv); };
+  }, [campVista, usuario?.id, callApi, gestionTick]);
+
+  // Lista de aperturas del asesor — para el selector de revisión en la barra
+  useEffect(() => {
+    if (!usuario?.id) return;
+    callApi('db:getCampanas', usuario.id)
+      .then(d => { if (Array.isArray(d)) setCampanasLista(d); })
+      .catch(() => {});
+  }, [usuario?.id, callApi]);
 
   // Cargar tipificaciones al montar — cache para guardar sin abrir diálogo
   useEffect(() => {
@@ -1477,6 +1613,41 @@ export default function AsesorPanel({ usuario, onLogout }) {
       setSmsDetalle(rcs);
       setWspDetalle(wsp);
       setEmailDetalle(mail);
+      const rcsTot  = Object.values(rcs).reduce((a, b) => a + b, 0);
+      const wspTot  = Object.values(wsp).reduce((a, b) => a + b, 0);
+      const mailTot = Object.values(mail).reduce((a, b) => a + b, 0);
+      // Sólo restaurar contadores desde cartera si localStorage no tiene datos del día.
+      // Evitar sobreescribir contadores reales con 0 cuando la cartera no refleja envíos ya contados.
+      const _ssAlreadyHasData = (() => { try { return !!localStorage.getItem(_ssKey()); } catch { return false; } })();
+      if (!_ssAlreadyHasData) {
+        setSmsEnviados(rcsTot);
+        setWspEnviados(wspTot);
+        setCorreosEnviados(mailTot);
+        _ssSave({ wsp: wspTot, wspD: wsp, sms: rcsTot, smsD: rcs, mail: mailTot, mailD: mail });
+      } else {
+        // localStorage tiene datos → tomar MAX(localStorage, cartera) para no retroceder nunca
+        const _mergeD = (saved, fresh) => ({
+          0: Math.max((saved[0] || 0), (fresh[0] || 0)),
+          1: Math.max((saved[1] || 0), (fresh[1] || 0)),
+          2: Math.max((saved[2] || 0), (fresh[2] || 0)),
+        });
+        const savedSmsD  = _ssLoad('smsD', rcs);
+        const savedWspD  = _ssLoad('wspD', wsp);
+        const savedMailD = _ssLoad('mailD', mail);
+        const mergedSmsD  = _mergeD(savedSmsD,  rcs);
+        const mergedWspD  = _mergeD(savedWspD,  wsp);
+        const mergedMailD = _mergeD(savedMailD, mail);
+        const mergedSms  = Math.max(_ssLoad('sms',  rcsTot), rcsTot);
+        const mergedWsp  = Math.max(_ssLoad('wsp',  wspTot), wspTot);
+        const mergedMail = Math.max(_ssLoad('mail', mailTot), mailTot);
+        setSmsEnviados(mergedSms);
+        setWspEnviados(mergedWsp);
+        setCorreosEnviados(mergedMail);
+        setSmsDetalle(mergedSmsD);
+        setWspDetalle(mergedWspD);
+        setEmailDetalle(mergedMailD);
+        _ssSave({ sms: mergedSms, smsD: mergedSmsD, wsp: mergedWsp, wspD: mergedWspD, mail: mergedMail, mailD: mergedMailD });
+      }
     } catch (err) {
       console.error('[CARTERA]', err);
       setCartera([]);
@@ -1489,6 +1660,47 @@ export default function AsesorPanel({ usuario, onLogout }) {
   useEffect(() => {
     cargarCartera();
   }, [cargarCartera]);
+
+  // Restaurar contadores WSP/RCS/Correo desde cartera si se perdieron por recarga
+  useEffect(() => {
+    if (!cartera.length) return;
+    const ssHasData = (() => { try { return !!localStorage.getItem(_ssKey()); } catch { return false; } })();
+    if (ssHasData) return; // localStorage ya tiene datos, no sobreescribir
+    // Contar por canal y segmento desde cartera (backend ya filtra por hoy)
+    let wsp = 0, sms = 0, mail = 0;
+    const wspD = { 0: 0, 1: 0, 2: 0 }, smsD = { 0: 0, 1: 0, 2: 0 }, mailD = { 0: 0, 1: 0, 2: 0 };
+    cartera.forEach(c => {
+      const prod = (c.producto || '').toUpperCase();
+      const seg = prod.includes('TRAMO_0') ? 0 : prod.includes('TRAMO_1') ? 1 : prod.includes('TRAMO_2') ? 2 : null;
+      if (c.whatsapp_status === 'ENVIADO') { wsp++; if (seg !== null) wspD[seg]++; }
+      if (c.rcs_status     === 'ENVIADO') { sms++; if (seg !== null) smsD[seg]++; }
+      if (c.correo_status  === 'ENVIADO') { mail++; if (seg !== null) mailD[seg]++; }
+    });
+    if (wsp > 0 || sms > 0 || mail > 0) {
+      setWspEnviados(wsp);     setWspDetalle(wspD);
+      setSmsEnviados(sms);     setSmsDetalle(smsD);
+      setCorreosEnviados(mail); setEmailDetalle(mailD);
+      _ssSave({ wsp, wspD, sms, smsD, mail, mailD });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartera]);
+
+  // Detectar cuando vuelta 1 llega a 100% → guardar snapshot de gestiones_count como baseline
+  useEffect(() => {
+    if (!cartera.length || !usuario?.id) return;
+    if (vueltaBaseline) return; // ya guardado hoy
+    const total = cartera.length;
+    const esTrab = cartera.filter(c =>
+      c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'AGENDADO' || c.estado_marcacion === 'YA_PAGO'
+    ).length;
+    if (esTrab === total && total > 0) {
+      const snapshot = {};
+      cartera.forEach(c => { snapshot[c.id] = c.gestiones_count || 0; });
+      const hoy = new Date().toISOString().slice(0, 10);
+      localStorage.setItem(`vuelta_baseline_${usuario.id}_${hoy}`, JSON.stringify(snapshot));
+      setVueltaBaseline(snapshot);
+    }
+  }, [cartera, usuario?.id, vueltaBaseline]);
 
   // Cargar mensajes broadcast al montar (mensajes por segmento configurados por supervisor)
   useEffect(() => {
@@ -1663,7 +1875,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
         if (contacto.metadata && typeof contacto.metadata === 'string') {
           try { contacto.metadata = JSON.parse(contacto.metadata); } catch { /* ignorar */ }
         }
+        contactoActualRef.current = contacto; // sync ref inmediato para que enviarMetricasWS vea el segmento correcto
         setContactoActual(contacto);
+        enviarMetricasWSRef.current?.(); // broadcast segmento nuevo al supervisor en tiempo real
 
         // Fetch progreso actualizado
         const p = await callApi('db:getProgresoCampana', campana.id, usuario?.id);
@@ -1691,6 +1905,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     setShowCampaignSelector(false);
     
     // Resetear las métricas visuales instantáneamente para que arranquen de 0 en la UI
+    try { localStorage.removeItem(_ssKey()); } catch {}
     setMarcaciones(0);
     setTiempoProductivoDB(0);
     setTiempoImproductivoDB(0);
@@ -1726,7 +1941,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }
 
-  async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado, _contacto, _marcacion = false }) {
+  async function handleSaveTipificacion({ tipificacionId, notas, tipificacion, agendamiento, montoAcordado, _contacto, _marcacion = false, _nuevaGestion = false }) {
     // _contacto override evita race condition cuando se llama sin abrir diálogo
     const contactoSnapshot = _contacto || contactoActual;
 
@@ -1740,10 +1955,19 @@ export default function AsesorPanel({ usuario, onLogout }) {
     if (_marcacion && !cdrPrevio) setMarcaciones(prev => prev + 1);
 
     // Optimistic UI: INMEDIATO — antes de cualquier await para que el contador suba al instante
+    // cdrPrevio = CDR ya creado por handleAdbMarcar (la llamada). En ese caso gestiones_hoy
+    // ya se incrementó allí. Solo se incrementa aquí para tipificación directa (sin llamada previa).
     if (contactoSnapshot?.id) {
       setCartera(prev => prev.map(x =>
         x.id === contactoSnapshot.id
-          ? { ...x, estado_marcacion: 'GESTIONADO', gestiones_count: (x.gestiones_count || 0) + 1 }
+          ? {
+              ...x,
+              estado_marcacion: 'GESTIONADO',
+              ...(cdrPrevio ? {} : {
+                gestiones_hoy:   (x.gestiones_hoy   || 0) + 1,
+                gestiones_count: (x.gestiones_count || 0) + 1,
+              }),
+            }
           : x
       ));
     }
@@ -1752,7 +1976,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
       // Prioridad del CDR a finalizar: el del LLAMAR de ESTE contacto (cdrPrevio) SIEMPRE primero,
       // para no actualizar por error un cdrId viejo de otra llamada (evita doble registro/tipif).
       // Solo si no hubo llamada se usa cdrId de la llamada activa; y como último recurso se crea uno.
-      let activeCdrId = cdrPrevio || cdrId;
+      // _nuevaGestion (tipificación rápida desde la fila): cada pick = gestión nueva →
+      // NO reusar el cdrId global stale (eso solo actualizaría el CDR anterior sin contar).
+      // Si hubo llamada fresca de ESTE contacto (cdrPrevio) se finaliza esa; si no, se crea uno.
+      let activeCdrId = cdrPrevio || (_nuevaGestion ? null : cdrId);
       if (!activeCdrId && contactoSnapshot?.id) {
         console.warn('[TIPIFICACION] Sin CDR activo — creando CDR de respaldo');
         try {
@@ -2013,21 +2240,32 @@ export default function AsesorPanel({ usuario, onLogout }) {
           isConnected={isDeviceConnected}
           onLogout={onLogout}
           asesorStats={{
+            // TODO por apertura (campStats) = ACUMULADO, nunca se pierde ni resetea por día.
+            // Mensajería usa max(acumulado backend, live local): el backend cuenta contactos
+            // con *_enviado_fecha (persiste, no se pierde); el live sube al instante por cada
+            // envío. max() → nunca baja del acumulado histórico Y refleja el envío en vivo.
             tiempoProductivo: tiempoTotalProductivo,
             tiempoImproductivo: tiempoTotalImproductivo,
-            marcaciones,
-            marcacionesDetalle,
-            wspEnviados: Object.values(wspDetalle).reduce((a, b) => a + b, 0),
-            wspDetalle,
-            smsEnviados: Object.values(smsDetalle).reduce((a, b) => a + b, 0),
-            smsDetalle,
-            correosEnviados: Object.values(emailDetalle).reduce((a, b) => a + b, 0),
-            emailDetalle,
-            totalGestiones,
-            totalCompromisos,
-            compromisosCumplidos: compCumplidos,
-            compromisosReagendados: compReagendados,
-            compromisosIncumplidos: compIncumplidos,
+            marcaciones: campStats ? campStats.marcaciones : marcaciones,
+            marcacionesDetalle: campStats ? [0, 0, 0] : marcacionesDetalle,
+            wspEnviados: Math.max(campStats?.wspEnviados || 0, Object.values(wspDetalle).reduce((a, b) => a + b, 0)),
+            wspDetalle: campStats ? campStats.wspDetalle : wspDetalle,
+            smsEnviados: Math.max(campStats?.smsEnviados || 0, Object.values(smsDetalle).reduce((a, b) => a + b, 0)),
+            smsDetalle: campStats ? campStats.smsDetalle : smsDetalle,
+            correosEnviados: Math.max(campStats?.correosEnviados || 0, Object.values(emailDetalle).reduce((a, b) => a + b, 0)),
+            emailDetalle: campStats ? campStats.emailDetalle : emailDetalle,
+            totalGestiones: campStats ? campStats.totalGestiones : totalGestiones,
+            totalCompromisos: campStats ? campStats.totalCompromisos : totalCompromisos,
+            compromisosCumplidos: campStats ? campStats.compromisosCumplidos : compCumplidos,
+            compromisosReagendados: campStats ? campStats.compromisosReagendados : compReagendados,
+            compromisosIncumplidos: campStats ? campStats.compromisosIncumplidos : compIncumplidos,
+            // Selector de revisión de apertura
+            revisionCampanaId: campVista,
+            campanasLista,
+            campanaActivaId: campana?.id || null,
+            registros: campStats?.registros ?? null,
+            fechaAsignacion: campStats?.fechaAsignacion ?? null,
+            onRevisionCampanaChange: (id) => setRevisionCampanaId(id === (campana?.id || null) ? null : id),
           }}
         />
 
@@ -2497,13 +2735,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     {(() => {
                       const validados = cartera.filter(c => c.validado_pago === 1);
                       if (!validados.length) return null;
-                      const recaudado = validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
+                      // Fuente real: monto_pagado de validacion_pagos (montoRecaudadoDB del backend).
+                      // Fallback a suma de monto_deuda si aún no se cargó la métrica.
+                      const recaudado = montoRecaudadoDB > 0
+                        ? montoRecaudadoDB
+                        : validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
                       return (
                         <Kpi
                           label="Recaudado"
                           value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
                           color="#00e676"
-                          title={`${validados.length} contactos validados por supervisor`}
+                          title={`Monto validado por supervisor`}
                         />
                       );
                     })()}
@@ -2516,22 +2758,42 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 // "Gestionando" = ya trabajado (gestionado, agendado o ya pagó). PENDIENTE/EN_INTENTOS = falta.
                 const esTrabajado = (c) => c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'AGENDADO' || c.estado_marcacion === 'YA_PAGO';
                 const esPagado = (c) => c.validado_pago === 1 || c.ya_pago === 1;
-                const seg = { '0': { t: 0, g: 0, p: 0 }, '1': { t: 0, g: 0, p: 0 }, '2': { t: 0, g: 0, p: 0 } };
-                let genT = 0, genG = 0, genP = 0;
+                const seg = { '0': { t: 0, g: 0, p: 0, g2: 0, g3: 0, g4: 0 }, '1': { t: 0, g: 0, p: 0, g2: 0, g3: 0, g4: 0 }, '2': { t: 0, g: 0, p: 0, g2: 0, g3: 0, g4: 0 } };
+                let genT = 0, genG = 0, genP = 0, genG2 = 0, genG3 = 0, genG4 = 0;
+                const _nowWall = nowLocalISO().slice(0, 19); // wall-clock Guayaquil para comparar hora compromiso
                 cartera.forEach(c => {
                   let meta = {};
                   try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
                   const d = String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
                   const w = esTrabajado(c);
                   const p = esPagado(c);
-                  genT++; if (w) genG++; if (p) genP++;
-                  if (seg[d]) { seg[d].t++; if (w) seg[d].g++; if (p) seg[d].p++; }
+                  // Pagados: contador aparte (línea "han pagado"), siempre cuenta.
+                  if (p) { genP++; if (seg[d]) seg[d].p++; }
+                  // EXCLUIR de vueltas los que ya NO se van a gestionar:
+                  //  - pagados (ya_pago/validado/estado YA_PAGO)
+                  //  - compromiso de pago VIGENTE (agendamiento cuya hora aún no pasa)
+                  // Al pasar la hora, el compromiso vence → vuelve a contar y requiere gestión.
+                  const pagado = c.ya_pago === 1 || c.validado_pago === 1 || c.estado_marcacion === 'YA_PAGO';
+                  const compromisoVigente = c.agendamiento_fecha_hora
+                    && c.agendamiento_fecha_hora.slice(0, 19) > _nowWall;
+                  if (pagado || compromisoVigente) return; // no cuenta en gestionables
+                  // Vueltas 2+ por gestiones_count ACUMULADO (no gestiones_hoy): sube a 100%
+                  // cuando se gestiona todo lo gestionable y NO se resetea a medianoche.
+                  const en2 = (c.gestiones_count || 0) >= 2;
+                  const en3 = (c.gestiones_count || 0) >= 3;
+                  const en4 = (c.gestiones_count || 0) >= 4;
+                  genT++; if (w) genG++;
+                  if (en2) genG2++; if (en3) genG3++; if (en4) genG4++;
+                  if (seg[d]) {
+                    seg[d].t++; if (w) seg[d].g++;
+                    if (en2) seg[d].g2++; if (en3) seg[d].g3++; if (en4) seg[d].g4++;
+                  }
                 });
                 const cards = [
-                  { key: 'general', label: 'General',  sub: 'toda la cartera', icon: 'groups',              t: genT, g: genG, p: genP, color: '#00e676' },
-                  { key: '0',       label: '0 días',   sub: 'al día',          icon: 'sentiment_satisfied', t: seg['0'].t, g: seg['0'].g, p: seg['0'].p, color: '#00e676' },
-                  { key: '1',       label: '1 día',    sub: 'mora leve',       icon: 'schedule',            t: seg['1'].t, g: seg['1'].g, p: seg['1'].p, color: '#ffca28' },
-                  { key: '2',       label: '2 días',   sub: 'mora',            icon: 'warning',             t: seg['2'].t, g: seg['2'].g, p: seg['2'].p, color: '#ff9800' },
+                  { key: 'general', label: 'General',  sub: 'toda la cartera', icon: 'groups',              t: genT, g: genG, p: genP, g2: genG2, g3: genG3, g4: genG4, color: '#00e676' },
+                  { key: '0',       label: '0 días',   sub: 'al día',          icon: 'sentiment_satisfied', t: seg['0'].t, g: seg['0'].g, p: seg['0'].p, g2: seg['0'].g2, g3: seg['0'].g3, g4: seg['0'].g4, color: '#00e676' },
+                  { key: '1',       label: '1 día',    sub: 'mora leve',       icon: 'schedule',            t: seg['1'].t, g: seg['1'].g, p: seg['1'].p, g2: seg['1'].g2, g3: seg['1'].g3, g4: seg['1'].g4, color: '#ffca28' },
+                  { key: '2',       label: '2 días',   sub: 'mora',            icon: 'warning',             t: seg['2'].t, g: seg['2'].g, p: seg['2'].p, g2: seg['2'].g2, g3: seg['2'].g3, g4: seg['2'].g4, color: '#ff9800' },
                 ];
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 12 }}>
@@ -2539,10 +2801,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       const active = carteraFiltroDias === c.key;
                       const pct = c.t > 0 ? Math.round((c.g / c.t) * 100) : 0;
                       const falta = Math.max(0, c.t - c.g);
+                      // Vuelta activa dinámica (1→2→3→4+)
+                      const v1done = pct === 100 && c.t > 0;
+                      const v2done = v1done && c.g2 === c.t;
+                      const v3done = v2done && c.g3 === c.t;
+                      const v4done = v3done && c.g4 === c.t;
+                      const vueltaN = v4done ? 5 : v3done ? 4 : v2done ? 3 : v1done ? 2 : 1;
+                      const vueltaGn    = [c.g, c.g2, c.g3, c.g4, c.g4][vueltaN - 1];
+                      const vueltaPct   = c.t > 0 ? Math.round((vueltaGn / c.t) * 100) : 0;
+                      const vueltaColor = [c.color, '#64b5f6', '#ce93d8', '#ffd54f', '#ffd54f'][vueltaN - 1];
+                      const vueltaSub   = vueltaN === 1 ? c.sub : `✓ Vuelta ${Math.min(vueltaN - 1, 4)} completa`;
+                      const vueltaLabel = vueltaN > 1 ? `vuelta ${Math.min(vueltaN, 4)}` : 'contactados';
                       return (
                         <button type="button" key={c.key}
                           onClick={() => setCarteraFiltroDias(c.key)}
-                          title={`${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%`}
+                          title={`${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%${v1done ? ` · Vuelta ${Math.min(vueltaN, 4)}: ${vueltaGn}/${c.t} (${vueltaPct}%)` : ''}`}
                           onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = c.color + '99'; }}
                           onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = active ? c.color + '88' : 'rgba(255,255,255,0.08)'; }}
                           style={{
@@ -2565,22 +2838,22 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             </span>
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 800, color: active ? c.color : 'rgba(255,255,255,0.85)', lineHeight: 1.1 }}>{c.label}</div>
-                              <div style={{ fontSize: 10, opacity: 0.4 }}>{c.sub}</div>
+                              <div style={{ fontSize: 10, opacity: 0.4 }}>{vueltaSub}</div>
                             </div>
-                            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 900, color: c.color, background: `${c.color}1a`, padding: '3px 9px', borderRadius: 20 }}>{pct}%</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 900, color: vueltaColor, background: `${vueltaColor}1a`, padding: '3px 9px', borderRadius: 20 }}>{vueltaN === 1 ? `${pct}%` : `${vueltaPct}%`}</span>
                           </div>
-                          {/* Números principales: contactados / total */}
+                          {/* Números principales */}
                           <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 6 }}>
-                            <span style={{ fontSize: 24, fontWeight: 900, color: c.color, lineHeight: 1 }}>{c.g}</span>
+                            <span style={{ fontSize: 24, fontWeight: 900, color: vueltaColor, lineHeight: 1 }}>{vueltaGn}</span>
                             <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.45 }}>de {c.t}</span>
-                            <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.5, fontWeight: 600 }}>contactados</span>
+                            <span style={{ marginLeft: 'auto', fontSize: 10, opacity: 0.5, fontWeight: 600 }}>{vueltaLabel}</span>
                           </div>
-                          {/* Barra contactados */}
+                          {/* Barra */}
                           <div style={{ height: 5, borderRadius: 99, background: 'rgba(255,255,255,0.07)', overflow: 'hidden', marginBottom: 6 }}>
                             <div style={{
-                              width: `${pct}%`, height: '100%', borderRadius: 99,
-                              background: `linear-gradient(90deg, ${c.color}cc, ${c.color})`,
-                              boxShadow: pct > 0 ? `0 0 8px ${c.color}88` : 'none',
+                              width: `${vueltaN === 1 ? pct : vueltaPct}%`, height: '100%', borderRadius: 99,
+                              background: `linear-gradient(90deg, ${vueltaColor}cc, ${vueltaColor})`,
+                              boxShadow: `0 0 8px ${vueltaColor}88`,
                               transition: 'width 0.4s ease',
                             }} />
                           </div>
@@ -2932,12 +3205,52 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Correo</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>WSP</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>Llamada</th>
-                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={isDeviceConnected ? 'Marcar vía ADB — Celular 1 (conectado)' : 'Marcar vía ADB — Celular 1 (sin dispositivo)'}>📱1</th>
-                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }} title={adbDeviceCount >= 2 ? 'Llamada de voz por WhatsApp — Celular 2 (conectado)' : 'Llamada de voz por WhatsApp — Celular 2 (sin dispositivo)'}>📱2 WSP</th>
+                          <th style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }}>
+                            {swapCells ? '📱1 WSP' : '📱1'}
+                          </th>
+                          <th style={{ padding: '4px 6px', fontSize: 11, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', width: 44 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                              <span>{swapCells ? '📱2' : '📱2 WSP'}</span>
+                              <button type="button"
+                                title={swapCells ? 'Swap activo: Cel1=WSP / Cel2=Llamada — click para revertir' : 'Click para intercambiar: Cel1=WSP / Cel2=Llamada'}
+                                onClick={() => setSwapCells(prev => { const next = !prev; localStorage.setItem('uphone_swap_cells', next ? '1' : '0'); return next; })}
+                                style={{
+                                  fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 6, cursor: 'pointer',
+                                  border: `1px solid ${swapCells ? 'rgba(255,213,79,0.6)' : 'rgba(255,255,255,0.2)'}`,
+                                  background: swapCells ? 'rgba(255,213,79,0.15)' : 'transparent',
+                                  color: swapCells ? '#ffd54f' : 'rgba(255,255,255,0.4)',
+                                }}
+                              >⇄</button>
+                            </div>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
-                        {activos.map(c => {
+                        {(() => {
+                          // Vuelta activa por segmento (bucket 0/1/2 días mora) — para badge V2/V3/V4 por fila
+                          const _esTrab = ct => ct.estado_marcacion==='GESTIONADO'||ct.estado_marcacion==='AGENDADO'||ct.estado_marcacion==='YA_PAGO';
+                          const _seg = {'0':{t:0,g:0,g2:0,g3:0,g4:0},'1':{t:0,g:0,g2:0,g3:0,g4:0},'2':{t:0,g:0,g2:0,g3:0,g4:0}};
+                          const _nowWall2 = nowLocalISO().slice(0, 19);
+                          cartera.forEach(ct => {
+                            let m={}; try{m=typeof ct.metadata==='string'?JSON.parse(ct.metadata||'{}'):(ct.metadata||{});}catch(_){}
+                            const d=String(m['DIAS IMPAGO']||m['DIAS EN MORA']||m['DIAS EN INPAGO']||m['DIAS MORA']||'0');
+                            const s=_seg[d]; if(!s) return; // solo '0','1','2' son buckets válidos
+                            // Excluir pagados y compromisos vigentes (misma regla que las cards de segmento)
+                            const _pagado=ct.ya_pago===1||ct.validado_pago===1||ct.estado_marcacion==='YA_PAGO';
+                            const _compVig=ct.agendamiento_fecha_hora&&ct.agendamiento_fecha_hora.slice(0,19)>_nowWall2;
+                            if(_pagado||_compVig) return;
+                            s.t++; if(_esTrab(ct)) s.g++;
+                            if((ct.gestiones_count||0)>=2) s.g2++;
+                            if((ct.gestiones_count||0)>=3) s.g3++;
+                            if((ct.gestiones_count||0)>=4) s.g4++;
+                          });
+                          const segVueltaMap={};
+                          ['0','1','2'].forEach(k=>{
+                            const s=_seg[k];
+                            const v1=s.t>0&&s.g===s.t; const v2=v1&&s.g2===s.t; const v3=v2&&s.g3===s.t; const v4=v3&&s.g4===s.t;
+                            segVueltaMap[k]=v4?5:v3?4:v2?3:v1?2:1;
+                          });
+                          return activos.map(c => {
                           const esYaPagoDecl = c.estado_marcacion === 'YA_PAGO' && c.validado_pago !== 1;
                           const est = esYaPagoDecl
                             ? ESTADO_STYLE_YA_PAGO_DECL
@@ -2985,14 +3298,54 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 })()}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
-                                <span style={{
-                                  fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
-                                  background: est.bg, color: est.fg, whiteSpace: 'nowrap',
-                                  display: 'inline-flex', alignItems: 'center', gap: 3,
-                                }}>
-                                  {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>}
-                                  {est.label}
-                                </span>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                  <span style={{
+                                    fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+                                    background: est.bg, color: est.fg, whiteSpace: 'nowrap',
+                                    display: 'inline-flex', alignItems: 'center', gap: 3,
+                                  }}>
+                                    {yaGestionado && <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>}
+                                    {est.label}
+                                  </span>
+                                  {c.estado_marcacion === 'AGENDADO' && (
+                                    <span style={{ fontSize: 10, color: '#64b5f6', fontWeight: 700, letterSpacing: '0.03em', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                      <span className="material-symbols-outlined" style={{ fontSize: 10 }}>schedule</span>
+                                      {c.agendamiento_hora && c.agendamiento_hora !== '-'
+                                        ? c.agendamiento_hora.slice(0, 5)
+                                        : (c.ultima_tip_codigo === 'PMP' ? 'PMP' : '—')}
+                                    </span>
+                                  )}
+                                  {(() => {
+                                    const _bucket = String(diasMora || '0');
+                                    const _sv = segVueltaMap[_bucket]; // undefined si días mora > 2
+                                    if (!_sv || _sv < 2) return null;
+                                    const _vn = Math.min(_sv, 4);
+                                    const _done = (c.gestiones_count||0) >= _sv;
+                                    return _done ? (
+                                      // Ya gestionado en esta vuelta
+                                      <span style={{
+                                        fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 99,
+                                        background: 'rgba(255,152,0,0.18)', color: '#ffb74d',
+                                        border: '1px solid rgba(255,152,0,0.4)',
+                                        display: 'inline-flex', alignItems: 'center', gap: 2,
+                                      }} title={`✓ Gestionado en vuelta ${_vn} — ${c.gestiones_count} gestiones`}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: 10 }}>check</span>
+                                        {`V${_vn}`}
+                                      </span>
+                                    ) : (
+                                      // Pendiente en esta vuelta — resaltar para que el asesor lo identifique
+                                      <span style={{
+                                        fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 99,
+                                        background: 'rgba(244,67,54,0.18)', color: '#ef9a9a',
+                                        border: '1px solid rgba(244,67,54,0.5)',
+                                        display: 'inline-flex', alignItems: 'center', gap: 2,
+                                      }} title={`Pendiente en vuelta ${_vn} — aún no gestionado hoy`}>
+                                        <span className="material-symbols-outlined" style={{ fontSize: 10 }}>pending</span>
+                                        {`V${_vn}`}
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
                               </td>
                               <td style={{ padding: '8px 10px', fontWeight: 600, verticalAlign: 'middle' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -3043,7 +3396,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 {diasMora ? `${parseInt(diasMora, 10) || diasMora}` : '—'}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                                <span style={{
+                                <span title={`Total: ${c.gestiones_count || 0} | Hoy: ${c.gestiones_hoy || 0}`} style={{
                                   fontSize: 12, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
                                   background: c.gestiones_count > 0 ? 'rgba(0,230,118,0.15)' : 'rgba(255,255,255,0.05)',
                                   color: c.gestiones_count > 0 ? 'var(--color-primary)' : 'rgba(255,255,255,0.4)',
@@ -3056,7 +3409,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 const enviado = c[statusKey] === 'ENVIADO';
                                 const canalApi = canal === 'wsp' ? 'whatsapp' : canal;
                                 const esGestionado = c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'YA_PAGO';
-                                const bloqueado = enviado && esGestionado;
+                                // En vuelta 2+ (gestiones_count >= 2 acumulado) se permite reenviar aunque ya esté ENVIADO
+                                const enVuelta2Plus = (c.gestiones_count || 0) >= 2;
+                                const bloqueado = enviado && esGestionado && !enVuelta2Plus;
                                 const canalColor = canal === 'wsp' ? '#25D366' : canal === 'correo' ? '#f48fb1' : '#64b5f6';
                                 const canalIcon  = canal === 'wsp' ? 'chat' : canal === 'correo' ? 'mail' : 'sms';
                                 const canalLabel = canal === 'wsp' ? 'WhatsApp' : canal === 'correo' ? 'Gmail' : 'Google Messages';
@@ -3073,7 +3428,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         // seg nulo cuando diasMora > 2; usamos bucket 0 para que el global siempre cuente
                                         const bucket = seg ?? 0;
 
-                                        if (enviado) {
+                                        // En vuelta 2+ con status ya ENVIADO → abrir app directo sin toggle
+                                        if (enviado && enVuelta2Plus) {
+                                          // saltar al bloque de abrir mensajería (continúa después del if-enviado)
+                                        } else if (enviado) {
                                           // Desmarcar
                                           setCartera(prev => prev.map(x => x.id === c.id ? { ...x, [statusKey]: 'ACTIVO' } : x));
                                           if (canal === 'rcs')    setSmsDetalle(p => ({ ...p, [bucket]: Math.max(0, (p[bucket] || 0) - 1) }));
@@ -3176,7 +3534,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               <td style={{ padding: '6px 10px', textAlign: 'center', minWidth: 148 }}>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                                   <select
-                                    value={tipifSelects[c.id] || ''}
+                                    // value SIEMPRE '' (action-picker): permite tipificar el
+                                    // mismo resultado dos veces seguidas (ej. Buzón de voz →
+                                    // Buzón de voz). Con value controlado, onChange no dispara
+                                    // al reelegir el mismo valor. El estado real vive en tipifSelects.
+                                    value=""
                                     onChange={(e) => {
                                       const val = e.target.value;
                                       if (!val) return;
@@ -3195,7 +3557,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         const tipif = tipificacionesCache.find(t => t.codigo === code);
                                         if (!tipif) { setContactoActual(c); setCdrId(null); setTipifInicial(code); setTipifMarcaLlamada(true); setShowTipificacion(true); return; }
                                         setTipifSelects(prev => ({ ...prev, [c.id]: val }));
-                                        handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true });
+                                        handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true, _nuevaGestion: true });
                                       }
                                     }}
                                     style={{
@@ -3206,7 +3568,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       cursor: 'pointer', outline: 'none', appearance: 'none', textAlign: 'center', fontWeight: tipifSelects[c.id] ? 700 : 400,
                                     }}
                                   >
-                                    <option value="" disabled style={{ background: '#1e1e1e' }}>⚡ Tipificar...</option>
+                                    <option value="" disabled style={{ background: '#1e1e1e' }}>
+                                      {tipifSelects[c.id] ? (TIPIF_ROW_LABELS[tipifSelects[c.id]] || 'Tipificado') : '⚡ Tipificar...'}
+                                    </option>
                                     {[
                                       { value: 'promesa_pago',   label: '🤝 Promesa de pago' },
                                       { value: 'cuelga',         label: 'Cuelga' },
@@ -3258,64 +3622,79 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   </button>
                                 </div>
                               </td>
-                              {/* ── Columna ADB Celular 1 — siempre visible y activa ── */}
-                              <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                  <button
-                                    type="button"
-                                    title={`Marcar ${c.telefono} vía ADB — Celular 1${isDeviceConnected ? '' : ' (verificar depuración USB)'}`}
-                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, 0); }}
-                                    style={{
-                                      width: 32, height: 32, borderRadius: 8,
-                                      border: '1px solid rgba(100,181,246,0.35)',
-                                      background: 'rgba(100,181,246,0.10)',
-                                      color: '#64b5f6',
-                                      cursor: 'pointer',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      transition: 'all 0.2s',
-                                    }}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>phone_forwarded</span>
-                                  </button>
-                                  {/* Indicador de estado ADB Cel 1 */}
-                                  <div style={{
-                                    width: 6, height: 6, borderRadius: '50%',
-                                    background: isDeviceConnected ? '#00e676' : '#ff5252',
-                                    boxShadow: isDeviceConnected ? '0 0 4px #00e676' : 'none',
-                                  }} title={isDeviceConnected ? 'Celular 1 conectado' : 'Celular 1 desconectado'} />
-                                </div>
-                              </td>
-                              {/* ── Columna ADB Celular 2 — prototipo doble marcación ── */}
-                              <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                  <button
-                                    type="button"
-                                    title={`Llamada de voz por WhatsApp a ${c.telefono} — Celular 2${adbDeviceCount >= 2 ? '' : ' (no conectado)'}`}
-                                    onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, 1); }}
-                                    style={{
-                                      width: 32, height: 32, borderRadius: 8,
-                                      border: '1px solid rgba(171,71,188,0.35)',
-                                      background: 'rgba(171,71,188,0.10)',
-                                      color: '#ce93d8',
-                                      cursor: 'pointer',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      transition: 'all 0.2s',
-                                      opacity: adbDeviceCount >= 2 ? 1 : 0.45,
-                                    }}
-                                  >
-                                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>perm_phone_msg</span>
-                                  </button>
-                                  {/* Indicador de estado ADB Cel 2 */}
-                                  <div style={{
-                                    width: 6, height: 6, borderRadius: '50%',
-                                    background: adbDeviceCount >= 2 ? '#00e676' : '#ff5252',
-                                    boxShadow: adbDeviceCount >= 2 ? '0 0 4px #00e676' : 'none',
-                                  }} title={adbDeviceCount >= 2 ? 'Celular 2 conectado' : 'Celular 2 desconectado'} />
-                                </div>
-                              </td>
+                              {/* ── Columna ADB Celular 1 ── */}
+                              {(() => {
+                                const idx0 = swapCells ? 1 : 0;
+                                const isWsp0 = swapCells;
+                                return (
+                                  <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                      <button
+                                        type="button"
+                                        title={isWsp0 ? `WhatsApp a ${c.telefono} — Celular 1` : `Marcar ${c.telefono} — Celular 1`}
+                                        onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, idx0); }}
+                                        style={{
+                                          width: 32, height: 32, borderRadius: 8,
+                                          border: isWsp0 ? '1px solid rgba(171,71,188,0.35)' : '1px solid rgba(100,181,246,0.35)',
+                                          background: isWsp0 ? 'rgba(171,71,188,0.10)' : 'rgba(100,181,246,0.10)',
+                                          color: isWsp0 ? '#ce93d8' : '#64b5f6',
+                                          cursor: 'pointer',
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          transition: 'all 0.2s',
+                                          opacity: isWsp0 ? (adbDeviceCount >= 2 ? 1 : 0.45) : 1,
+                                        }}
+                                      >
+                                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                                          {isWsp0 ? 'perm_phone_msg' : 'phone_forwarded'}
+                                        </span>
+                                      </button>
+                                      <div style={{
+                                        width: 6, height: 6, borderRadius: '50%',
+                                        background: isDeviceConnected ? '#00e676' : '#ff5252',
+                                        boxShadow: isDeviceConnected ? '0 0 4px #00e676' : 'none',
+                                      }} />
+                                    </div>
+                                  </td>
+                                );
+                              })()}
+                              {/* ── Columna ADB Celular 2 ── */}
+                              {(() => {
+                                const idx1 = swapCells ? 0 : 1;
+                                const isWsp1 = !swapCells;
+                                return (
+                                  <td style={{ padding: '4px 4px', textAlign: 'center', width: 44 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                      <button
+                                        type="button"
+                                        title={isWsp1 ? `WhatsApp a ${c.telefono} — Celular 2` : `Marcar ${c.telefono} — Celular 2`}
+                                        onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, idx1); }}
+                                        style={{
+                                          width: 32, height: 32, borderRadius: 8,
+                                          border: isWsp1 ? '1px solid rgba(171,71,188,0.35)' : '1px solid rgba(100,181,246,0.35)',
+                                          background: isWsp1 ? 'rgba(171,71,188,0.10)' : 'rgba(100,181,246,0.10)',
+                                          color: isWsp1 ? '#ce93d8' : '#64b5f6',
+                                          cursor: 'pointer',
+                                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                          transition: 'all 0.2s',
+                                          opacity: adbDeviceCount >= 2 ? 1 : 0.45,
+                                        }}
+                                      >
+                                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                                          {isWsp1 ? 'perm_phone_msg' : 'phone_forwarded'}
+                                        </span>
+                                      </button>
+                                      <div style={{
+                                        width: 6, height: 6, borderRadius: '50%',
+                                        background: adbDeviceCount >= 2 ? '#00e676' : '#ff5252',
+                                        boxShadow: adbDeviceCount >= 2 ? '0 0 4px #00e676' : 'none',
+                                      }} />
+                                    </div>
+                                  </td>
+                                );
+                              })()}
                             </tr>
                           );
-                        })}
+                        }); })()}
                       </tbody>
                     </table>
                   </div>
@@ -3338,8 +3717,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     return String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0') === String(d);
                   }).length;
 
-                  // Base filtrada
-                  let base = [...cartera];
+                  // Base filtrada — excluir clientes que ya pagaron
+                  let base = cartera.filter(c => !c.ya_pago && !c.validado_pago);
                   if (loteFiltroDias !== 'general') {
                     base = base.filter(c => {
                       let meta = {};
@@ -3542,6 +3921,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               onCompromisoAction={async () => { await fetchMetricasYEnviar(); await cargarCartera(); }}
               highlightCdrId={highlightCdrId}
               onHighlightConsumed={() => setHighlightCdrId(null)}
+              refreshSignal={compromisoRefresh}
             />
           ) : activePage === 'dashboard' ? (
             <div className="asesor-layout-grid">
@@ -3845,16 +4225,16 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   onExternalDial={handleExternalDial}
                   ultimaTipificacion={historialGestiones?.[0]?.tipificacion_codigo || null}
                   onAccionRapida={(canal) => {
-                    if (canal === 'WSP')   setWspEnviados(prev => prev + 1);
-                    if (canal === 'SMS')   setSmsEnviados(prev => prev + 1);
-                    if (canal === 'EMAIL') setCorreosEnviados(prev => prev + 1);
+                    if (canal === 'WSP')   setWspEnviados(prev => { _ssSave({ wsp: prev + 1 }); return prev + 1; });
+                    if (canal === 'SMS')   setSmsEnviados(prev => { _ssSave({ sms: prev + 1 }); return prev + 1; });
+                    if (canal === 'EMAIL') setCorreosEnviados(prev => { _ssSave({ mail: prev + 1 }); return prev + 1; });
                     // Actualizar detalle por segmento (TRAMO_0→0, TRAMO_1→1, TRAMO_2→2)
                     const prod = (contactoActual?.producto || '').toUpperCase();
                     const seg = prod.includes('TRAMO_0') ? 0 : prod.includes('TRAMO_1') ? 1 : prod.includes('TRAMO_2') ? 2 : null;
                     if (seg !== null) {
-                      if (canal === 'WSP')   setWspDetalle(prev => ({ ...prev, [seg]: (prev[seg] || 0) + 1 }));
-                      if (canal === 'SMS')   setSmsDetalle(prev => ({ ...prev, [seg]: (prev[seg] || 0) + 1 }));
-                      if (canal === 'EMAIL') setEmailDetalle(prev => ({ ...prev, [seg]: (prev[seg] || 0) + 1 }));
+                      if (canal === 'WSP')   setWspDetalle(prev => { const n = { ...prev, [seg]: (prev[seg] || 0) + 1 }; _ssSave({ wspD: n }); return n; });
+                      if (canal === 'SMS')   setSmsDetalle(prev => { const n = { ...prev, [seg]: (prev[seg] || 0) + 1 }; _ssSave({ smsD: n }); return n; });
+                      if (canal === 'EMAIL') setEmailDetalle(prev => { const n = { ...prev, [seg]: (prev[seg] || 0) + 1 }; _ssSave({ mailD: n }); return n; });
                     }
                   }}
                 />
@@ -4204,23 +4584,24 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 <p style={{ opacity: 0.35, marginTop: 8, fontSize: 13 }}>Próximamente disponible.</p>
               </div>
           ) : (
-            <div className="card" style={{ maxWidth: 600, margin: '0 auto' }}>
-              <h3 className="text-headline-sm" style={{ marginBottom: 16 }}>Configuración de Red</h3>
-              <p className="text-body-sm" style={{ opacity: 0.7, marginBottom: 24 }}>
-                Configura la IP del servidor para conectarte en modo Multi-PC.
-              </p>
-              
-              <div style={{ marginBottom: 24 }}>
-                 <label className="text-label-sm" style={{ opacity: 0.6 }}>IP DEL JEFE DE ÁREA (WEBSOCKET)</label>
-                 <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                    <input aria-label="Campo" 
-                      type="text" 
-                      className="input" 
+            <div style={{ maxWidth: 600, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* ── Red ── */}
+              <div className="card">
+                <h3 className="text-headline-sm" style={{ marginBottom: 16 }}>Configuración de Red</h3>
+                <p className="text-body-sm" style={{ opacity: 0.7, marginBottom: 24 }}>
+                  Configura la IP del servidor para conectarte en modo Multi-PC.
+                </p>
+                <div style={{ marginBottom: 8 }}>
+                  <label className="text-label-sm" style={{ opacity: 0.6 }}>IP DEL JEFE DE ÁREA (WEBSOCKET)</label>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+                    <input aria-label="Campo"
+                      type="text"
+                      className="input"
                       value={wsIp}
                       onChange={e => setWsIp(e.target.value)}
                       placeholder="Ej: 192.168.1.100"
                     />
-                    <button type="button" 
+                    <button type="button"
                       className="btn btn-primary"
                       onClick={() => {
                         localStorage.setItem('uphone_ws_ip', wsIp);
@@ -4236,7 +4617,44 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       <span className="material-symbols-outlined">save</span>
                       Guardar y Conectar
                     </button>
-                 </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Orden de celulares ── */}
+              <div className="card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                  <h3 className="text-headline-sm" style={{ margin: 0 }}>Orden de Celulares</h3>
+                </div>
+                <p className="text-body-sm" style={{ opacity: 0.6, marginBottom: 16 }}>
+                  Si Cel 1 y Cel 2 aparecen invertidos (WSP haciendo llamadas y viceversa), activa esta opción para intercambiarlos.
+                </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 22, opacity: 0.7 }}>swap_horiz</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Invertir Cel 1 / Cel 2</div>
+                    <div style={{ fontSize: 11, opacity: 0.5, marginTop: 2 }}>
+                      {swapCells ? 'Activo — Cel 1 = WhatsApp · Cel 2 = Llamadas' : 'Normal — Cel 1 = Llamadas · Cel 2 = WhatsApp'}
+                    </div>
+                  </div>
+                  <button type="button"
+                    onClick={async () => {
+                      const next = !swapCells;
+                      setSwapCells(next);
+                      localStorage.setItem('uphone_swap_cells', next ? '1' : '0');
+                      try { await window.api.invoke('adb:setDeviceOrderInverted', next); } catch {}
+                      showToast(next ? 'Orden invertido: Cel1=WSP / Cel2=Llamada' : 'Orden normal restaurado', 'info');
+                    }}
+                    style={{
+                      padding: '6px 18px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      border: `1px solid ${swapCells ? 'rgba(255,213,79,0.5)' : 'rgba(255,255,255,0.2)'}`,
+                      background: swapCells ? 'rgba(255,213,79,0.15)' : 'rgba(255,255,255,0.06)',
+                      color: swapCells ? '#ffd54f' : 'rgba(255,255,255,0.7)',
+                    }}
+                  >
+                    {swapCells ? 'Desactivar' : 'Activar'}
+                  </button>
+                </div>
               </div>
             </div>
           )}

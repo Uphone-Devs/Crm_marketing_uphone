@@ -81,6 +81,8 @@ export default function JefePanel({ usuario, onLogout }) {
   const [activePage, setActivePage] = useState('dashboard_directivo'); // 'dashboard_directivo' | 'monitoreo' | 'metricas' | 'reportes' | 'config'
   const [dashDirectivoRefresh, setDashDirectivoRefresh] = useState(0);
   const [actividadRefresh, setActividadRefresh] = useState(0);
+  const [compromisoRefresh, setCompromisoRefresh] = useState(0);
+  const [carterasRefresh, setCarterasRefresh] = useState(0);
   const [asesoresAtrasados, setAsesoresAtrasados] = useState({}); // asesor_id → { nombre, gestiones, meta, deficit, ts }
   const [asesores, setAsesores] = useState([]);
   const [estadosWS, setEstadosWS] = useState({});
@@ -123,7 +125,7 @@ export default function JefePanel({ usuario, onLogout }) {
     fechaFin: todayLocalISO(),
     formato: 'xlsx',
   });
-  const [reporteTipo, setReporteTipo] = useState('actividad'); // 'actividad' | 'gestiones'
+  const [reporteTipo, setReporteTipo] = useState('actividad'); // 'actividad' | 'gestiones' | 'vencimientos' | 'marketing' | 'indicadores'
   const [eventos, setEventos] = useState([]);
   const [dialingMode, setDialingMode] = useState('MANUAL');
   const [intentosConfig, setIntentosConfig] = useState(1);
@@ -308,6 +310,7 @@ export default function JefePanel({ usuario, onLogout }) {
           agregarEvento('LLAMADA_TIPIFICADA', `${msg.nombre} tipificó contacto como: ${msg.tipificacion}`);
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
           setActividadRefresh(p => p + 1);
+          setCarterasRefresh(p => p + 1);
         }
         if (msg.tipo === 'RITMO_BAJO') {
           const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
@@ -344,6 +347,8 @@ export default function JefePanel({ usuario, onLogout }) {
               estado_actual_id: msg.estado_actual_id,
               progreso_campana: msg.progreso_campana,
               timestamp: msg.timestamp,
+              marcaciones_detalle: msg.marcaciones_detalle || [0, 0, 0],
+              segmento_actual: msg.segmento_actual ?? null,
             },
           }));
         }
@@ -367,6 +372,8 @@ export default function JefePanel({ usuario, onLogout }) {
         if (msg.tipo === 'PAGO_VALIDADO') {
           cargarMetricasAsesores();
           setDashDirectivoRefresh(p => p + 1);
+          setCompromisoRefresh(p => p + 1);
+          setCarterasRefresh(p => p + 1);
         }
         if (msg.tipo === 'META_ACTUALIZADA') {
           setDashDirectivoRefresh(p => p + 1);
@@ -565,7 +572,7 @@ export default function JefePanel({ usuario, onLogout }) {
         tiempo_al_aire: wsM.tiempo_productivo !== undefined ? wsM.tiempo_productivo : dbM.tiempo_al_aire || 0,
         tiempo_muerto: wsM.tiempo_improductivo !== undefined ? wsM.tiempo_improductivo : dbM.tiempo_muerto || 0,
         ratio_productividad: wsM.eficiencia !== undefined ? wsM.eficiencia : dbM.ratio_productividad || 0,
-        total_gestiones: wsM.total_gestiones !== undefined ? wsM.total_gestiones : (dbM.cdrs_total || 0),
+        total_gestiones: Math.max(wsM.total_gestiones || 0, dbM.cdrs_total || 0),
         total_compromisos: wsM.total_compromisos !== undefined ? wsM.total_compromisos : dbM.total_compromisos || 0,
         // Exponer también al nivel superior para AdvancedMetricsCharts
         total_asignados:     wsM.progreso_campana?.total      !== undefined ? wsM.progreso_campana.total      : (dbM.total_asignados  || 0),
@@ -581,10 +588,19 @@ export default function JefePanel({ usuario, onLogout }) {
         compromisos_cumplidos:   wsM.compromisos_cumplidos   !== undefined ? wsM.compromisos_cumplidos   : (dbM.compromisos_cumplidos   || 0),
         compromisos_reagendados: wsM.compromisos_reagendados !== undefined ? wsM.compromisos_reagendados : (dbM.compromisos_reagendados || 0),
         compromisos_incumplidos: wsM.compromisos_incumplidos !== undefined ? wsM.compromisos_incumplidos : (dbM.compromisos_incumplidos || 0),
+        // Gestiones por segmento S0/S1/S2 — WS (acumulado sesión) tiene prioridad; DB como fallback
+        marcaciones_detalle: wsM.marcaciones_detalle || dbM.marcaciones_detalle || [0, 0, 0],
+        // Segmento actual: contacto abierto ahora (WS) → fallback segmento con más marcaciones del día
+        segmento_actual: wsM.segmento_actual ?? (() => {
+          const det = wsM.marcaciones_detalle || dbM.marcaciones_detalle || [0, 0, 0];
+          const max = Math.max(det[0] || 0, det[1] || 0, det[2] || 0);
+          if (max === 0) return null;
+          return det.indexOf(max);
+        })(),
         // ratio_eficacia: gestiones / marcaciones
         ratio_eficacia: (() => {
           const marc = wsM.marcaciones !== undefined ? wsM.marcaciones : (dbM.total_marcaciones || 0);
-          const gest = wsM.total_gestiones !== undefined ? wsM.total_gestiones : (dbM.cdrs_total || 0);
+          const gest = Math.max(wsM.total_gestiones || 0, dbM.cdrs_total || 0);
           return marc > 0 ? Math.round((gest / marc) * 100) : 0;
         })(),
         // Métricas de cobranza — solo DB
@@ -768,7 +784,7 @@ export default function JefePanel({ usuario, onLogout }) {
     });
     const tasaRecuperacion = moraTotal > 0 ? Math.round((montoComprometido / moraTotal) * 10000) / 100 : 0;
     return {
-      totalConectados,
+      totalConectados: totalConectados || base.totalConectados || 0,
       marcacionesTotales: marcacionesTotales || base.marcacionesTotales || 0,
       tiempoAlAireSeg:    tiempoAlAireSeg    || base.tiempoAlAireSeg    || 0,
       montoComprometidoTotal: montoComprometido,
@@ -915,21 +931,43 @@ export default function JefePanel({ usuario, onLogout }) {
 
   async function generarReporte() {
     try {
-      const tipo = reporteTipo === 'gestiones'
-        ? (reporteFiltros.asesor_id ? 'gestiones' : 'gestiones_equipo')
-        : (reporteFiltros.asesor_id ? 'diario' : 'equipo');
-      let result;
+      const tipo = reporteTipo === 'vencimientos'
+        ? 'vencimientos_gestiones'
+        : reporteTipo === 'marketing'
+          ? 'gestor_marketing'
+          : reporteTipo === 'indicadores'
+            ? 'indicadores_compromisos'
+            : reporteTipo === 'gestiones'
+              ? (reporteFiltros.asesor_id ? 'gestiones' : 'gestiones_equipo')
+              : (reporteFiltros.asesor_id ? 'diario' : 'equipo');
       if (isRemote) {
         const params = new URLSearchParams({
           ...reporteFiltros,
-          fecha:    reporteFiltros.fechaInicio,
+          fecha:       reporteFiltros.fechaInicio,
           fecha_hasta: reporteFiltros.fechaFin || reporteFiltros.fechaInicio,
         });
-        result = await vmFetch(apiBase, authToken, `/reports/${tipo}?${params}`);
-        if (result.success) showToast('Reporte generado en el servidor VM', 'success');
-        else showToast(result.error || 'Error al generar reporte', 'error');
+        const url = `${apiBase}/reports/${tipo}?${params}`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.error || `Error HTTP ${res.status}`, 'error');
+          return;
+        }
+        const blob = await res.blob();
+        const disposition = res.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="?([^";\n]+)"?/);
+        const filename = match ? decodeURIComponent(match[1]) : `reporte_${tipo}.xlsx`;
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        showToast(`Reporte descargado: ${filename}`, 'success');
       } else {
-        result = await window.api.invoke('reports:generate', tipo, {
+        const result = await window.api.invoke('reports:generate', tipo, {
           ...reporteFiltros,
           fecha:    reporteFiltros.fechaInicio,
           fechaFin: reporteFiltros.fechaFin || reporteFiltros.fechaInicio,
@@ -942,7 +980,7 @@ export default function JefePanel({ usuario, onLogout }) {
         }
       }
     } catch (err) {
-      showToast('Error al generar reporte', 'error');
+      showToast('Error al generar reporte: ' + (err.message || err), 'error');
     }
   }
 
@@ -1088,6 +1126,22 @@ export default function JefePanel({ usuario, onLogout }) {
     const metricasParaMostrar = hayFiltroMet && metricasEquipoFiltradas
       ? metricasEquipoFiltradas
       : metricasEquipoEstable;
+
+    // Para los KPI cards (MetricsOverview): enriquecer con datos WS en tiempo real.
+    const metricasParaCards = hayFiltroMet ? metricasParaMostrar : {
+      ...metricasParaMostrar,
+      totalConectados:  metricasParaMostrar.totalConectados  || metricasEquipoFusionadas?.totalConectados  || Object.keys(estadosWS).length || 0,
+      tiempoAlAireSeg:  metricasParaMostrar.tiempoAlAireSeg  || metricasEquipoFusionadas?.tiempoAlAireSeg  || 0,
+      marcacionesTotales: metricasParaMostrar.marcacionesTotales || metricasEquipoFusionadas?.marcacionesTotales || 0,
+      cdrsTotalEquipo:    metricasParaMostrar.cdrsTotalEquipo    || metricasEquipoFusionadas?.cdrsTotalEquipo    || 0,
+    };
+
+    // Cuando no hay filtro activo, usar métricas de equipo fusionadas con WS
+    // para que los charts se actualicen en tiempo real.
+    const metricasEquipoParaCharts = hayFiltroMet
+      ? metricasParaMostrar
+      : (metricasEquipoFusionadas || metricasParaMostrar);
+
     return (
       <div className="sup-metricas-tab">
         {/* Barra de filtros */}
@@ -1188,7 +1242,7 @@ export default function JefePanel({ usuario, onLogout }) {
 
         <MetricasErrorBoundary>
         <MetricsOverview
-          metricas={metricasParaMostrar}
+          metricas={metricasParaCards}
           validacion={metricasValidacion}
           onCardClick={(key) => setDetalleModal(key)}
           onNavigate={setActivePage}
@@ -1196,7 +1250,8 @@ export default function JefePanel({ usuario, onLogout }) {
 
         <AdvancedMetricsCharts
           metricas={metricas}
-          metricasEquipo={metricasParaMostrar}
+          metricasEquipo={metricasEquipoParaCharts}
+          metricasLive={metricasFusionadas}
           asesores={asesores}
           filtroFechaDesde={metricasFiltroDesde || null}
           filtroFechaHasta={metricasFiltroHasta || null}
@@ -1210,102 +1265,221 @@ export default function JefePanel({ usuario, onLogout }) {
   }
 
   function renderTabReportes() {
+    const REPORT_META = {
+      actividad:    { label: 'ACTIVIDAD / MÉTRICAS',     icon: 'bar_chart',        desc: 'Métricas de productividad del equipo: tiempo al aire, marcaciones, eficiencia y compromisos por asesor.' },
+      gestiones:    { label: 'REPORTE DE GESTIONES',     icon: 'phone_in_talk',    desc: 'CDRs detallados por asesor o equipo: tipificación, canal, días mora, monto acordado y resultado.' },
+      vencimientos: { label: 'VENCIMIENTOS Y GESTIONES', icon: 'event_busy',       desc: 'Gestiones diarias segmentadas por días mora (0/1/2 días): unidades, dinero, WHASP, llamadas y compromisos.' },
+      marketing:    { label: 'GESTOR DE MARKETING',      icon: 'campaign',         desc: 'Gestiones por asesor por día: incluye llamadas y envíos masivos (WhatsApp / RCS / Correo).' },
+      indicadores:  { label: 'INDICADORES COMPROMISOS',  icon: 'task_alt',         desc: 'Compromisos de pago y cumplimiento diario por segmento mora, con comparativa semana anterior.' },
+    };
+    const meta = REPORT_META[reporteTipo];
+    const showNivel = reporteTipo !== 'vencimientos' && reporteTipo !== 'marketing' && reporteTipo !== 'indicadores';
+
     return (
-      <div className="sup-reportes-tab">
-        <div className="card" style={{ maxWidth: 600 }}>
-          <div className="widget-header">
-            <h3 className="widget-title">Configuración de Exportación</h3>
-          </div>
-          
-          <div className="reporte-form" style={{ padding: 0 }}>
-            <div style={{ marginBottom: 24 }}>
-              <label className="reporte-form__label">Tipo de Reporte</label>
-              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <button type="button"
-                  className={`btn btn-sm ${reporteTipo === 'actividad' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setReporteTipo('actividad')}
-                >ACTIVIDAD / MÉTRICAS</button>
-                <button type="button"
-                  className={`btn btn-sm ${reporteTipo === 'gestiones' ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setReporteTipo('gestiones')}
-                >REPORTE DE GESTIONES</button>
+      <div style={{ padding: '24px 0' }}>
+        {/* Título sección */}
+        <div style={{ marginBottom: 24 }}>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: '#f0f6fc', letterSpacing: 1 }}>
+            Exportación de Reportes
+          </h2>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#8b949e' }}>
+            Selecciona el tipo de reporte, el rango de fechas y el formato de descarga
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>
+
+          {/* ── Columna izquierda: formulario ── */}
+          <div className="card" style={{ padding: '28px 28px 24px' }}>
+
+            {/* Tipo de reporte — grid 3+2 */}
+            <div style={{ marginBottom: 28 }}>
+              <label className="reporte-form__label" style={{ marginBottom: 12, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
+                TIPO DE REPORTE
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                {Object.entries(REPORT_META).slice(0, 3).map(([key, m]) => (
+                  <button key={key} type="button"
+                    onClick={() => setReporteTipo(key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                      borderRadius: 8, border: reporteTipo === key ? '2px solid #00e676' : '1px solid #30363d',
+                      background: reporteTipo === key ? 'rgba(0,230,118,0.12)' : '#161b22',
+                      color: reporteTipo === key ? '#00e676' : '#8b949e',
+                      fontWeight: 700, fontSize: 11, letterSpacing: 0.8, cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{m.icon}</span>
+                    {m.label}
+                  </button>
+                ))}
               </div>
-            </div>
-            <div style={{ marginBottom: 24 }}>
-              <label className="reporte-form__label">Nivel de Reporte</label>
-              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <button type="button" 
-                  className={`btn btn-sm ${!reporteFiltros.asesor_id ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setReporteFiltros(p => ({ ...p, asesor_id: '' }))}
-                >
-                  EQUIPO COMPLETO
-                </button>
-                <button type="button" 
-                  className={`btn btn-sm ${reporteFiltros.asesor_id ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setReporteFiltros(p => ({ ...p, asesor_id: asesores[0]?.id || '' }))}
-                >
-                  ASESOR ESPECÍFICO
-                </button>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 8 }}>
+                {Object.entries(REPORT_META).slice(3).map(([key, m]) => (
+                  <button key={key} type="button"
+                    onClick={() => setReporteTipo(key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                      borderRadius: 8, border: reporteTipo === key ? '2px solid #00e676' : '1px solid #30363d',
+                      background: reporteTipo === key ? 'rgba(0,230,118,0.12)' : '#161b22',
+                      color: reporteTipo === key ? '#00e676' : '#8b949e',
+                      fontWeight: 700, fontSize: 11, letterSpacing: 0.8, cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{m.icon}</span>
+                    {m.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {reporteFiltros.asesor_id && (
+            {/* Nivel de reporte */}
+            {showNivel && (
               <div style={{ marginBottom: 24 }}>
-                <label className="reporte-form__label">Seleccionar Asesor</label>
-                <select
-                  className="input"
-                  value={reporteFiltros.asesor_id}
-                  onChange={e => setReporteFiltros(p => ({ ...p, asesor_id: e.target.value }))}
-                >
-                  {asesores.map(a => (
-                    <option key={a.id} value={a.id}>{a.nombre}</option>
+                <label className="reporte-form__label" style={{ marginBottom: 10, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
+                  NIVEL DE REPORTE
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[['', 'group', 'EQUIPO COMPLETO'], [asesores[0]?.id || '', 'person', 'ASESOR ESPECÍFICO']].map(([val, icon, lbl]) => (
+                    <button key={lbl} type="button"
+                      onClick={() => setReporteFiltros(p => ({ ...p, asesor_id: val }))}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px',
+                        borderRadius: 8, border: (val === '' ? !reporteFiltros.asesor_id : !!reporteFiltros.asesor_id) ? '2px solid #00e5ff' : '1px solid #30363d',
+                        background: (val === '' ? !reporteFiltros.asesor_id : !!reporteFiltros.asesor_id) ? 'rgba(0,229,255,0.10)' : '#161b22',
+                        color: (val === '' ? !reporteFiltros.asesor_id : !!reporteFiltros.asesor_id) ? '#00e5ff' : '#8b949e',
+                        fontWeight: 600, fontSize: 11, letterSpacing: 0.8, cursor: 'pointer',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
+                      {lbl}
+                    </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Selector asesor */}
+            {showNivel && reporteFiltros.asesor_id && (
+              <div style={{ marginBottom: 24 }}>
+                <label className="reporte-form__label" style={{ marginBottom: 8, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
+                  ASESOR
+                </label>
+                <select className="input" value={reporteFiltros.asesor_id}
+                  onChange={e => setReporteFiltros(p => ({ ...p, asesor_id: e.target.value }))}
+                  style={{ background: '#161b22', borderColor: '#30363d', color: '#f0f6fc' }}
+                >
+                  {asesores.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                 </select>
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '16px', marginTop: '16px' }}>
-              <div style={{ flex: 1 }}>
-                <label className="reporte-form__label">Fecha Inicio</label>
-                <input aria-label="Fecha Inicio"
-                  className="input"
-                  type="date"
-                  value={reporteFiltros.fechaInicio}
-                  onChange={e => setReporteFiltros(p => ({ ...p, fechaInicio: e.target.value }))}
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label className="reporte-form__label">Fecha Fin</label>
-                <input aria-label="Fecha Fin"
-                  className="input"
-                  type="date"
-                  value={reporteFiltros.fechaFin}
-                  onChange={e => setReporteFiltros(p => ({ ...p, fechaFin: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <label className="reporte-form__label" style={{ marginTop: 24 }}>Formato de Salida</label>
-            <div style={{ display: 'flex', gap: 12 }}>
-              {['xlsx', 'pdf', 'csv'].map(fmt => (
-                <button type="button" 
-                  key={fmt}
-                  className={`btn btn-sm ${reporteFiltros.formato === fmt ? 'btn-primary' : 'btn-outline'}`}
-                  onClick={() => setReporteFiltros(p => ({ ...p, formato: fmt }))}
-                >
-                  {fmt.toUpperCase()}
-                </button>
+            {/* Fechas */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+              {[['fechaInicio', 'Fecha Inicio', 'calendar_today'], ['fechaFin', 'Fecha Fin', 'event']].map(([field, lbl, icon]) => (
+                <div key={field}>
+                  <label className="reporte-form__label" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, letterSpacing: 1.5 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{icon}</span>
+                    {lbl.toUpperCase()}
+                  </label>
+                  <input aria-label={lbl} className="input" type="date"
+                    value={reporteFiltros[field]}
+                    onChange={e => setReporteFiltros(p => ({ ...p, [field]: e.target.value }))}
+                    style={{ background: '#161b22', borderColor: '#30363d', color: '#f0f6fc' }}
+                  />
+                </div>
               ))}
             </div>
 
-            <button type="button" 
-              className="btn btn-primary btn-lg" 
-              style={{ width: '100%', marginTop: 32 }}
-              onClick={generarReporte}
+            {/* Formato */}
+            <div style={{ marginBottom: 28 }}>
+              <label className="reporte-form__label" style={{ marginBottom: 10, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
+                FORMATO DE SALIDA
+              </label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[['xlsx', 'table_chart', '#00e676'], ['pdf', 'picture_as_pdf', '#ef4444'], ['csv', 'data_object', '#ffb74d']].map(([fmt, icon, activeColor]) => (
+                  <button key={fmt} type="button"
+                    onClick={() => setReporteFiltros(p => ({ ...p, formato: fmt }))}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '9px 18px',
+                      borderRadius: 8,
+                      border: reporteFiltros.formato === fmt ? `2px solid ${activeColor}` : '1px solid #30363d',
+                      background: reporteFiltros.formato === fmt ? `${activeColor}1a` : '#161b22',
+                      color: reporteFiltros.formato === fmt ? activeColor : '#8b949e',
+                      fontWeight: 700, fontSize: 12, letterSpacing: 1, cursor: 'pointer',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
+                    {fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Botón descargar */}
+            <button type="button" onClick={generarReporte}
+              style={{
+                width: '100%', padding: '14px 0', borderRadius: 10,
+                background: 'linear-gradient(135deg, #00e676, #00b248)',
+                border: 'none', color: '#0d1117',
+                fontWeight: 800, fontSize: 14, letterSpacing: 1.5,
+                cursor: 'pointer', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: 10,
+                boxShadow: '0 4px 20px rgba(0,230,118,0.3)',
+                transition: 'opacity 0.15s',
+              }}
             >
-              <span className="material-symbols-outlined">download</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>download</span>
               GENERAR Y DESCARGAR
             </button>
+          </div>
+
+          {/* ── Columna derecha: info del reporte seleccionado ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Card info reporte */}
+            <div style={{
+              background: '#161b22', borderRadius: 12, border: '1px solid #21262d',
+              padding: '22px 20px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 10,
+                  background: 'rgba(0,230,118,0.15)', border: '1px solid rgba(0,230,118,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#00e676' }}>{meta.icon}</span>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#8b949e', letterSpacing: 1, marginBottom: 2 }}>REPORTE SELECCIONADO</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#00e676' }}>{meta.label}</div>
+                </div>
+              </div>
+              <p style={{ margin: 0, fontSize: 12, color: '#8b949e', lineHeight: 1.7 }}>{meta.desc}</p>
+            </div>
+
+            {/* Card resumen configuración */}
+            <div style={{
+              background: '#161b22', borderRadius: 12, border: '1px solid #21262d',
+              padding: '18px 20px',
+            }}>
+              <div style={{ fontSize: 11, color: '#8b949e', letterSpacing: 1, marginBottom: 12 }}>CONFIGURACIÓN ACTUAL</div>
+              {[
+                ['Período', `${reporteFiltros.fechaInicio} → ${reporteFiltros.fechaFin}`],
+                ['Formato', reporteFiltros.formato.toUpperCase()],
+                ...(showNivel ? [['Nivel', reporteFiltros.asesor_id
+                  ? (asesores.find(a => String(a.id) === String(reporteFiltros.asesor_id))?.nombre || 'Asesor')
+                  : 'Equipo completo']] : []),
+              ].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, color: '#6e7681' }}>{k}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#c9d1d9' }}>{v}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -1611,6 +1785,7 @@ export default function JefePanel({ usuario, onLogout }) {
               authToken={authToken}
               refreshSignal={actividadRefresh}
               estadosWS={estadosWS}
+              metricasCanales={metricasFusionadas}
             />
           )}
           {activePage === 'compromisos' && (
@@ -1630,10 +1805,11 @@ export default function JefePanel({ usuario, onLogout }) {
                 return window.api.invoke(ch, ...args);
               }}
               asesores={asesores}
+              refreshSignal={compromisoRefresh}
             />
           )}
           {activePage === 'carteras' && (
-            <CarterasEquipo callApi={async (ch, ...args) => {
+            <CarterasEquipo refreshSignal={carterasRefresh} callApi={async (ch, ...args) => {
               if (!isRemote) return window.api.invoke(ch, ...args);
               if (ch === 'db:getCarteraEquipo') return vmFetch(apiBase, authToken, '/cartera-equipo');
               if (ch === 'cartera:reordenar') {

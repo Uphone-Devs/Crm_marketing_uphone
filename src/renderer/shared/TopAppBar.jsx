@@ -58,9 +58,44 @@ export default function TopAppBar({
   }, []);
 
   if (asesorStats) {
+    const {
+      revisionCampanaId, campanasLista = [], campanaActivaId,
+      registros, fechaAsignacion, onRevisionCampanaChange,
+    } = asesorStats;
+    const revisandoOtra = revisionCampanaId && revisionCampanaId !== campanaActivaId;
     return (
       <header className="top-app-bar top-app-bar--asesor">
         <Logo width="100px" className="top-app-bar__logo" style={{ marginRight: 24 }} />
+
+        {/* Selector de revisión de apertura — totales acumulados por campaña */}
+        {campanasLista.length > 0 && onRevisionCampanaChange && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginRight: 16, minWidth: 150 }}>
+            <span style={{ fontSize: 9, letterSpacing: '0.08em', opacity: 0.5, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>folder_open</span>
+              Apertura {revisandoOtra && <b style={{ color: '#ffb300' }}>· revisión</b>}
+            </span>
+            <select
+              value={revisionCampanaId || ''}
+              onChange={(e) => onRevisionCampanaChange(e.target.value ? parseInt(e.target.value) : null)}
+              title="Revisar totales acumulados de cualquier apertura"
+              style={{
+                fontSize: 11, fontWeight: 700, maxWidth: 200,
+                background: revisandoOtra ? 'rgba(255,179,0,0.12)' : 'rgba(0,0,0,0.3)',
+                border: `1px solid ${revisandoOtra ? 'rgba(255,179,0,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: 6, color: revisandoOtra ? '#ffb300' : 'inherit', padding: '3px 6px', cursor: 'pointer',
+              }}
+            >
+              {campanasLista.map(c => (
+                <option key={c.id} value={c.id}>
+                  {(c.nombre || `Campaña ${c.id}`).replace(/\.xlsx$/i, '')}{c.id === campanaActivaId ? '  ●' : ''}
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: 9, opacity: 0.45 }}>
+              {registros != null ? `${registros} reg` : ''}{fechaAsignacion ? ` · asig ${fechaAsignacion.slice(5)}` : ''}
+            </span>
+          </div>
+        )}
 
         {/* Timers */}
         <div className="asesor-timers">
@@ -97,7 +132,7 @@ export default function TopAppBar({
           <div className="asesor-stat-pill" style={{ flexDirection: 'row', alignItems: 'center', gap: 16, paddingRight: 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <span className="asesor-stat-pill__label">COMPROMISOS</span>
-              <span className="asesor-stat-pill__value asesor-stat-pill__value--comp" style={{ color: '#00e676' }}>{asesorStats.totalCompromisos || 0}</span>
+              <span className="asesor-stat-pill__value asesor-stat-pill__value--comp" style={{ color: '#00e676' }}>{Math.max(0, (asesorStats.totalCompromisos || 0) - (asesorStats.compromisosCumplidos || 0))}</span>
             </div>
             <div style={{ display: 'flex', gap: 12, borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: 16 }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>

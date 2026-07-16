@@ -67,13 +67,14 @@ const CODIGOS_CONFIRMABLES  = new Set(['PMP', 'AB_PARC', 'PEND_COMP']);
 const CODIGOS_REAGENDABLES  = new Set(['PMP', 'AB_PARC', 'PEND_COMP', 'VOL_CALL']);
 const CODIGOS_INCUMPLIBLES  = new Set(['PMP', 'AB_PARC', 'PEND_COMP']);
 
-export default function AsesorCompromisos({ usuario, onGestionar, callApi, showToast, onCompromisoAction, highlightCdrId, onHighlightConsumed }) {
+export default function AsesorCompromisos({ usuario, onGestionar, callApi, showToast, onCompromisoAction, highlightCdrId, onHighlightConsumed, refreshSignal }) {
   const hoy = todayLocalISO();
   const [fecha, setFecha] = useState(hoy);
   const [tipoFiltro, setTipoFiltro] = useState('');
   const [textoFiltro, setTextoFiltro] = useState('');
   const [registros, setRegistros] = useState([]);
   const [cargando, setCargando] = useState(false);
+  const [mostrarPagados, setMostrarPagados] = useState(true);
   const [descargandoXls, setDescargandoXls] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   // Estado del formulario de confirmación de pago
@@ -136,7 +137,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
     }
   };
 
-  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, usuario?.id]);
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, usuario?.id, refreshSignal]);
 
   // Auto-expandir fila cuando viene highlight desde alerta 5-min
   useEffect(() => {
@@ -154,6 +155,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   const filtrados = useMemo(() => {
     const txt = textoFiltro.trim().toLowerCase();
     return registros.filter(r => {
+      if (!mostrarPagados && r.resultado === 'COMP_CUM') return false;
       if (tipoFiltro && r.tipificacion_codigo !== tipoFiltro) return false;
       if (!txt) return true;
       const hay = [
@@ -162,9 +164,10 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
       ].filter(Boolean).join(' ').toLowerCase();
       return hay.includes(txt);
     });
-  }, [registros, textoFiltro, tipoFiltro]);
+  }, [registros, textoFiltro, tipoFiltro, mostrarPagados]);
 
   // KPIs específicos del asesor
+  const cntPagados   = registros.filter(r => r.resultado === 'COMP_CUM').length;
   const cntPMP       = filtrados.filter(r => r.tipificacion_codigo === 'PMP').length;
   const cntPago      = filtrados.filter(r => r.tipificacion_codigo === 'PAGO_REAL').length;
   const cntVolCall   = filtrados.filter(r => r.tipificacion_codigo === 'VOL_CALL').length;
@@ -406,11 +409,27 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
             }}
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setMostrarPagados(p => !p)}
+          style={{
+            padding: '5px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+            background: mostrarPagados ? 'rgba(0,230,118,0.15)' : 'rgba(255,255,255,0.05)',
+            border: mostrarPagados ? '1px solid rgba(0,230,118,0.4)' : '1px solid rgba(255,255,255,0.1)',
+            color: mostrarPagados ? 'var(--color-primary)' : 'rgba(255,255,255,0.5)',
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+            {mostrarPagados ? 'visibility' : 'visibility_off'}
+          </span>
+          Pagados
+        </button>
       </div>
 
       {/* KPI cards */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-        <KpiCard label="Total registros"   value={filtrados.length}  color="rgba(255,255,255,0.7)" icon="format_list_bulleted" />
+        <KpiCard label="Total compromisos"  value={`${registros.length} · ${cntPagados} pag.`} color="rgba(255,255,255,0.7)" icon="format_list_bulleted" />
         <KpiCard label="Compromisos PMP"   value={cntPMP}            color="#64b5f6"                icon="handshake" />
         <KpiCard label="Pagos realizados"  value={cntPago}           color="var(--color-primary)"  icon="payments" />
         <KpiCard label="Volver a llamar"   value={cntVolCall}        color="#ff8a65"               icon="phone_callback" />
@@ -448,7 +467,10 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                 const esIncumplido = r.tipificacion_codigo === 'INCUMP' || r.resultado === 'INCUMP';
                 const color = TIPO_COLOR[r.tipificacion_codigo] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc' };
                 const promesa = fmtPromesaInfo(r.fecha_promesa);
-                const rowBg = esIncumplido
+                const esPagado = r.resultado === 'COMP_CUM';
+                const rowBg = esPagado
+                  ? 'rgba(0,230,118,0.05)'
+                  : esIncumplido
                   ? 'rgba(244,67,54,0.04)'
                   : promesa?.urgent  ? 'rgba(255,193,7,0.06)'
                   : promesa?.isPast  ? 'rgba(244,67,54,0.04)'

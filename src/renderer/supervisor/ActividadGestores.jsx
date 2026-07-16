@@ -12,7 +12,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
  * Estilos: tokens de theme.css (.card, .data-table, .badge, .dot, .avatar).
  */
 
-const CATEGORIAS = ['CONTACTO EXITOSO', 'CONTACTO NEUTRO', 'NO CONTACTADO'];
+const CATEGORIAS = ['NO CONTACTADO'];
 const CAT_META = {
   'CONTACTO EXITOSO': { label: 'Contacto Exitoso', color: 'var(--color-primary)',  bg: 'rgba(0, 255, 127, 0.08)',  icon: 'task_alt' },
   'CONTACTO NEUTRO':  { label: 'Contacto Neutro',  color: 'var(--color-tertiary)', bg: 'rgba(255, 192, 172, 0.08)', icon: 'contact_support' },
@@ -41,7 +41,19 @@ function iniciales(nombre) {
     .join('');
 }
 
-export default function ActividadGestores({ apiBase, authToken, refreshSignal, estadosWS }) {
+const CANAL_META = {
+  wsp:    { label: 'WSP',    color: '#00e676', icon: 'chat' },
+  sms:    { label: 'RCS',    color: '#64b5f6', icon: 'sms' },
+  correo: { label: 'CORREO', color: '#ce93d8', icon: 'mail' },
+};
+const CANAL_KEYS = ['wsp', 'sms', 'correo'];
+const CANAL_DETALLE = {
+  wsp:    'wsp_detalle',
+  sms:    'sms_detalle',
+  correo: 'email_detalle',
+};
+
+export default function ActividadGestores({ apiBase, authToken, refreshSignal, estadosWS, metricasCanales }) {
   const [fecha, setFecha] = useState(hoyStr());
   const [data, setData] = useState(null);
   const [cargando, setCargando] = useState(false);
@@ -176,42 +188,58 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
       </div>
 
       {/* ── Cards resumen del equipo ── */}
-      <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 'var(--space-lg)' }}>
-        <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)' }}>
-          <div className="text-label" style={{ color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>
-            Gestiones del día
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-            <span className="text-mono" style={{ fontSize: 26, fontWeight: 800 }}>{equipo.total_count}</span>
-            <span style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>
-              {fmtTiempo(equipo.total_tiempo)} al aire
-            </span>
-          </div>
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-on-surface-variant)', opacity: 0.6 }}>
-            {conectadosCount}/{asesores.length} gestores conectados
-          </div>
-        </div>
-        {CATEGORIAS.map(cat => {
-          const meta = CAT_META[cat];
-          const c = equipo.cats[cat];
-          const pct = equipo.total_count > 0 ? Math.round((c.count / equipo.total_count) * 100) : 0;
-          return (
-            <div key={cat} className="card" style={{ padding: 'var(--space-md) var(--space-lg)', borderLeft: `3px solid ${meta.color}` }}>
-              <div className="text-label" style={{ color: meta.color, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{meta.icon}</span>
-                {meta.label}
+      {(() => {
+        const totalAsignados  = asesores.reduce((s, a) => s + (a.total_asignados || 0), 0);
+        const totalGestionados = asesores.reduce((s, a) => s + (a.gestionados     || 0), 0);
+        const pctAvanceEquipo = totalAsignados > 0 ? Math.min(100, Math.round((totalGestionados / totalAsignados) * 100)) : 0;
+        const noContact = equipo.cats['NO CONTACTADO'];
+        const pctNoContact = equipo.total_count > 0 ? Math.round((noContact.count / equipo.total_count) * 100) : 0;
+        return (
+          <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 'var(--space-lg)' }}>
+            <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)' }}>
+              <div className="text-label" style={{ color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>
+                Llamadas tipificadas hoy
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800, color: meta.color }}>{c.count}</span>
-                <span style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>{pct}%</span>
+                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800 }}>{equipo.total_count}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>
+                  {fmtTiempo(equipo.total_tiempo)} al aire
+                </span>
               </div>
               <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-on-surface-variant)', opacity: 0.6 }}>
-                {fmtTiempo(c.tiempo)} al aire
+                {conectadosCount}/{asesores.length} gestores conectados
               </div>
             </div>
-          );
-        })}
-      </div>
+            <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)', borderLeft: '3px solid #00e676' }}>
+              <div className="text-label" style={{ color: '#00e676', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>trending_up</span>
+                Avance Cartera
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800, color: '#00e676' }}>{totalGestionados}</span>
+                <span style={{ fontSize: 12, opacity: 0.6 }}>/ {totalAsignados}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#00e676' }}>{pctAvanceEquipo}%</span>
+              </div>
+              <div style={{ marginTop: 6, height: 3, maxWidth: 140, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${pctAvanceEquipo}%`, background: '#00e676', borderRadius: 99 }} />
+              </div>
+            </div>
+            <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)', borderLeft: `3px solid ${CAT_META['NO CONTACTADO'].color}` }}>
+              <div className="text-label" style={{ color: CAT_META['NO CONTACTADO'].color, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>phone_missed</span>
+                No Contactados
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
+                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800 }}>{noContact.count}</span>
+                <span style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>{pctNoContact}%</span>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-on-surface-variant)', opacity: 0.6 }}>
+                {fmtTiempo(noContact.tiempo)} al aire
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Matriz gestores ── */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -219,12 +247,27 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
           <thead>
             <tr>
               <th style={{ padding: '14px 20px' }}>Gestor</th>
+              <th style={{ padding: '14px 20px', color: '#00e676' }}>Avance Cartera</th>
               {CATEGORIAS.map(cat => (
                 <th key={cat} style={{ padding: '14px 20px', color: CAT_META[cat].color }}>
                   {CAT_META[cat].label}
                 </th>
               ))}
-              <th style={{ padding: '14px 20px' }}>Total</th>
+              <th style={{ padding: '14px 20px' }}>Total Llamadas</th>
+              <th style={{ padding: '14px 16px', color: '#ffd54f', fontSize: 11, letterSpacing: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>my_location</span>
+                  SEG. ACTUAL
+                </div>
+              </th>
+              {CANAL_KEYS.map(k => (
+                <th key={k} style={{ padding: '14px 16px', color: CANAL_META[k].color, fontSize: 11, letterSpacing: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{CANAL_META[k].icon}</span>
+                    {CANAL_META[k].label}
+                  </div>
+                </th>
+              ))}
               <th style={{ padding: '14px 20px', width: 40 }} />
             </tr>
           </thead>
@@ -261,12 +304,54 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                         <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
                           {a.nombre}
                         </div>
-                        <div style={{ fontSize: 11, color: conectado ? 'var(--color-primary)' : 'var(--color-on-surface-variant)', opacity: conectado ? 0.9 : 0.5 }}>
+                        <div style={{ fontSize: 11, color: conectado ? 'var(--color-primary)' : 'var(--color-on-surface-variant)', opacity: conectado ? 0.9 : 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {conectado ? 'Conectado' : 'Desconectado'}
+                          {(() => {
+                            const seg = metricasCanales?.[a.asesor_id]?.segmento_actual;
+                            if (seg == null || !conectado) return null;
+                            const SCOLS = ['#ffd54f', '#ff8a65', '#ef9a9a'];
+                            return (
+                              <span style={{
+                                fontSize: 10, fontWeight: 900, padding: '1px 6px',
+                                borderRadius: 4, background: `${SCOLS[seg]}22`,
+                                color: SCOLS[seg], border: `1px solid ${SCOLS[seg]}66`,
+                                letterSpacing: 0.5,
+                              }}>
+                                EN S{seg}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
                   </td>
+                  {/* ── AVANCE CARTERA ── */}
+                  {(() => {
+                    const asignados = a.total_asignados || 0;
+                    const gestionados = a.gestionados || 0;
+                    const pctAvance = asignados > 0 ? Math.min(100, Math.round((gestionados / asignados) * 100)) : 0;
+                    return (
+                      <td style={{ padding: '14px 20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                          <span className="text-mono" style={{ fontSize: 16, fontWeight: 800, color: '#00e676' }}>
+                            {gestionados}
+                          </span>
+                          <span style={{ fontSize: 12, opacity: 0.5 }}>/</span>
+                          <span style={{ fontSize: 13, opacity: 0.7 }}>{asignados}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#00e676', marginLeft: 4 }}>
+                            {pctAvance}%
+                          </span>
+                        </div>
+                        <div className="progress" style={{ marginTop: 6, height: 3, maxWidth: 100, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%', width: `${pctAvance}%`,
+                            background: pctAvance >= 70 ? '#00e676' : pctAvance >= 40 ? '#ffc107' : '#ff5252',
+                            borderRadius: 99, transition: 'width 0.4s',
+                          }} />
+                        </div>
+                      </td>
+                    );
+                  })()}
                   {CATEGORIAS.map(cat => celdaCategoria(a, cat))}
                   <td style={{ padding: '14px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -279,6 +364,55 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                       <div className="progress-fill" style={{ width: `${pctEquipo}%` }} />
                     </div>
                   </td>
+                  {(() => {
+                    const seg = metricasCanales?.[a.asesor_id]?.segmento_actual;
+                    const SCOLS = ['#ffd54f', '#ff8a65', '#ef9a9a'];
+                    const SLABELS = ['Mora 0d', 'Mora 1d', 'Mora ≥2d'];
+                    return (
+                      <td style={{ padding: '10px 16px' }} onClick={e => e.stopPropagation()}>
+                        {seg != null ? (
+                          <div style={{
+                            display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                            padding: '6px 12px', borderRadius: 8,
+                            background: `${SCOLS[seg]}15`,
+                            border: `1px solid ${SCOLS[seg]}44`,
+                          }}>
+                            <span style={{ fontSize: 18, fontWeight: 900, color: SCOLS[seg], lineHeight: 1 }}>
+                              S{seg}
+                            </span>
+                            <span style={{ fontSize: 10, opacity: 0.6, color: SCOLS[seg] }}>
+                              {SLABELS[seg]}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 12, opacity: 0.2 }}>—</span>
+                        )}
+                      </td>
+                    );
+                  })()}
+                  {CANAL_KEYS.map(k => {
+                    const cm = metricasCanales?.[a.asesor_id] || {};
+                    const det = cm[CANAL_DETALLE[k]] || { 0: 0, 1: 0, 2: 0 };
+                    const total = (det[0] || 0) + (det[1] || 0) + (det[2] || 0);
+                    const meta = CANAL_META[k];
+                    return (
+                      <td key={k} style={{ padding: '10px 16px' }} onClick={e => e.stopPropagation()}>
+                        <span className="text-mono" style={{
+                          fontSize: 15, fontWeight: 700,
+                          color: total > 0 ? meta.color : 'rgba(229,226,225,0.2)',
+                        }}>
+                          {total}
+                        </span>
+                        {total > 0 && (
+                          <div style={{ display: 'flex', gap: 4, marginTop: 3, fontSize: 10, opacity: 0.65 }}>
+                            {[0, 1, 2].map(s => (
+                              <span key={s} style={{ color: meta.color }}>S{s}:{det[s] || 0}</span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
                   <td style={{ padding: '14px 12px', textAlign: 'right' }}>
                     <span className="material-symbols-outlined" style={{ fontSize: 18, opacity: 0.35 }}>
                       chevron_right

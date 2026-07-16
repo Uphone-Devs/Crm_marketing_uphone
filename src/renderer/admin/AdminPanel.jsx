@@ -1073,7 +1073,7 @@ export default function AdminPanel() {
       if (IS_VM(dbConfig)) {
         const raw = await vmApiFetch(dbConfig.vmUrl, dbConfig.vmToken, '/api/admin/connected');
         const mapped = [
-          ...( raw.asesores || []).map(a => ({ tipo: 'ASESOR', nombre: a.nombre, asesor_id: a.asesor_id, estado: { nombre_estado: a.nombre_estado } })),
+          ...( raw.asesores || []).map(a => ({ tipo: 'ASESOR', nombre: a.nombre, asesor_id: a.asesor_id, estado: { nombre_estado: a.nombre_estado }, metricas: a.metricas || {} })),
           ...Array(raw.supervisores || 0).fill(null).map((_, i) => ({ tipo: 'SUPERVISOR', nombre: `Jefe de Area ${i + 1}` }))
         ];
         setConnUsers(mapped);
@@ -1087,7 +1087,14 @@ export default function AdminPanel() {
     try {
       if (IS_VM(dbConfig)) {
         const data = await vmApiFetch(dbConfig.vmUrl, dbConfig.vmToken, '/api/metricas-equipo');
-        setGlobalMet(data);
+        // Normalizar campos: el endpoint usa nombres distintos a los que espera AdminPanel
+        setGlobalMet({
+          ...data,
+          totalMarcaciones:  data.marcacionesTotales  ?? data.total_marcaciones ?? 0,
+          totalCompromisos:  data.totalCompromisosEquipo ?? 0,
+          moraBaseTotal:     data.moraBaseTotal ?? 0,
+          totalConectados:   data.totalConectados ?? 0,
+        });
       } else {
         setGlobalMet(await window.api.invoke('admin:getGlobalMetrics'));
       }

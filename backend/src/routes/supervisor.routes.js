@@ -6,6 +6,7 @@
 
 const { Router } = require('express');
 const { Prisma } = require('@prisma/client');
+const ExcelJS = require('exceljs');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { broadcastToAll, getConnectedStats } = require('../wsServer');
@@ -15,6 +16,22 @@ router.use(authMiddleware);
 
 function isSupervisor(rol) {
   return rol === 'jefe_area' || rol === 'jefe' || rol === 'admin';
+}
+
+// ── Helper: límites de día Guayaquil ─────────────────────────────────────────
+// CRÍTICO: cdrs.timestamp_inicio es `timestamp WITHOUT time zone`, guarda el
+// wall-clock local de Guayaquil como naive (Prisma lo lee tal cual, tag UTC).
+// Por eso los límites de "día" deben ser la fecha calendario Guayaquil etiquetada
+// como UTC — NO `new Date().setHours(0)` (que aplica el offset del server GMT-5 y
+// desfasa 5h → excluye gestiones de 00:00–10:00 y rompe justo tras medianoche).
+// fechaStr opcional 'YYYY-MM-DD' (Guayaquil). Sin arg → hoy Guayaquil.
+function _gyeDayBounds(fechaStr) {
+  const ymd = fechaStr || new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
+  return {
+    ymd,
+    inicio: new Date(`${ymd}T00:00:00.000Z`),
+    fin:    new Date(`${ymd}T23:59:59.999Z`),
+  };
 }
 
 // ── Helper: Resolve contacto WHERE with JSON metadata filters ─────────────────
@@ -108,13 +125,11 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
 
-    // 'T00:00:00' fuerza parseo en tz local (sin sufijo, Date parsea UTC y corre el día)
-    const base = req.query.fecha ? new Date(`${req.query.fecha}T00:00:00`) : new Date();
-    if (isNaN(base.getTime())) {
+    // Límites de día Guayaquil (naive-UTC) — ver _gyeDayBounds
+    if (req.query.fecha && isNaN(new Date(req.query.fecha).getTime())) {
       return res.status(400).json({ error: 'Fecha inválida' });
     }
-    const inicio = new Date(base); inicio.setHours(0, 0, 0, 0);
-    const fin    = new Date(base); fin.setHours(23, 59, 59, 999);
+    const { inicio, fin } = _gyeDayBounds(req.query.fecha);
 
     const asesorIds = await getAsesorIdsDelEquipo(req.user); // null = admin (todos)
     const usuarioWhere = { estado: 'activo', rol: 'asesor' };
@@ -125,11 +140,12 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       orderBy: { nombre: 'asc' },
     });
 
-    const [grupos, tipifs] = await Promise.all([
+    const asesorIdList = asesores.map(a => a.id);
+    const [grupos, tipifs, avanceRows] = await Promise.all([
       db.cdr.groupBy({
         by: ['usuarioId', 'tipificacionId'],
         where: {
-          usuarioId: { in: asesores.map(a => a.id) },
+          usuarioId: { in: asesorIdList },
           timestampInicio: { gte: inicio, lte: fin },
           tipificacionId: { not: null },
         },
@@ -139,7 +155,14 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       db.tipificacion.findMany({
         select: { id: true, codigo: true, descripcion: true, categoria: true },
       }),
+      Promise.all(asesorIdList.map(id =>
+        Promise.all([
+          db.contacto.count({ where: { asignadoA: id } }),
+          db.contacto.count({ where: { asignadoA: id, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } }),
+        ]).then(([asignados, gestionados]) => ({ id, asignados, gestionados }))
+      )),
     ]);
+    const avanceMap = new Map(avanceRows.map(x => [x.id, x]));
 
     const tipMap = new Map(tipifs.map(t => [t.id, t]));
     const CAT_CANON = {
@@ -163,6 +186,8 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       detalle: [],
       total_count: 0,
       total_tiempo_seg: 0,
+      total_asignados: avanceMap.get(a.id)?.asignados || 0,
+      gestionados: avanceMap.get(a.id)?.gestionados || 0,
     }]));
 
     for (const g of grupos) {
@@ -188,10 +213,7 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
     const salida = [...porAsesor.values()];
     salida.forEach(a => a.detalle.sort((x, y) => y.count - x.count));
 
-    const y = inicio.getFullYear();
-    const m = String(inicio.getMonth() + 1).padStart(2, '0');
-    const d = String(inicio.getDate()).padStart(2, '0');
-    res.json({ fecha: `${y}-${m}-${d}`, asesores: salida });
+    res.json({ fecha: _gyeDayBounds(req.query.fecha).ymd, asesores: salida });
   } catch (err) { next(err); }
 });
 
@@ -202,9 +224,7 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
     if (req.user.rol === 'asesor' && req.user.id !== targetId) {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
-    const fecha = req.query.fecha ? new Date(req.query.fecha) : new Date();
-    const inicio = new Date(fecha); inicio.setHours(0, 0, 0, 0);
-    const fin = new Date(fecha); fin.setHours(23, 59, 59, 999);
+    const { inicio, fin, ymd } = _gyeDayBounds(req.query.fecha);
     const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
 
     // Mensajería: filtrar por campaña si está seleccionada, si no por asignación
@@ -243,12 +263,13 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
     const codigosCompromiso = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
 
     const [
-      cdrsHoy, agendados, gestionados,
+      cdrsHoy, cdrsConTipifAsesor, agendados, gestionados,
       wspEnv, rcsEnv, correoEnv,
       wspActivo, rcsActivo, correoActivo,
       compCumpl, compReag, compIncump,
     ] = await Promise.all([
       db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin } } }).catch(() => 0),
+      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, tipificacionId: { not: null } } }).catch(() => 0),
       db.agendamiento.count({ where: { asesorId: targetId, creadoEn: { gte: inicio, lte: fin } } }).catch(() => 0),
       db.contacto.count({ where: { asignadoA: targetId, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } }).catch(() => 0),
       db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ENVIADO' } }).catch(() => 0),
@@ -257,9 +278,9 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ACTIVO'  } }).catch(() => 0),
       db.contacto.count({ where: { ...msgWhere, rcsStatus:       'ACTIVO'  } }).catch(() => 0),
       db.contacto.count({ where: { ...msgWhere, correoStatus:    'ACTIVO'  } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'PAGO_REAL' } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'REAG'      } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'INCUMP'    } }).catch(() => 0),
+      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'COMP_CUM' } }).catch(() => 0),
+      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'REAG' } }).catch(() => 0),
+      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'INCUMP' } }).catch(() => 0),
     ]);
 
     const [cdrsConTipif, pmpHoy, tiemposEstado] = await Promise.all([
@@ -268,6 +289,11 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
           usuarioId: targetId,
           timestampInicio: { gte: inicio, lte: fin },
           tipificacion: { codigo: { in: codigosCompromiso } },
+          contacto: {
+            validacion_pagos: {
+              none: { validado_en: { gte: inicio, lte: fin } }
+            }
+          }
         },
       }).catch(() => 0),
       db.cdr.count({
@@ -296,22 +322,57 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
 
     // Monto comprometido (compromisos del día) · recaudado (compromisos cumplidos) ·
     // mora base (deuda asignada) · total/gestionados de cartera — para las cards del jefe.
-    const [aggComprometido, aggRecaudado, aggMoraBase, totalAsignados] = await Promise.all([
+    const [aggComprometido, aggRecaudadoRaw, aggMoraBase, totalAsignados] = await Promise.all([
       db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, montoAcordado: { not: null } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
-      db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: { in: ['PAGO_REAL', 'COMP_CUM'] } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
+      // Suma monto_pagado de validacion_pagos para contactos del asesor (fuente real del recaudado)
+      db.$queryRaw`
+        SELECT COALESCE(SUM(vp.monto_pagado), 0) AS total
+        FROM validacion_pagos vp
+        JOIN contactos c ON c.id = vp.contacto_id
+        WHERE c.asignado_a = ${targetId}
+      `.catch(() => [{ total: 0 }]),
       db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: targetId } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
       db.contacto.count({ where: { asignadoA: targetId } }).catch(() => 0),
     ]);
     const montoComprometido = Number(aggComprometido._sum.montoAcordado || 0);
-    const montoRecaudado    = Number(aggRecaudado._sum.montoAcordado || 0);
+    const montoRecaudado    = Number(aggRecaudadoRaw[0]?.total || 0);
     const moraTotalBase     = Number(aggMoraBase._sum.montoDeuda || 0);
+
+    // Mensajería ENVIADA en el día `ymd` (por *_enviado_fecha), bucketeada S0/S1/S2 por
+    // días mora. A diferencia de wsp_enviados (status actual, sin fecha), esto es el
+    // conteo real del día → correcto para revisión histórica de cualquier apertura.
+    const _segExpr = `CASE
+      WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
+      ) >= 2 THEN 2
+      WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
+      ) = 1 THEN 1 ELSE 0 END`;
+    const msgDiaRows = await db.$queryRawUnsafe(`
+      SELECT canal, seg, COUNT(*)::int AS n FROM (
+        SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = $1 AND c.wsp_enviado_fecha = $2
+        UNION ALL
+        SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = $1 AND c.rcs_enviado_fecha = $2
+        UNION ALL
+        SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = $1 AND c.correo_enviado_fecha = $2
+      ) x GROUP BY canal, seg
+    `, targetId, ymd).catch(() => []);
+    const msgDia = { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } };
+    for (const r of msgDiaRows) {
+      const canal = r.canal, seg = Number(r.seg), n = Number(r.n);
+      if (msgDia[canal] && (seg === 0 || seg === 1 || seg === 2)) { msgDia[canal][seg] += n; msgDia[canal].total += n; }
+    }
 
     res.json({
       usuario_id: targetId,
       fecha: inicio.toISOString().slice(0, 10),
       marcaciones: cdrsHoy,
       total_marcaciones: cdrsHoy,
-      cdrs_total: cdrsHoy,
+      cdrs_total: cdrsConTipifAsesor,
       agendados,
       gestionados,
       total_asignados:   totalAsignados,
@@ -334,6 +395,93 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       compromisos_reagendados: compReag,
       compromisos_incumplidos: compIncump,
       marcaciones_detalle: [cdrS0, cdrS1, cdrS2],
+      // Mensajería real del día (por *_enviado_fecha) — para revisión histórica
+      msg_dia: msgDia,
+    });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/metricas-campana/:campanaId — Métricas ACUMULADAS de una apertura ──
+// Total de gestiones/compromisos/mensajería de una campaña (apertura), SIN límite
+// de fecha: suma histórica sobre los contactos de esa campaña. Estable — no cambia
+// al pasar los días. Por defecto scoped al asesor autenticado; supervisor puede
+// pasar ?usuario_id=. Sirve para revisar cualquier apertura cuando sea, sin perder
+// nada. Ver requerimiento: "nada se debe mover de esas aperturas".
+router.get('/metricas-campana/:campanaId', async (req, res, next) => {
+  try {
+    const campanaId = parseInt(req.params.campanaId);
+    if (!campanaId || isNaN(campanaId)) return res.status(400).json({ error: 'campanaId inválido' });
+    // asesor → solo su propia data; supervisor → puede especificar usuario_id (o todos)
+    let targetId = req.user.id;
+    if (req.user.rol !== 'asesor') {
+      targetId = req.query.usuario_id ? parseInt(req.query.usuario_id) : null; // null = todos
+    }
+    const scopeAsesor = targetId != null;
+
+    // Agregados de CDR (gestiones/compromisos/resultados) — acumulado, sin fecha.
+    const cdrAgg = await db.$queryRawUnsafe(`
+      SELECT
+        COUNT(*)::int AS marcaciones,
+        COUNT(*) FILTER (WHERE cd.tipificacion_id IS NOT NULL)::int AS gestiones,
+        COUNT(*) FILTER (WHERE t.codigo IN ('PMP','PAGO_REAL','AB_PARC','PEND_COMP'))::int AS compromisos,
+        COUNT(*) FILTER (WHERE cd.resultado = 'COMP_CUM')::int AS cumplidos,
+        COUNT(*) FILTER (WHERE cd.resultado = 'REAG')::int    AS reagendados,
+        COUNT(*) FILTER (WHERE cd.resultado = 'INCUMP')::int  AS incumplidos
+      FROM cdrs cd
+      JOIN contactos c ON c.id = cd.contacto_id
+      LEFT JOIN tipificaciones t ON t.id = cd.tipificacion_id
+      WHERE c.campana_id = $1 ${scopeAsesor ? 'AND cd.usuario_id = $2' : ''}
+    `, ...(scopeAsesor ? [campanaId, targetId] : [campanaId])).catch(() => [{}]);
+    const agg = cdrAgg[0] || {};
+
+    // Mensajería acumulada (contactos con *_enviado_fecha no nulo), bucketeada S0/S1/S2.
+    const _segExpr = `CASE
+      WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
+      ) >= 2 THEN 2
+      WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
+      ) = 1 THEN 1 ELSE 0 END`;
+    const scopeMsg = scopeAsesor ? 'AND c.asignado_a = $2' : '';
+    const msgRows = await db.$queryRawUnsafe(`
+      SELECT canal, seg, COUNT(*)::int AS n FROM (
+        SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.campana_id = $1 ${scopeMsg} AND c.wsp_enviado_fecha IS NOT NULL
+        UNION ALL
+        SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.campana_id = $1 ${scopeMsg} AND c.rcs_enviado_fecha IS NOT NULL
+        UNION ALL
+        SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.campana_id = $1 ${scopeMsg} AND c.correo_enviado_fecha IS NOT NULL
+      ) x GROUP BY canal, seg
+    `, ...(scopeAsesor ? [campanaId, targetId] : [campanaId])).catch(() => []);
+    const msg = { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } };
+    for (const r of msgRows) {
+      const canal = r.canal, seg = Number(r.seg), n = Number(r.n);
+      if (msg[canal] && (seg === 0 || seg === 1 || seg === 2)) { msg[canal][seg] += n; msg[canal].total += n; }
+    }
+
+    // Registros de la apertura + fecha de asignación
+    const info = await db.$queryRawUnsafe(`
+      SELECT COUNT(*)::int AS registros, MIN(fecha_asignacion) AS asignada
+      FROM contactos c WHERE c.campana_id = $1 ${scopeAsesor ? 'AND c.asignado_a = $2' : ''}
+    `, ...(scopeAsesor ? [campanaId, targetId] : [campanaId])).catch(() => [{}]);
+    const camp = await db.campana.findUnique({ where: { id: campanaId }, select: { nombre: true, creadoEn: true } }).catch(() => null);
+
+    res.json({
+      campana_id: campanaId,
+      campana_nombre: camp?.nombre || null,
+      usuario_id: targetId,
+      registros: Number(info[0]?.registros || 0),
+      fecha_asignacion: info[0]?.asignada ? new Date(info[0].asignada).toISOString().slice(0, 10) : (camp?.creadoEn ? new Date(camp.creadoEn).toISOString().slice(0, 10) : null),
+      marcaciones:       Number(agg.marcaciones || 0),
+      cdrs_total:        Number(agg.gestiones || 0),
+      total_compromisos: Number(agg.compromisos || 0),
+      compromisos_cumplidos:   Number(agg.cumplidos || 0),
+      compromisos_reagendados: Number(agg.reagendados || 0),
+      compromisos_incumplidos: Number(agg.incumplidos || 0),
+      msg_acumulado: msg,
     });
   } catch (err) { next(err); }
 });
@@ -343,9 +491,7 @@ router.get('/metricas-equipo', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
 
-    const fecha = req.query.fecha ? new Date(req.query.fecha) : new Date();
-    const inicio = new Date(fecha); inicio.setHours(0, 0, 0, 0);
-    const fin = new Date(fecha); fin.setHours(23, 59, 59, 999);
+    const { inicio, fin } = _gyeDayBounds(req.query.fecha);
 
     const whereU = { rol: 'asesor', estado: 'activo' };
     if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
@@ -354,8 +500,9 @@ router.get('/metricas-equipo', async (req, res, next) => {
     const asesorIds = asesores.map(a => a.id);
 
     const cdrWhere = { usuarioId: { in: asesorIds }, timestampInicio: { gte: inicio, lte: fin } };
-    const [cdrs, gestionados, pagados, efectivos, neutros, noContact, aggRecaudado, compromisos] = await Promise.all([
+    const [cdrs, cdrsConTipif, gestionados, pagados, efectivos, neutros, noContact, aggRecaudado, compromisos, aggMoraBase] = await Promise.all([
       db.cdr.count({ where: cdrWhere }),
+      db.cdr.count({ where: { ...cdrWhere, tipificacionId: { not: null } } }),
       db.contacto.count({ where: { asignadoA: { in: asesorIds }, estadoMarcacion: 'GESTIONADO' } }),
       db.contacto.count({ where: { asignadoA: { in: asesorIds }, yaPago: true } }),
       db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }),
@@ -363,6 +510,7 @@ router.get('/metricas-equipo', async (req, res, next) => {
       db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO', 'NO CONTACTADO'] } } } }),
       db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { ...cdrWhere, resultado: { in: ['PAGO_REAL', 'COMP_CUM'] } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
       db.cdr.count({ where: { ...cdrWhere, tipificacion: { codigo: { in: ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'] } } } }),
+      db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: { in: asesorIds } } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
     ]);
 
     const porAsesor = await Promise.all(asesores.map(async (a) => {
@@ -370,16 +518,24 @@ router.get('/metricas-equipo', async (req, res, next) => {
       return { asesor_id: a.id, nombre: a.nombre, marcaciones: m };
     }));
 
+    const connStats = getConnectedStats();
+    // Filtrar solo asesores bajo este supervisor si no es admin
+    const connAsesores = req.user.rol !== 'admin'
+      ? connStats.asesores.filter(a => asesorIds.includes(a.asesor_id))
+      : connStats.asesores;
+
     res.json({
       total_marcaciones: cdrs, gestionados, pagados, asesores: porAsesor,
       // Totales que consume AdvancedMetricsCharts (Contactabilidad / Proyecciones)
       marcacionesTotales:      cdrs,
-      cdrsTotalEquipo:         cdrs,
+      cdrsTotalEquipo:         cdrsConTipif,
       contactosEfectivosTotal: efectivos,
       cdrsNeutrosTotal:        neutros,
       cdrsNoContactadosTotal:  noContact,
       montoRecaudadoTotal:     Number(aggRecaudado._sum.montoAcordado || 0),
       totalCompromisosEquipo:  compromisos,
+      moraBaseTotal:           Number(aggMoraBase._sum.montoDeuda || 0),
+      totalConectados:         connAsesores.length,
     });
   } catch (err) { next(err); }
 });
@@ -771,10 +927,11 @@ router.get('/cartera/rotacion', async (req, res, next) => {
       const baseWhere = { asignadoA: a.id, ...(campanaId ? { campanaId } : {}) };
       let gestionados;
       if (fechaInicio) {
-        // Con filtro de fecha: contar CDRs (llamadas) del período para ese asesor
+        // Con filtro de fecha: contar contactos únicos con al menos un CDR en el período
         const cdrWhere = { usuarioId: a.id, timestampInicio: { gte: fechaInicio, lte: fechaFin } };
         if (campanaId) cdrWhere.contacto = { campanaId };
-        gestionados = await db.cdr.count({ where: cdrWhere });
+        const uniques = await db.cdr.findMany({ where: cdrWhere, select: { contactoId: true }, distinct: ['contactoId'] });
+        gestionados = uniques.length;
       } else {
         gestionados = await db.contacto.count({ where: { ...baseWhere, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } });
       }
@@ -827,10 +984,8 @@ router.get('/cartera/detalle-contactabilidad', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
     const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
-    const desde = req.query.fecha ? new Date(req.query.fecha) : new Date();
-    const inicio = new Date(desde); inicio.setHours(0, 0, 0, 0);
-    const fin = req.query.fecha_fin ? new Date(req.query.fecha_fin) : new Date(desde);
-    fin.setHours(23, 59, 59, 999);
+    const { inicio } = _gyeDayBounds(req.query.fecha);
+    const { fin }    = _gyeDayBounds(req.query.fecha_fin || req.query.fecha);
 
     const asesorIds = await getAsesorIdsDelEquipo(req.user);
 
@@ -917,7 +1072,7 @@ router.get('/compromisos-equipo', requireRole('jefe_area', 'admin'), async (req,
               agendamientos: {
                 some: {
                   fechaHora: { gte: fechaInicio, lte: fechaFin },
-                  estado: { not: 'cancelado' },
+                  estado: { notIn: ['cancelado', 'ejecutado'] },
                 },
               },
             },
@@ -943,8 +1098,9 @@ router.get('/compromisos-equipo', requireRole('jefe_area', 'admin'), async (req,
             cedula: true,
             telefono: true,
             metadata: true,
+            yaPago: true,
             agendamientos: {
-              where: { estado: { not: 'cancelado' } },
+              where: { estado: { notIn: ['cancelado', 'ejecutado'] } },
               select: { fechaHora: true },
               orderBy: { id: 'desc' },
               take: 1,
@@ -982,6 +1138,7 @@ router.get('/compromisos-equipo', requireRole('jefe_area', 'admin'), async (req,
         contrato,
         valor_mora:          valorMora,
         fecha_promesa:       c.contacto?.agendamientos?.[0]?.fechaHora?.toISOString() || null,
+        ya_pago:             c.contacto?.yaPago ?? false,
       };
     });
 
@@ -1640,7 +1797,7 @@ router.patch('/contactos/:id/toggle-mensajeria', async (req, res, next) => {
     if (!field) return res.status(400).json({ error: 'Tipo no válido: ' + tipo });
 
     const data = { [field]: estado };
-    if (estado === 'ENVIADO') data[fechaMap[tipo]] = new Date().toISOString().slice(0, 10);
+    if (estado === 'ENVIADO') data[fechaMap[tipo]] = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
 
     await db.contacto.update({ where: { id: contactoId }, data });
 
@@ -1672,7 +1829,7 @@ router.post('/marcar-lote-enviado', async (req, res, next) => {
     const field = fieldMap[tipo];
     if (!field) return res.status(400).json({ error: 'Tipo no válido: ' + tipo });
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
     const ids = contactoIds.map(Number);
 
     await db.contacto.updateMany({
@@ -1704,7 +1861,15 @@ router.get('/cartera', async (req, res, next) => {
 
     const contactos = await db.contacto.findMany({
       where,
-      include: { campana: { select: { nombre: true } } },
+      include: {
+        campana: { select: { nombre: true } },
+        agendamientos: {
+          where: { estado: { notIn: ['cancelado', 'ejecutado'] } },
+          select: { fechaHora: true, tipo: true },
+          orderBy: { id: 'desc' },
+          take: 1,
+        },
+      },
       orderBy: [
         { ordenMarcacion: { sort: 'asc', nulls: 'last' } },
         { id: 'asc' },
@@ -1724,10 +1889,12 @@ router.get('/cartera', async (req, res, next) => {
     }
 
     // gestiones_count: cartera nueva (asignada hoy) → solo CDRs hoy; cartera anterior → histórico
+    // gestiones_hoy: siempre solo CDRs de hoy — usado para tracking de vueltas
     const gestionesRaw = contactoIds.length > 0 ? await db.$queryRaw`
       SELECT
         ct.id,
-        COUNT(cdr.id)::int AS gestiones_count
+        COUNT(cdr.id)::int AS gestiones_count,
+        COUNT(CASE WHEN cdr.timestamp_inicio >= CURRENT_DATE::timestamp THEN 1 END)::int AS gestiones_hoy
       FROM contactos ct
       LEFT JOIN cdrs cdr ON cdr.contacto_id = ct.id
         AND (
@@ -1738,9 +1905,10 @@ router.get('/cartera', async (req, res, next) => {
       WHERE ct.id = ANY(${contactoIds})
       GROUP BY ct.id
     ` : [];
-    const gestionesMap = new Map(gestionesRaw.map(r => [r.id, Number(r.gestiones_count ?? 0)]));
+    const gestionesMap    = new Map(gestionesRaw.map(r => [Number(r.id), Number(r.gestiones_count ?? 0)]));
+    const gestionesHoyMap = new Map(gestionesRaw.map(r => [Number(r.id), Number(r.gestiones_hoy    ?? 0)]));
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
 
     res.json(contactos.map(ct => {
       // Status mensajería: solo cuenta como ENVIADO si fue enviado hoy
@@ -1777,6 +1945,15 @@ router.get('/cartera', async (req, res, next) => {
         ultima_tip_codigo: tip?.codigo || null,
         ultima_tipificacion: tip?.descripcion || null,
         gestiones_count: gestionesMap.get(ct.id) ?? 0,
+        gestiones_hoy: gestionesHoyMap.get(ct.id) ?? 0,
+        agendamiento_hora: ct.agendamientos?.[0]?.fechaHora
+          ? new Date(ct.agendamientos[0].fechaHora).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : null,
+        // Datetime crudo del compromiso vigente → excluir de vueltas hasta que pase la hora
+        agendamiento_fecha_hora: ct.agendamientos?.[0]?.fechaHora
+          ? new Date(ct.agendamientos[0].fechaHora).toISOString()
+          : null,
+        agendamiento_tipo: ct.agendamientos?.[0]?.tipo || null,
       };
     }));
   } catch (err) { next(err); }
@@ -2234,12 +2411,13 @@ router.get('/mis-compromisos', async (req, res, next) => {
         co.cedula,
         co.telefono,
         co.metadata,
+        co.ya_pago,
         COALESCE(
           c.scheduled_datetime,
           (
             SELECT ag.fecha_hora FROM agendamientos ag
             WHERE ag.contacto_id = c.contacto_id AND ag.asesor_id = c.usuario_id
-              AND ag.estado != 'cancelado'
+              AND ag.estado NOT IN ('cancelado', 'ejecutado')
             ORDER BY ag.id DESC LIMIT 1
           )
         ) AS fecha_promesa
@@ -2249,12 +2427,12 @@ router.get('/mis-compromisos', async (req, res, next) => {
       WHERE c.usuario_id = ${asesorId}
         AND t.codigo = ANY(${codigos})
         AND (
-          DATE(c.timestamp_inicio AT TIME ZONE 'UTC') = ${fecha}::date
+          DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') = ${fecha}::date
           OR EXISTS (
             SELECT 1 FROM agendamientos ag
             WHERE ag.contacto_id = c.contacto_id AND ag.asesor_id = c.usuario_id
-              AND ag.estado != 'cancelado'
-              AND DATE(ag.fecha_hora) = ${fecha}::date
+              AND ag.estado NOT IN ('cancelado', 'ejecutado')
+              AND DATE(ag.fecha_hora AT TIME ZONE 'America/Guayaquil') = ${fecha}::date
           )
         )
       ORDER BY c.timestamp_inicio DESC
@@ -2296,6 +2474,7 @@ router.get('/mis-compromisos', async (req, res, next) => {
         valor_mora,
         dias_mora,
         fecha_promesa: r.fecha_promesa || null,
+        ya_pago: r.ya_pago === true || r.ya_pago === 1,
       };
     });
 
@@ -2321,12 +2500,20 @@ router.post('/confirmar-pago-compromiso', async (req, res, next) => {
       },
     });
 
-    const cdr = await db.cdr.findUnique({ where: { id: Number(cdrId) }, select: { contactoId: true } });
+    const cdr = await db.cdr.findUnique({ where: { id: Number(cdrId) }, select: { contactoId: true, usuarioId: true } });
     if (cdr?.contactoId) {
       await db.contacto.update({
         where: { id: cdr.contactoId },
         data: { yaPago: true, estadoMarcacion: 'YA_PAGO' },
       });
+      await db.agendamiento.updateMany({
+        where: {
+          contactoId: cdr.contactoId,
+          estado: { notIn: ['cancelado', 'ejecutado'] },
+        },
+        data: { estado: 'ejecutado' },
+      });
+      broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: [cdr.contactoId], abonoIds: [] });
     }
 
     res.json({ success: true });
@@ -2408,6 +2595,882 @@ router.post('/marcar-compromiso-incumplido', async (req, res, next) => {
     }
 
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/reports/gestiones_equipo  &  /api/reports/gestiones ─────────────
+// Genera y descarga xlsx con CDRs del día (o rango) del equipo / asesor.
+async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titulo }) {
+  const inicio = new Date(fechaInicio + 'T00:00:00');
+  const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+
+  const cdrs = await db.cdr.findMany({
+    where: {
+      ...(asesorId ? { usuarioId: asesorId } : {}),
+      timestampInicio: { gte: inicio, lte: fin },
+      tipificacionId: { not: null },
+    },
+    select: {
+      id: true,
+      timestampInicio: true,
+      montoAcordado: true,
+      notas: true,
+      scheduledDatetime: true,
+      usuario:      { select: { nombre: true } },
+      tipificacion: { select: { codigo: true, descripcion: true } },
+      contacto: {
+        select: {
+          nombreDeudor: true,
+          cedula: true,
+          telefono: true,
+          metadata: true,
+          agendamientos: {
+            where: { estado: { notIn: ['cancelado', 'ejecutado'] } },
+            select: { fechaHora: true },
+            orderBy: { id: 'desc' },
+            take: 1,
+          },
+        },
+      },
+    },
+    orderBy: { timestampInicio: 'desc' },
+  });
+
+  const COLS = [
+    'Fecha/Hora', 'Asesor', 'Cliente', 'CI/Cédula', 'Teléfono',
+    'Empresa', 'Contrato', 'Tipificación',
+    'Monto Acordado', 'Fecha Promesa', 'Mora Cliente', 'Días Mora', 'Observaciones',
+    '# Gestiones',
+  ];
+  const COMPROMISO_CODES = new Set(['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP']);
+
+  // Contar gestiones por contacto en el período (sin query adicional)
+  const gestionesPorContacto = new Map();
+  for (const c of cdrs) {
+    if (c.contacto) {
+      const cid = c.contacto.nombreDeudor + '|' + (c.contacto.cedula || '');
+      gestionesPorContacto.set(cid, (gestionesPorContacto.get(cid) || 0) + 1);
+    }
+  }
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'UPHONE-CRM';
+  const ws = wb.addWorksheet('Gestiones');
+
+  ws.mergeCells(`A1:N1`);
+  ws.getCell('A1').value = titulo;
+  ws.getCell('A1').font = { bold: true, size: 13, color: { argb: 'FF58A6FF' } };
+  ws.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+  ws.getCell('A1').alignment = { horizontal: 'center' };
+
+  ws.addRow([]);
+  const hRow = ws.addRow(COLS);
+  hRow.font = { bold: true };
+  hRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+
+  for (const c of cdrs) {
+    const meta = c.contacto?.metadata && typeof c.contacto.metadata === 'object'
+      ? c.contacto.metadata : {};
+    const empresa  = meta['EMPRESA'] || null;
+    const contrato = meta['Nº CONTRATO'] || meta['CONTRATO'] || null;
+    const moraRaw  = meta['VALOR EN MORA'];
+    const mora     = moraRaw != null ? parseFloat(String(moraRaw).replace(/[^0-9.-]/g, '')) || null : null;
+    const diasRaw  = meta['DIAS IMPAGO'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || meta['DIAS EN MORA'];
+    const diasMora = diasRaw != null ? (parseInt(String(diasRaw), 10) || null) : null;
+    const fechaPromesa = c.scheduledDatetime || c.contacto?.agendamientos?.[0]?.fechaHora || null;
+    const cid = c.contacto ? c.contacto.nombreDeudor + '|' + (c.contacto.cedula || '') : '';
+    const numGestiones = gestionesPorContacto.get(cid) || 1;
+
+    const row = ws.addRow([
+      c.timestampInicio ? new Date(c.timestampInicio).toLocaleString('es-EC') : '',
+      c.usuario?.nombre || '',
+      c.contacto?.nombreDeudor || '',
+      c.contacto?.cedula || '',
+      c.contacto?.telefono || '',
+      empresa || '',
+      contrato || '',
+      c.tipificacion?.descripcion || c.tipificacion?.codigo || '',
+      c.montoAcordado != null ? Number(c.montoAcordado) : '',
+      fechaPromesa ? new Date(fechaPromesa).toLocaleString('es-EC') : '',
+      mora != null ? mora : '',
+      diasMora != null ? diasMora : '',
+      c.notas || '',
+      numGestiones,
+    ]);
+
+    if (COMPROMISO_CODES.has(c.tipificacion?.codigo)) {
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B3A2E' } };
+      const cellMonto = row.getCell(9);
+      if (c.montoAcordado != null) {
+        cellMonto.numFmt = '#,##0.00';
+        cellMonto.font = { bold: true, color: { argb: 'FF00E676' } };
+      } else {
+        cellMonto.value = 'SIN CAPTURAR';
+        cellMonto.font = { italic: true, color: { argb: 'FFFFB74D' } };
+      }
+    }
+    // Días Mora col 12: naranja si > 0
+    if (diasMora != null && diasMora > 0) {
+      row.getCell(12).font = { bold: true, color: { argb: 'FFFF9800' } };
+    }
+    // Resaltar en naranja clientes con > 1 gestión en el período (col 14)
+    if (numGestiones > 1) {
+      row.getCell(14).font = { bold: true, color: { argb: 'FFFFB74D' } };
+    }
+  }
+
+  ws.columns.forEach((col, i) => {
+    col.width = [20, 18, 22, 14, 14, 14, 14, 22, 14, 20, 14, 10, 40, 12][i] || 16;
+  });
+
+  const filename = encodeURIComponent(`${titulo.replace(/[^a-zA-Z0-9_\- ]/g, '_')}.xlsx`);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  await wb.xlsx.write(res);
+  res.end();
+}
+
+router.get('/reports/gestiones_equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const where = req.user.rol !== 'admin'
+      ? { usuario: { supervisorId: req.user.id } }
+      : {};
+    const equipoIds = (await db.usuario.findMany({
+      where: { rol: 'asesor', estado: 'activo', ...(req.user.rol !== 'admin' ? { supervisorId: req.user.id } : {}) },
+      select: { id: true },
+    })).map(u => u.id);
+
+    await _buildGestionesXlsx(res, {
+      asesorId: equipoIds.length ? { in: equipoIds } : undefined,
+      fechaInicio, fechaFin,
+      titulo: `Gestiones Equipo — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
+    });
+  } catch (err) { next(err); }
+});
+
+router.get('/reports/gestiones', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
+    const asesor      = asesorId ? await db.usuario.findUnique({ where: { id: asesorId }, select: { nombre: true } }) : null;
+    await _buildGestionesXlsx(res, {
+      asesorId: asesorId || undefined,
+      fechaInicio, fechaFin,
+      titulo: `Gestiones${asesor ? ' — ' + asesor.nombre : ''} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
+    });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/reports/equipo & /api/reports/diario — Informe Operativo ────────
+async function _getMetricasAsesor(asesorId, inicio, fin) {
+  const cdrWhere = { usuarioId: asesorId, timestampInicio: { gte: inicio, lte: fin } };
+  const [
+    totalMarcaciones,
+    aggDuracion,
+    cdrsConTipif,
+    efectivos,
+    neutros,
+    noContactados,
+    compromisos,
+    aggComprometido,
+    aggRecaudado,
+  ] = await Promise.all([
+    db.cdr.count({ where: cdrWhere }),
+    db.cdr.aggregate({ _sum: { duracionSeg: true }, where: cdrWhere }),
+    db.cdr.count({ where: { ...cdrWhere, tipificacionId: { not: null } } }),
+    db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }),
+    db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_NEUTRO', 'CONTACTO NEUTRO'] } } } }),
+    db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO', 'NO CONTACTADO'] } } } }),
+    db.cdr.count({ where: { ...cdrWhere, tipificacion: { codigo: { in: ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'] } } } }),
+    db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { ...cdrWhere, tipificacion: { codigo: { in: ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'] } } } }),
+    db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { ...cdrWhere, resultado: { in: ['PAGO_REAL', 'COMP_CUM'] } } }),
+  ]);
+
+  const fechaInicioStr = inicio.toISOString().slice(0, 10);
+  const fechaFinStr    = fin.toISOString().slice(0, 10);
+  const [wspEnviados, rcsEnviados, correosEnviados] = await Promise.all([
+    db.contacto.count({ where: { asignadoA: asesorId, whatsappStatus: 'ENVIADO', wspEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr } } }),
+    db.contacto.count({ where: { asignadoA: asesorId, rcsStatus: 'ENVIADO', rcsEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr } } }),
+    db.contacto.count({ where: { asignadoA: asesorId, correoStatus: 'ENVIADO', correoEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr } } }),
+  ]);
+
+  const durSeg = aggDuracion._sum.duracionSeg || 0;
+  const tiempoAlAire = `${String(Math.floor(durSeg / 3600)).padStart(2,'0')}:${String(Math.floor((durSeg % 3600) / 60)).padStart(2,'0')}:${String(durSeg % 60).padStart(2,'0')}`;
+
+  return {
+    totalMarcaciones,
+    tiempoAlAire,
+    productividad: totalMarcaciones > 0 ? Math.round((cdrsConTipif / totalMarcaciones) * 100) : 0,
+    eficacia: cdrsConTipif > 0 ? Math.round((efectivos / cdrsConTipif) * 100) : 0,
+    cdrsTotal: cdrsConTipif,
+    efectivos,
+    neutros,
+    noContactados,
+    compromisos,
+    montoComprometido: Number(aggComprometido._sum.montoAcordado || 0),
+    montoRecaudado:    Number(aggRecaudado._sum.montoAcordado    || 0),
+    wspEnviados,
+    rcsEnviados,
+    correosEnviados,
+  };
+}
+
+function _buildOperativoWb(dataEquipo, titulo) {
+  const COLS = [
+    'Asesor','Marcaciones','T. Aire','Productividad%','Eficacia%',
+    'CDRs','Efectivos','Neutros','No Contactados',
+    'Compromisos','M. Comprometido','M. Recaudado',
+    'WhatsApp','RCS/SMS','Correos','Total Digital',
+  ];
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'UPHONE-CRM';
+  const ws = wb.addWorksheet('Informe Operativo');
+
+  ws.mergeCells('A1:P1');
+  const ct = ws.getCell('A1');
+  ct.value = titulo;
+  ct.font  = { bold: true, size: 13, color: { argb: 'FF58A6FF' } };
+  ct.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+  ct.alignment = { horizontal: 'center' };
+
+  ws.addRow([]);
+  const hRow = ws.addRow(COLS);
+  hRow.font = { bold: true, color: { argb: 'FFF0F6FC' } };
+  hRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+
+  for (const d of dataEquipo) {
+    const td = d.wspEnviados + d.rcsEnviados + d.correosEnviados;
+    const row = ws.addRow([
+      d.nombre, d.totalMarcaciones, d.tiempoAlAire, d.productividad, d.eficacia,
+      d.cdrsTotal, d.efectivos, d.neutros, d.noContactados,
+      d.compromisos, d.montoComprometido, d.montoRecaudado,
+      d.wspEnviados, d.rcsEnviados, d.correosEnviados, td,
+    ]);
+    row.getCell(11).numFmt = '#,##0.00';
+    row.getCell(12).numFmt = '#,##0.00';
+    if (d.efectivos > 0)   row.getCell(7).font  = { bold: true, color: { argb: 'FF00E676' } };
+    if (d.compromisos > 0) row.getCell(10).font = { bold: true, color: { argb: 'FFFFB74D' } };
+  }
+
+  ws.columns = [22,13,11,15,12,9,11,10,15,13,17,16,12,12,12,14].map(w => ({ width: w }));
+  return wb;
+}
+
+router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const inicio = new Date(fechaInicio + 'T00:00:00');
+    const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+
+    const asesores = await db.usuario.findMany({
+      where: { rol: 'asesor', estado: 'activo', ...(req.user.rol !== 'admin' ? { supervisorId: req.user.id } : {}) },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+
+    const dataEquipo = await Promise.all(
+      asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin) }))
+    );
+
+    const titulo   = `Informe Operativo Equipo — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
+    const filename = encodeURIComponent(`informe_operativo_equipo_${fechaInicio}.xlsx`);
+    const wb = _buildOperativoWb(dataEquipo, titulo);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
+router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
+    const inicio = new Date(fechaInicio + 'T00:00:00');
+    const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+
+    let asesores;
+    if (asesorId) {
+      const a = await db.usuario.findUnique({ where: { id: asesorId }, select: { id: true, nombre: true } });
+      asesores = a ? [a] : [];
+    } else {
+      asesores = await db.usuario.findMany({
+        where: { rol: 'asesor', estado: 'activo', ...(req.user.rol !== 'admin' ? { supervisorId: req.user.id } : {}) },
+        select: { id: true, nombre: true },
+        orderBy: { nombre: 'asc' },
+      });
+    }
+
+    const dataEquipo = await Promise.all(
+      asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin) }))
+    );
+
+    const nombreLabel = asesores.length === 1 ? asesores[0].nombre : 'Equipo';
+    const titulo   = `Informe Operativo — ${nombreLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
+    const filename = encodeURIComponent(`informe_operativo_${nombreLabel.replace(/\s+/g, '_')}_${fechaInicio}.xlsx`);
+    const wb = _buildOperativoWb(dataEquipo, titulo);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/reports/vencimientos_gestiones ────────────────────────────────
+router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+
+    const _diasExpr = (alias) => `CAST(COALESCE(
+      NULLIF(${alias}.metadata->>'DIAS IMPAGO', ''),
+      NULLIF(${alias}.metadata->>'DIAS EN INPAGO', ''),
+      NULLIF(${alias}.metadata->>'DIAS MORA', ''),
+      '-1'
+    ) AS INTEGER)`;
+
+    const DIAS_EXPR = _diasExpr('c');  // para contactos alias c
+    const DIAS_CT   = _diasExpr('ct'); // para JOIN contactos ct
+
+    // UNIDADES: apertura diaria (contactos asignados ese día via fecha_asignacion)
+    const unidadesRows = await db.$queryRawUnsafe(`
+      SELECT DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') AS fecha,
+        ${DIAS_EXPR} AS dias,
+        COUNT(*) AS unidades,
+        COALESCE(SUM(CAST(NULLIF(TRIM(c.metadata->>'VALOR EN MORA'), '') AS NUMERIC)), 0) AS dinero
+      FROM contactos c
+      WHERE DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        AND ${DIAS_EXPR} IN (0, 1, 2)
+        AND c.fecha_asignacion IS NOT NULL
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const unidadesMap = {};
+    for (const r of unidadesRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      if (!unidadesMap[f]) unidadesMap[f] = {};
+      unidadesMap[f][Number(r.dias)] = { unidades: Number(r.unidades), dinero: Number(r.dinero) };
+    }
+
+    // Total por día (todos los segmentos)
+    const totalDiaRows = await db.$queryRawUnsafe(`
+      SELECT DATE(fecha_asignacion AT TIME ZONE 'America/Guayaquil') AS fecha,
+        COUNT(*) AS u,
+        COALESCE(SUM(CAST(NULLIF(TRIM(metadata->>'VALOR EN MORA'), '') AS NUMERIC)), 0) AS d
+      FROM contactos
+      WHERE DATE(fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        AND fecha_asignacion IS NOT NULL
+      GROUP BY fecha
+    `, fechaInicio, fechaFin);
+
+    const totalDiaMap = {};
+    for (const r of totalDiaRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      totalDiaMap[f] = { u: Number(r.u), d: Number(r.d) };
+    }
+
+    // CDRs diarios por segmento — fecha en hora local Ecuador
+    const cdrsRows = await db.$queryRawUnsafe(`
+      SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        ${DIAS_CT} AS dias,
+        COUNT(*) AS gestiones,
+        SUM(CASE WHEN c.canal = 'whatsapp' THEN 1 ELSE 0 END) AS whasp,
+        SUM(CASE WHEN c.canal = 'llamada'  THEN 1 ELSE 0 END) AS llamadas
+      FROM cdrs c
+      JOIN contactos ct ON ct.id = c.contacto_id
+      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        AND ${DIAS_CT} IN (0, 1, 2)
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const cdrsMap = {};
+    for (const r of cdrsRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      if (!cdrsMap[f]) cdrsMap[f] = {};
+      cdrsMap[f][Number(r.dias)] = { gestiones: Number(r.gestiones), whasp: Number(r.whasp), llamadas: Number(r.llamadas) };
+    }
+
+    // Compromisos diarios por segmento — fecha en hora local Ecuador
+    const compRows = await db.$queryRawUnsafe(`
+      SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        ${DIAS_CT} AS dias,
+        COUNT(*) AS compromisos
+      FROM cdrs c
+      JOIN contactos ct ON ct.id = c.contacto_id
+      JOIN tipificaciones t ON t.id = c.tipificacion_id
+      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+        AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
+        AND ${DIAS_CT} IN (0, 1, 2)
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const compMap = {};
+    for (const r of compRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      if (!compMap[f]) compMap[f] = {};
+      compMap[f][Number(r.dias)] = Number(r.compromisos);
+    }
+
+    // Envíos masivos (WhatsApp/RCS/correo bulk) — registrados en contactos, no en cdrs
+    const bulkWspRows = await db.$queryRawUnsafe(`
+      SELECT c.wsp_enviado_fecha AS fecha,
+        ${DIAS_EXPR} AS dias,
+        COUNT(*) AS cnt
+      FROM contactos c
+      WHERE c.wsp_enviado_fecha BETWEEN $1 AND $2
+        AND ${DIAS_EXPR} IN (0, 1, 2)
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const bulkRcsRows = await db.$queryRawUnsafe(`
+      SELECT c.rcs_enviado_fecha AS fecha,
+        ${DIAS_EXPR} AS dias,
+        COUNT(*) AS cnt
+      FROM contactos c
+      WHERE c.rcs_enviado_fecha BETWEEN $1 AND $2
+        AND ${DIAS_EXPR} IN (0, 1, 2)
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const bulkCorreoRows = await db.$queryRawUnsafe(`
+      SELECT c.correo_enviado_fecha AS fecha,
+        ${DIAS_EXPR} AS dias,
+        COUNT(*) AS cnt
+      FROM contactos c
+      WHERE c.correo_enviado_fecha BETWEEN $1 AND $2
+        AND ${DIAS_EXPR} IN (0, 1, 2)
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const bulkMap = {};
+    const _addBulk = (rows, field) => {
+      for (const r of rows) {
+        const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : String(r.fecha);
+        if (!bulkMap[f]) bulkMap[f] = {};
+        if (!bulkMap[f][Number(r.dias)]) bulkMap[f][Number(r.dias)] = { whasp: 0, rcs: 0, correo: 0 };
+        bulkMap[f][Number(r.dias)][field] += Number(r.cnt);
+      }
+    };
+    _addBulk(bulkWspRows, 'whasp');
+    _addBulk(bulkRcsRows, 'rcs');
+    _addBulk(bulkCorreoRows, 'correo');
+
+    // Generar filas por día
+    const SEGS = [0, 1, 2];
+    const DIAS_SEMANA = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+    const dataRows = [];
+    const inicio = new Date(fechaInicio + 'T12:00:00');
+    const fin    = new Date(fechaFin    + 'T12:00:00');
+    for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+      const fecha   = d.toISOString().slice(0, 10);
+      const totDia  = totalDiaMap[fecha] || { u: 0, d: 0 };
+      const row     = { fecha, dia: DIAS_SEMANA[d.getDay()], total_unidades: totDia.u, total_dinero: totDia.d, segmentos: {} };
+      for (const dias of SEGS) {
+        const s = (unidadesMap[fecha] || {})[dias] || { unidades: 0, dinero: 0 };
+        const c = (cdrsMap[fecha] || {})[dias] || { gestiones: 0, whasp: 0, llamadas: 0 };
+        const b = (bulkMap[fecha] || {})[dias] || { whasp: 0, rcs: 0, correo: 0 };
+        const compromisos    = (compMap[fecha] || {})[dias] || 0;
+        const totalWhasp     = c.whasp + b.whasp;
+        const totalGestiones = c.gestiones + b.whasp + b.rcs + b.correo;
+        row.segmentos[dias] = {
+          unidades:    s.unidades,
+          dinero:      s.dinero,
+          gestiones:   totalGestiones,
+          whasp:       totalWhasp,
+          llamadas:    c.llamadas,
+          compromisos,
+          pct_cartera: s.unidades > 0 ? Math.min(1, totalGestiones / s.unidades) : 0,
+        };
+      }
+      dataRows.push(row);
+    }
+
+    // Construir Excel
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Vencimientos y Gestiones');
+
+    const colLetter = n => { let s = ''; while (n > 0) { const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=Math.floor((n-1)/26); } return s; };
+    const COL_W = [12,12,10,14,11,9,11,13,11,10,14,11,9,11,13,11,10,14,11,9,11,13,11,12,14];
+    ws.columns = COL_W.map(w => ({ width: w }));
+    const LAST = colLetter(COL_W.length);
+
+    ws.mergeCells(`A1:${LAST}1`);
+    const cT = ws.getCell('A1');
+    cT.value = 'VENCIMIENTOS Y NUMERO DE GESTIONES';
+    cT.font  = { bold: true, size: 14, color: { argb: 'FF00E5FF' } };
+    cT.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+    cT.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 28;
+
+    ws.addRow([]);
+    ws.getRow(2).height = 20;
+    const SEG_STARTS = [3, 10, 17];
+    const SEG_LABELS = ['0 DÍAS', '1 DÍA', '2 DÍAS'];
+    SEG_LABELS.forEach((label, i) => {
+      const sc = colLetter(SEG_STARTS[i]);
+      const ec = colLetter(SEG_STARTS[i] + 6);
+      ws.mergeCells(`${sc}2:${ec}2`);
+      const cell = ws.getCell(`${sc}2`);
+      cell.value = label;
+      cell.font  = { bold: true, size: 10, color: { argb: 'FFF0F6FC' } };
+      cell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+      cell.alignment = { horizontal: 'center' };
+    });
+    ws.mergeCells('X2:Y2');
+    const cTot = ws.getCell('X2');
+    cTot.value = 'TOTALES'; cTot.font = { bold: true, size: 10, color: { argb: 'FF8B949E' } };
+    cTot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+    cTot.alignment = { horizontal: 'center' };
+
+    const SUB = ['UNIDADES','DINERO','GESTIONES','WHASP','LLAMADAS','COMPROMISOS','% CARTERA'];
+    const hdr3 = ['FECHA','DIA'];
+    SEG_LABELS.forEach(() => SUB.forEach(h => hdr3.push(h)));
+    hdr3.push('UNIDADES','DINERO');
+    const hRow = ws.addRow(hdr3);
+    hRow.font  = { bold: true, size: 9 };
+    hRow.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+    ws.getRow(3).height = 20;
+    hRow.eachCell(c => { c.alignment = { horizontal: 'center', wrapText: true }; });
+
+    const fmtM   = v => Number(v || 0).toFixed(2);
+    const fmtPct = v => `${(Number(v || 0) * 100).toFixed(2)}%`;
+
+    for (const r of dataRows) {
+      const cells = [r.fecha, r.dia];
+      for (const dias of SEGS) {
+        const s = r.segmentos[dias] || {};
+        cells.push(s.unidades||0, fmtM(s.dinero), s.gestiones||0, s.whasp||0, s.llamadas||0, s.compromisos||0, fmtPct(s.pct_cartera));
+      }
+      cells.push(r.total_unidades, fmtM(r.total_dinero));
+      const row = ws.addRow(cells);
+      row.height = 18;
+      row.getCell(1).font = { bold: true };
+      [4,11,18].forEach(ci => { if ((row.getCell(ci).value||0)>0) row.getCell(ci).font={bold:true,color:{argb:'FF00E676'}}; });
+      [3,10,17,25].forEach(ci => { row.getCell(ci).font={color:{argb:'FFFFB74D'}}; });
+      [8,15,22].forEach(ci => { if ((row.getCell(ci).value||0)>0) row.getCell(ci).font={bold:true,color:{argb:'FF00E5FF'}}; });
+    }
+    ws.views = [{ state: 'frozen', ySplit: 3, xSplit: 2 }];
+
+    const filename = encodeURIComponent(`vencimientos_gestiones_${fechaInicio}_${fechaFin}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/reports/indicadores_compromisos ───────────────────────────────
+router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+
+    const DIAS_CT = `CAST(COALESCE(
+      NULLIF(ct.metadata->>'DIAS IMPAGO', ''),
+      NULLIF(ct.metadata->>'DIAS EN INPAGO', ''),
+      NULLIF(ct.metadata->>'DIAS MORA', ''),
+      '-1'
+    ) AS INTEGER)`;
+
+    const compRows = await db.$queryRawUnsafe(`
+      SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        ${DIAS_CT} AS dias,
+        COUNT(*) AS compromisos,
+        SUM(CASE WHEN c.resultado = 'COMP_CUM' OR t.codigo = 'PAGO_REAL' THEN 1 ELSE 0 END) AS cumplidos
+      FROM cdrs c
+      JOIN contactos ct ON ct.id = c.contacto_id
+      JOIN tipificaciones t ON t.id = c.tipificacion_id
+      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+        AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
+        AND ${DIAS_CT} IN (0, 1, 2)
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const compMap = {};
+    for (const r of compRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      if (!compMap[f]) compMap[f] = {};
+      compMap[f][Number(r.dias)] = { compromisos: Number(r.compromisos), cumplidos: Number(r.cumplidos) };
+    }
+
+    const offsetMs   = 7 * 24 * 60 * 60 * 1000;
+    const prevInicio = new Date(new Date(fechaInicio + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+    const prevFin    = new Date(new Date(fechaFin    + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+
+    const prevRows = await db.$queryRawUnsafe(`
+      SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        COUNT(*) AS compromisos,
+        SUM(CASE WHEN c.resultado = 'COMP_CUM' OR t.codigo = 'PAGO_REAL' THEN 1 ELSE 0 END) AS cumplidos
+      FROM cdrs c
+      JOIN tipificaciones t ON t.id = c.tipificacion_id
+      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
+        AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
+      GROUP BY fecha
+    `, prevInicio, prevFin);
+
+    const prevByDate = {};
+    for (const r of prevRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      const comp = Number(r.compromisos);
+      prevByDate[f] = comp > 0 ? Number(r.cumplidos) / comp : 0;
+    }
+
+    const prevDates = [];
+    const pI = new Date(prevInicio + 'T12:00:00');
+    const pF = new Date(prevFin    + 'T12:00:00');
+    for (let d = new Date(pI); d <= pF; d.setDate(d.getDate() + 1))
+      prevDates.push(d.toISOString().slice(0, 10));
+
+    const DIAS_SEMANA = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+    const dataRows = [];
+    const inicio = new Date(fechaInicio + 'T12:00:00');
+    const fin    = new Date(fechaFin    + 'T12:00:00');
+    let dayIdx   = 0;
+
+    for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+      const fecha   = d.toISOString().slice(0, 10);
+      const dayData = compMap[fecha] || {};
+      let totalComp = 0, totalCum = 0;
+      const segs = {};
+      for (const dias of [0, 1, 2]) {
+        const s = dayData[dias] || { compromisos: 0, cumplidos: 0 };
+        segs[dias] = { compromisos: s.compromisos, cumplidos: s.cumplidos, pct: s.compromisos > 0 ? s.cumplidos / s.compromisos : null };
+        totalComp += s.compromisos; totalCum += s.cumplidos;
+      }
+      const prevFecha = prevDates[dayIdx] || null;
+      dataRows.push({ fecha, dia: DIAS_SEMANA[d.getDay()], segmentos: segs, total_compromisos: totalComp, total_cumplidos: totalCum, total_pct: totalComp > 0 ? totalCum / totalComp : null, semana_anterior: prevFecha ? (prevByDate[prevFecha] ?? null) : null });
+      dayIdx++;
+    }
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Indicadores Compromisos');
+    ws.columns = [12,12,11,11,10,11,11,10,11,11,10,12,12,12,14].map(w => ({ width: w }));
+
+    ws.mergeCells('A1:N1');
+    const cT = ws.getCell('A1');
+    cT.value = 'INDICADORES DE COMPROMISOS DE PAGO';
+    cT.font  = { bold: true, size: 13, color: { argb: 'FF00E5FF' } };
+    cT.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+    cT.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell('O1').value = 'Semana Anterior';
+    ws.getCell('O1').font = { bold: true, size: 10, color: { argb: 'FF8B949E' } };
+    ws.getCell('O1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+    ws.getCell('O1').alignment = { horizontal: 'center' };
+    ws.getRow(1).height = 26;
+
+    ws.addRow([]);
+    ws.getRow(2).height = 18;
+    const groups = [['C','E','0 DÍAS (CEROS)'],['F','H','1 DÍA (UNO)'],['I','K','2 DÍAS (DOS)'],['L','N','TOTAL']];
+    for (const [sc, ec, label] of groups) {
+      ws.mergeCells(`${sc}2:${ec}2`);
+      const cell = ws.getCell(`${sc}2`);
+      cell.value = label; cell.font = { bold: true, size: 9, color: { argb: 'FFF0F6FC' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+      cell.alignment = { horizontal: 'center' };
+    }
+
+    const hRow = ws.addRow(['fecha','dia','CEROS','CUMPLIDOS','%','UNO','CUMPLIDOS','%','DOS','CUMPLIDOS','%','TOTAL','COMPROMISOS','PORCENTAJE','PORCENTAJE']);
+    hRow.font = { bold: true, size: 9 }; hRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+    ws.getRow(3).height = 18;
+    hRow.eachCell(c => { c.alignment = { horizontal: 'center', wrapText: true }; });
+
+    const fmtPct = v => v != null ? `${(v*100).toFixed(2)}%` : '0.00%';
+    for (const r of dataRows) {
+      const s0=r.segmentos[0]||{}, s1=r.segmentos[1]||{}, s2=r.segmentos[2]||{};
+      const cells = [r.fecha, r.dia, s0.compromisos||0, s0.cumplidos||0, fmtPct(s0.pct), s1.compromisos||0, s1.cumplidos||0, fmtPct(s1.pct), s2.compromisos||0, s2.cumplidos||0, fmtPct(s2.pct), r.total_compromisos||0, r.total_cumplidos||0, fmtPct(r.total_pct), fmtPct(r.semana_anterior)];
+      const row = ws.addRow(cells);
+      row.height = 18;
+      row.getCell(1).font = { bold: true };
+      for (const ci of [5,8,11,14]) {
+        const vals = [s0.pct, s1.pct, s2.pct, r.total_pct];
+        const raw = vals[[5,8,11,14].indexOf(ci)];
+        row.getCell(ci).alignment = { horizontal: 'center' };
+        if (raw != null) row.getCell(ci).font = { bold: true, color: { argb: raw>=0.6?'FF00E676':raw>=0.35?'FFFFB74D':'FFEF4444' } };
+        else row.getCell(ci).font = { color: { argb: 'FF8B949E' } };
+      }
+      for (const ci of [3,6,9,12]) { if ((row.getCell(ci).value||0)>0) row.getCell(ci).font={bold:true,color:{argb:'FF00E5FF'}}; row.getCell(ci).alignment={horizontal:'center'}; }
+      for (const ci of [4,7,10,13]) { if ((row.getCell(ci).value||0)>0) row.getCell(ci).font={bold:true,color:{argb:'FF00E676'}}; row.getCell(ci).alignment={horizontal:'center'}; }
+      row.getCell(15).alignment = { horizontal: 'center' };
+      if (r.semana_anterior != null) row.getCell(15).font = { italic: true, color: { argb: 'FF64B5F6' } };
+    }
+    ws.views = [{ state: 'frozen', ySplit: 3, xSplit: 2 }];
+
+    const filename = encodeURIComponent(`indicadores_compromisos_${fechaInicio}_${fechaFin}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res); res.end();
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/reports/gestor_marketing ──────────────────────────────────────
+router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+
+    const asesores = await db.usuario.findMany({
+      where: { rol: 'asesor', estado: 'activo' },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: 'asc' },
+    });
+
+    // CDRs por asesor por día — fecha hora local Ecuador
+    const cdrRows = await db.$queryRawUnsafe(`
+      SELECT DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        usuario_id, COUNT(*) AS gestiones
+      FROM cdrs
+      WHERE DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      GROUP BY fecha, usuario_id
+    `, fechaInicio, fechaFin);
+
+    const cdrMap = {};
+    for (const r of cdrRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      if (!cdrMap[f]) cdrMap[f] = {};
+      cdrMap[f][Number(r.usuario_id)] = Number(r.gestiones);
+    }
+
+    // Envíos bulk (WhatsApp/RCS/correo) por asesor por día — atribuidos a asignado_a
+    const bulkWspRows = await db.$queryRawUnsafe(`
+      SELECT wsp_enviado_fecha AS fecha, asignado_a AS usuario_id, COUNT(*) AS cnt
+      FROM contactos
+      WHERE wsp_enviado_fecha BETWEEN $1 AND $2 AND asignado_a IS NOT NULL
+      GROUP BY fecha, usuario_id
+    `, fechaInicio, fechaFin);
+
+    const bulkRcsRows = await db.$queryRawUnsafe(`
+      SELECT rcs_enviado_fecha AS fecha, asignado_a AS usuario_id, COUNT(*) AS cnt
+      FROM contactos
+      WHERE rcs_enviado_fecha BETWEEN $1 AND $2 AND asignado_a IS NOT NULL
+      GROUP BY fecha, usuario_id
+    `, fechaInicio, fechaFin);
+
+    const bulkCorreoRows = await db.$queryRawUnsafe(`
+      SELECT correo_enviado_fecha AS fecha, asignado_a AS usuario_id, COUNT(*) AS cnt
+      FROM contactos
+      WHERE correo_enviado_fecha BETWEEN $1 AND $2 AND asignado_a IS NOT NULL
+      GROUP BY fecha, usuario_id
+    `, fechaInicio, fechaFin);
+
+    for (const rows of [bulkWspRows, bulkRcsRows, bulkCorreoRows]) {
+      for (const r of rows) {
+        const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : String(r.fecha);
+        const uid = Number(r.usuario_id);
+        if (!cdrMap[f]) cdrMap[f] = {};
+        cdrMap[f][uid] = (cdrMap[f][uid] || 0) + Number(r.cnt);
+      }
+    }
+
+    const offsetMs   = 7 * 24 * 60 * 60 * 1000;
+    const prevInicio = new Date(new Date(fechaInicio + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+    const prevFin    = new Date(new Date(fechaFin    + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+
+    const prevRows = await db.$queryRawUnsafe(`
+      SELECT DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        COUNT(*) AS gestiones
+      FROM cdrs
+      WHERE DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      GROUP BY fecha
+    `, prevInicio, prevFin);
+
+    const prevByDate = {};
+    for (const r of prevRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      prevByDate[f] = Number(r.gestiones);
+    }
+
+    const prevDates = [];
+    const pI = new Date(prevInicio + 'T12:00:00');
+    const pF = new Date(prevFin    + 'T12:00:00');
+    for (let d = new Date(pI); d <= pF; d.setDate(d.getDate() + 1))
+      prevDates.push(d.toISOString().slice(0, 10));
+
+    const DIAS_SEMANA = ['DOMINGO','LUNES','MARTES','MIÉRCOLES','JUEVES','VIERNES','SÁBADO'];
+    const dataRows = [];
+    const inicio = new Date(fechaInicio + 'T12:00:00');
+    const fin    = new Date(fechaFin    + 'T12:00:00');
+    let dayIdx   = 0;
+
+    for (let d = new Date(inicio); d <= fin; d.setDate(d.getDate() + 1)) {
+      const fecha   = d.toISOString().slice(0, 10);
+      const dayData = cdrMap[fecha] || {};
+      const valores = {};
+      let suma = 0, count = 0;
+      for (const a of asesores) {
+        const v = dayData[a.id] || 0;
+        valores[a.id] = v;
+        if (v > 0) { suma += v; count++; }
+      }
+      const diasProm  = count > 0 ? +(suma / count).toFixed(2) : null;
+      const prevFecha = prevDates[dayIdx] || null;
+      const prevGest  = prevFecha ? (prevByDate[prevFecha] || 0) : 0;
+      const prevProm  = prevGest > 0 ? +(prevGest / Math.max(1, asesores.length)).toFixed(2) : null;
+      dataRows.push({ fecha, dia: DIAS_SEMANA[d.getDay()], valores, dias_prom: diasProm, anterior_semana: prevProm });
+      dayIdx++;
+    }
+
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Gestor de Marketing');
+    const colLetter = n => { let s=''; while(n>0){const r=(n-1)%26;s=String.fromCharCode(65+r)+s;n=Math.floor((n-1)/26);}return s; };
+    const totalCols = 2 + asesores.length + 2;
+    const LAST = colLetter(totalCols);
+
+    const colWidths = [12, 12, ...asesores.map(() => 12), 10, 16];
+    ws.columns = colWidths.map(w => ({ width: w }));
+
+    ws.mergeCells(`A1:${LAST}1`);
+    const cT = ws.getCell('A1');
+    cT.value = 'GESTOR DE MARKETING';
+    cT.font  = { bold: true, size: 14, color: { argb: 'FF00E5FF' } };
+    cT.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0D1117' } };
+    cT.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 28;
+
+    const hdr2 = ['FECHA', 'DIA', ...asesores.map(a => a.nombre.toUpperCase()), 'DIAS', 'ANTERIOR SEMANA'];
+    const hRow = ws.addRow(hdr2);
+    hRow.font = { bold: true, size: 10 };
+    hRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF161B22' } };
+    ws.getRow(2).height = 22;
+    hRow.eachCell(c => { c.alignment = { horizontal: 'center', wrapText: true }; });
+
+    for (const r of dataRows) {
+      const cells = [r.fecha, r.dia, ...asesores.map(a => r.valores[a.id] || 0), r.dias_prom ?? '', r.anterior_semana ?? ''];
+      const row = ws.addRow(cells);
+      row.height = 18;
+      row.getCell(1).font = { bold: true };
+      const prom = r.dias_prom || 0;
+      for (let i = 0; i < asesores.length; i++) {
+        const ci  = i + 3;
+        const val = r.valores[asesores[i].id] || 0;
+        const cell = row.getCell(ci);
+        cell.alignment = { horizontal: 'center' };
+        if (val === 0) cell.font = { color: { argb: 'FF8B949E' } };
+        else if (val >= prom) cell.font = { bold: true, color: { argb: 'FF00E676' } };
+        else cell.font = { color: { argb: 'FFFFB74D' } };
+      }
+      row.getCell(asesores.length + 3).font = { bold: true, color: { argb: 'FF00E5FF' } };
+      row.getCell(asesores.length + 3).alignment = { horizontal: 'center' };
+      row.getCell(asesores.length + 4).font = { color: { argb: 'FF64B5F6' } };
+      row.getCell(asesores.length + 4).alignment = { horizontal: 'center' };
+    }
+    ws.views = [{ state: 'frozen', ySplit: 2, xSplit: 2 }];
+
+    const filename = encodeURIComponent(`gestor_marketing_${fechaInicio}_${fechaFin}.xlsx`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (err) { next(err); }
 });
 

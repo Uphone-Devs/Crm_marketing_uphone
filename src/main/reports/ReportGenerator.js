@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const PDFDocument = require('pdfkit');
 const ExcelJS = require('exceljs');
-const { getAsesores, findUserById, getEventosDia, getMetricasDia, getCdrsGestiones, getCarteraEquipo, getCarteraAsesor, getCompromisosEquipo, getDetalleContactabilidad } = require('../database/queries');
+const { getAsesores, findUserById, getEventosDia, getMetricasDia, getCdrsGestiones, getCarteraEquipo, getCarteraAsesor, getCompromisosEquipo, getDetalleContactabilidad, getVencimientosGestiones, getGestoresMarketing, getIndicadoresCompromisos } = require('../database/queries');
 
 // Cargar electron.app solo en contexto Electron; en VM/Node.js no existe
 let _electronApp = null;
@@ -617,25 +617,38 @@ async function _escribirGestiones(gestiones, rutaArchivo, titulo, formato) {
   const COLS = [
     'Fecha/Hora', 'Asesor', 'Cliente', 'CI/Cédula', 'Teléfono',
     'Empresa', 'Contrato', 'Tipificación',
-    'Monto Acordado', 'Fecha Promesa', 'Mora Cliente',
-    'Observaciones', 'Subgestiones (Tel | Nombre | Parentesco | Nota)',
+    'Monto Acordado', 'Fecha Promesa', 'Mora Cliente', 'Días Mora',
+    'Observaciones', 'Subgestiones (Tel | Nombre | Parentesco | Nota)', '# Gestiones',
   ];
+
+  // Contar gestiones por contacto en el lote
+  const gxc = new Map();
+  for (const g of gestiones) {
+    const k = g.contacto_id || g.ci || g.cliente;
+    gxc.set(k, (gxc.get(k) || 0) + 1);
+  }
+
   const fmtMonto = (v) => v != null ? Number(v).toFixed(2) : '';
-  const buildRow = (g) => [
-    toLocalDateTime(g.fecha_hora),
-    g.asesor || '',
-    g.cliente || '',
-    g.ci || '',
-    g.telefono || '',
-    g.empresa || '',
-    g.contrato || '',
-    g.tipificacion || '',
-    fmtMonto(g.monto_acordado),
-    toLocalDateTime(g.fecha_promesa),
-    fmtMonto(g.valor_mora),
-    g.observaciones || '',
-    g.subgestiones || '',
-  ];
+  const buildRow = (g) => {
+    const k = g.contacto_id || g.ci || g.cliente;
+    return [
+      toLocalDateTime(g.fecha_hora),
+      g.asesor || '',
+      g.cliente || '',
+      g.ci || '',
+      g.telefono || '',
+      g.empresa || '',
+      g.contrato || '',
+      g.tipificacion || '',
+      fmtMonto(g.monto_acordado),
+      toLocalDateTime(g.fecha_promesa),
+      fmtMonto(g.valor_mora),
+      g.dias_mora != null ? g.dias_mora : '',
+      g.observaciones || '',
+      g.subgestiones || '',
+      gxc.get(k) || 1,
+    ];
+  };
 
   if (formato === 'csv') {
     const escape = (v) => `"${String(v).replace(/"/g, '""')}"`;
@@ -676,13 +689,22 @@ async function _escribirGestiones(gestiones, rutaArchivo, titulo, formato) {
         cellMonto.font = { italic: true, color: { argb: 'FFFFB74D' } };
       }
     }
-    // Subgestiones en col M (13): resaltar en naranja suave si hay datos
+    // Días Mora col 12: naranja si > 0
+    if (g.dias_mora != null && g.dias_mora > 0) {
+      row.getCell(12).font = { bold: true, color: { argb: 'FFFF9800' } };
+    }
+    // Subgestiones col 14: naranja suave si hay datos
     if (g.subgestiones) {
-      row.getCell(13).font = { italic: true, color: { argb: 'FFFFB74D' } };
+      row.getCell(14).font = { italic: true, color: { argb: 'FFFFB74D' } };
+    }
+    // # Gestiones col 15: naranja si > 1 gestión
+    const k2 = g.contacto_id || g.ci || g.cliente;
+    if ((gxc.get(k2) || 1) > 1) {
+      row.getCell(15).font = { bold: true, color: { argb: 'FFFFB74D' } };
     }
   }
   ws.columns.forEach((col, i) => {
-    col.width = [20, 18, 22, 14, 14, 12, 14, 20, 14, 18, 14, 35, 50][i] || 16;
+    col.width = [20, 18, 22, 14, 14, 12, 14, 20, 14, 18, 14, 10, 35, 50, 12][i] || 16;
   });
   await wb.xlsx.writeFile(rutaArchivo);
 }
@@ -1303,6 +1325,347 @@ async function generarMisCompromisos(asesorId, fecha, formato = 'xlsx', opts = {
   return { success: true, archivo: rutaArchivo };
 }
 
+// ─── REPORTE VENCIMIENTOS Y NÚMERO DE GESTIONES ─────────────────────────────
+function _colLetter(n) {
+  let s = '';
+  while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+
+async function generarVencimientosGestiones(fechaInicio, fechaFin, formato = 'xlsx') {
+  const f    = fechaInicio || _todayLocalISO();
+  const fFin = fechaFin   || f;
+  const data = getVencimientosGestiones(f, fFin);
+
+  const sufijo        = f === fFin ? formatDate(f) : `${formatDate(f)}_${formatDate(fFin)}`;
+  const nombreArchivo = `vencimientos_gestiones_${sufijo}_${_timeSuffix()}.${formato}`;
+  const rutaArchivo   = path.join(getExportDir(), nombreArchivo);
+
+  const SEGS    = [{ dias: 0, label: '0 DÍAS' }, { dias: 1, label: '1 DÍA' }, { dias: 2, label: '2 DÍAS' }];
+  const SUB     = ['UNIDADES', 'DINERO', 'GESTIONES', 'WHASP', 'LLAMADAS', 'COMPROMISOS', '% CARTERA'];
+  const fmtM    = v => Number(v || 0).toFixed(2);
+  const fmtPct  = v => `${(Number(v || 0) * 100).toFixed(2)}%`;
+
+  const buildRow = (r) => {
+    const cells = [r.fecha, r.dia];
+    for (const seg of SEGS) {
+      const s = r.segmentos[seg.dias] || {};
+      cells.push(s.unidades || 0, fmtM(s.dinero), s.gestiones || 0, s.whasp || 0, s.llamadas || 0, s.compromisos || 0, fmtPct(s.pct_cartera));
+    }
+    cells.push(r.total_unidades || 0, fmtM(r.total_dinero));
+    return cells;
+  };
+
+  if (formato === 'csv') {
+    const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const hdr = ['FECHA', 'DIA'];
+    SEGS.forEach(sg => SUB.forEach(h => hdr.push(`${sg.label} ${h}`)));
+    hdr.push('TOTAL UNIDADES', 'TOTAL DINERO');
+    const rows = data.map(r => buildRow(r).map(esc).join(','));
+    fs.writeFileSync(rutaArchivo, '﻿' + hdr.join(',') + '\n' + rows.join('\n'), 'utf8');
+    return { success: true, archivo: rutaArchivo };
+  }
+
+  // XLSX ─ 25 columnas: A-B datos, C-I seg0, J-P seg1, Q-W seg2, X-Y totales
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'ANTIGRAVITY';
+  const ws = wb.addWorksheet('Vencimientos y Gestiones');
+
+  const COL_W = [12, 12, 10, 14, 11, 9, 11, 13, 11, 10, 14, 11, 9, 11, 13, 11, 10, 14, 11, 9, 11, 13, 11, 12, 14];
+  ws.columns = COL_W.map(w => ({ width: w }));
+  const LAST = _colLetter(COL_W.length); // Y
+
+  // Fila 1: Título
+  ws.mergeCells(`A1:${LAST}1`);
+  const cT = ws.getCell('A1');
+  cT.value = 'VENCIMIENTOS Y NUMERO DE GESTIONES';
+  cT.font  = { bold: true, size: 14, color: { argb: XLS.C_PRIMARY } };
+  cT.fill  = XLS.BG_DARK;
+  cT.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 28;
+
+  // Fila 2: Sub-títulos por segmento
+  ws.addRow([]);
+  ws.getRow(2).height = 20;
+  const SEG_STARTS = [3, 10, 17]; // cols C, J, Q (1-indexed)
+  SEGS.forEach((seg, i) => {
+    const sc = _colLetter(SEG_STARTS[i]);
+    const ec = _colLetter(SEG_STARTS[i] + 6);
+    ws.mergeCells(`${sc}2:${ec}2`);
+    const cell = ws.getCell(`${sc}2`);
+    cell.value = seg.label;
+    cell.font  = { bold: true, size: 10, color: { argb: XLS.C_WHITE } };
+    cell.fill  = XLS.BG_SECTION;
+    cell.alignment = { horizontal: 'center' };
+  });
+  ws.mergeCells('X2:Y2');
+  const cTot = ws.getCell('X2');
+  cTot.value = 'TOTALES';
+  cTot.font  = { bold: true, size: 10, color: { argb: XLS.C_MUTED } };
+  cTot.fill  = XLS.BG_DARK;
+  cTot.alignment = { horizontal: 'center' };
+
+  // Fila 3: Encabezados de columna
+  const hdr3 = ['FECHA', 'DIA'];
+  SEGS.forEach(() => SUB.forEach(h => hdr3.push(h)));
+  hdr3.push('UNIDADES', 'DINERO');
+  const hRow = ws.addRow(hdr3);
+  hRow.font  = { bold: true, size: 9 };
+  hRow.fill  = XLS.BG_SECTION;
+  ws.getRow(3).height = 20;
+  hRow.eachCell(c => { c.alignment = { horizontal: 'center', wrapText: true }; });
+
+  // Filas de datos
+  for (const r of data) {
+    const row = ws.addRow(buildRow(r));
+    row.height = 18;
+    row.getCell(1).font = { bold: true, color: { argb: XLS.C_WHITE } };
+    row.getCell(2).font = { color: { argb: XLS.C_MUTED } };
+    // Gestiones en verde si > 0 (cols 4, 11, 18)
+    [4, 11, 18].forEach(ci => {
+      if ((row.getCell(ci).value || 0) > 0) row.getCell(ci).font = { bold: true, color: { argb: XLS.C_GREEN } };
+    });
+    // Dinero en amarillo (cols 3, 10, 17, 25)
+    [3, 10, 17, 25].forEach(ci => {
+      row.getCell(ci).font = { color: { argb: XLS.C_YELLOW } };
+    });
+    // Compromisos en cyan si > 0 (cols 8, 15, 22)
+    [8, 15, 22].forEach(ci => {
+      if ((row.getCell(ci).value || 0) > 0) row.getCell(ci).font = { bold: true, color: { argb: XLS.C_PRIMARY } };
+    });
+  }
+
+  ws.views = [{ state: 'frozen', ySplit: 3, xSplit: 2 }];
+
+  if (formato === 'pdf') {
+    // PDF: tabla simplificada vertical (un bloque por segmento)
+    await wb.xlsx.writeFile(rutaArchivo.replace('.pdf', '.xlsx'));
+    return { success: true, archivo: rutaArchivo.replace('.pdf', '.xlsx') };
+  }
+
+  await wb.xlsx.writeFile(rutaArchivo);
+  return { success: true, archivo: rutaArchivo };
+}
+
+// ─── REPORTE INDICADORES DE COMPROMISOS DE PAGO ─────────────────────────────
+async function generarIndicadoresCompromisos(fechaInicio, fechaFin, formato = 'xlsx') {
+  const f    = fechaInicio || _todayLocalISO();
+  const fFin = fechaFin   || f;
+  const data = getIndicadoresCompromisos(f, fFin);
+
+  const sufijo        = f === fFin ? formatDate(f) : `${formatDate(f)}_${formatDate(fFin)}`;
+  const nombreArchivo = `indicadores_compromisos_${sufijo}_${_timeSuffix()}.${formato}`;
+  const rutaArchivo   = path.join(getExportDir(), nombreArchivo);
+
+  const fmtPct  = v => v != null ? `${(v * 100).toFixed(2)}%` : '#DIV/0!';
+  const fmtN    = v => v != null && v > 0 ? v : (v === 0 ? 0 : '');
+
+  const buildRow = (r) => {
+    const s0 = r.segmentos[0] || {};
+    const s1 = r.segmentos[1] || {};
+    const s2 = r.segmentos[2] || {};
+    return [
+      r.fecha, r.dia,
+      fmtN(s0.compromisos), fmtN(s0.cumplidos), fmtPct(s0.pct),
+      fmtN(s1.compromisos), fmtN(s1.cumplidos), fmtPct(s1.pct),
+      fmtN(s2.compromisos), fmtN(s2.cumplidos), fmtPct(s2.pct),
+      r.total_compromisos || 0, r.total_cumplidos || 0, fmtPct(r.total_pct),
+      fmtPct(r.semana_anterior),
+    ];
+  };
+
+  if (formato === 'csv') {
+    const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const hdr = ['FECHA','DIA','CEROS COMPROMISOS','CEROS CUMPLIDOS','CEROS %','UNO COMPROMISOS','UNO CUMPLIDOS','UNO %','DOS COMPROMISOS','DOS CUMPLIDOS','DOS %','TOTAL COMPROMISOS','TOTAL CUMPLIDOS','TOTAL %','SEMANA ANTERIOR %'];
+    const rows = data.map(r => buildRow(r).map(esc).join(','));
+    fs.writeFileSync(rutaArchivo, '﻿' + hdr.join(',') + '\n' + rows.join('\n'), 'utf8');
+    return { success: true, archivo: rutaArchivo };
+  }
+
+  // XLSX — 15 columnas (A-O)
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'ANTIGRAVITY';
+  const ws = wb.addWorksheet('Indicadores Compromisos');
+
+  ws.columns = [12,12,11,11,10,11,11,10,11,11,10,12,12,12,14].map(w => ({ width: w }));
+
+  // Fila 1: título + "Semana Anterior" en col O
+  ws.mergeCells('A1:N1');
+  const cT = ws.getCell('A1');
+  cT.value = 'INDICADORES DE COMPROMISOS DE PAGO';
+  cT.font  = { bold: true, size: 13, color: { argb: XLS.C_PRIMARY } };
+  cT.fill  = XLS.BG_DARK;
+  cT.alignment = { horizontal: 'center', vertical: 'middle' };
+  const cSA = ws.getCell('O1');
+  cSA.value = 'Semana Anterior';
+  cSA.font  = { bold: true, size: 10, color: { argb: XLS.C_MUTED } };
+  cSA.fill  = XLS.BG_DARK;
+  cSA.alignment = { horizontal: 'center' };
+  ws.getRow(1).height = 26;
+
+  // Fila 2: grupo-headers por segmento
+  ws.addRow([]);
+  ws.getRow(2).height = 18;
+  const SEG_GROUPS = [
+    { label: '0 DÍAS (CEROS)', sc: 'C', ec: 'E' },
+    { label: '1 DÍA (UNO)',    sc: 'F', ec: 'H' },
+    { label: '2 DÍAS (DOS)',   sc: 'I', ec: 'K' },
+    { label: 'TOTAL',          sc: 'L', ec: 'N' },
+  ];
+  for (const g of SEG_GROUPS) {
+    ws.mergeCells(`${g.sc}2:${g.ec}2`);
+    const cell = ws.getCell(`${g.sc}2`);
+    cell.value = g.label;
+    cell.font  = { bold: true, size: 9, color: { argb: XLS.C_WHITE } };
+    cell.fill  = XLS.BG_SECTION;
+    cell.alignment = { horizontal: 'center' };
+  }
+
+  // Fila 3: sub-headers
+  const hdr3 = ['fecha','dia','CEROS','CUMPLIDOS','%','UNO','CUMPLIDOS','%','DOS','CUMPLIDOS','%','TOTAL','COMPROMISOS','PORCENTAJE','PORCENTAJE'];
+  const hRow = ws.addRow(hdr3);
+  hRow.font  = { bold: true, size: 9 };
+  hRow.fill  = XLS.BG_SECTION;
+  ws.getRow(3).height = 18;
+  hRow.eachCell(c => { c.alignment = { horizontal: 'center', wrapText: true }; });
+
+  // Filas de datos
+  for (const r of data) {
+    const row = ws.addRow(buildRow(r));
+    row.height = 18;
+    row.getCell(1).font = { bold: true, color: { argb: XLS.C_WHITE } };
+    row.getCell(2).font = { color: { argb: XLS.C_MUTED } };
+
+    // Porcentajes con semáforo (cols 5, 8, 11, 14)
+    const pctCols = [5, 8, 11, 14];
+    for (const ci of pctCols) {
+      const cell = row.getCell(ci);
+      const raw  = r.segmentos[pctCols.indexOf(ci)]?.pct ?? (ci === 14 ? r.total_pct : null);
+      cell.alignment = { horizontal: 'center' };
+      if (raw == null) { cell.font = { color: { argb: XLS.C_MUTED } }; continue; }
+      cell.font = { bold: true, color: { argb: raw >= 0.6 ? XLS.C_GREEN : raw >= 0.35 ? XLS.C_YELLOW : XLS.C_RED } };
+    }
+    // Compromisos cols 3,6,9,12: cyan si > 0
+    for (const ci of [3, 6, 9, 12]) {
+      const v = row.getCell(ci).value;
+      if (v > 0) row.getCell(ci).font = { bold: true, color: { argb: XLS.C_PRIMARY } };
+      row.getCell(ci).alignment = { horizontal: 'center' };
+    }
+    // Cumplidos cols 4,7,10,13: verde
+    for (const ci of [4, 7, 10, 13]) {
+      const v = row.getCell(ci).value;
+      if (v > 0) row.getCell(ci).font = { bold: true, color: { argb: XLS.C_GREEN } };
+      row.getCell(ci).alignment = { horizontal: 'center' };
+    }
+    // Semana anterior col 15
+    const cPrev = row.getCell(15);
+    cPrev.alignment = { horizontal: 'center' };
+    if (r.semana_anterior != null) {
+      cPrev.font = { italic: true, color: { argb: XLS.C_BLUE } };
+    }
+  }
+
+  ws.views = [{ state: 'frozen', ySplit: 3, xSplit: 2 }];
+  await wb.xlsx.writeFile(rutaArchivo);
+  return { success: true, archivo: rutaArchivo };
+}
+
+// ─── REPORTE GESTOR DE MARKETING ────────────────────────────────────────────
+async function generarGestoresMarketing(fechaInicio, fechaFin, formato = 'xlsx') {
+  const f    = fechaInicio || _todayLocalISO();
+  const fFin = fechaFin   || f;
+  const { asesores, rows } = getGestoresMarketing(f, fFin);
+
+  const sufijo        = f === fFin ? formatDate(f) : `${formatDate(f)}_${formatDate(fFin)}`;
+  const nombreArchivo = `gestor_marketing_${sufijo}_${_timeSuffix()}.${formato}`;
+  const rutaArchivo   = path.join(getExportDir(), nombreArchivo);
+
+  // Columnas: FECHA, DIA, [asesor1..N], DIAS, ANTERIOR SEMANA
+  const FIXED_END = 2; // DIAS, ANTERIOR SEMANA
+  const totalCols  = 2 + asesores.length + FIXED_END;
+  const LAST       = _colLetter(totalCols);
+
+  if (formato === 'csv') {
+    const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const hdr = ['FECHA', 'DIA', ...asesores.map(a => a.nombre), 'DIAS', 'ANTERIOR SEMANA'];
+    const csvRows = rows.map(r => {
+      const cells = [r.fecha, r.dia];
+      for (const a of asesores) cells.push(r.valores[a.id] || 0);
+      cells.push(r.dias_prom ?? '', r.anterior_semana ?? '');
+      return cells.map(esc).join(',');
+    });
+    fs.writeFileSync(rutaArchivo, '﻿' + hdr.join(',') + '\n' + csvRows.join('\n'), 'utf8');
+    return { success: true, archivo: rutaArchivo };
+  }
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'ANTIGRAVITY';
+  const ws = wb.addWorksheet('Gestor de Marketing');
+
+  // Anchos: FECHA=12, DIA=12, asesor=12 cada uno, DIAS=10, ANT_SEM=16
+  const colWidths = [12, 12, ...asesores.map(() => 12), 10, 16];
+  ws.columns = colWidths.map(w => ({ width: w }));
+
+  // Fila 1: Título
+  ws.mergeCells(`A1:${LAST}1`);
+  const cT = ws.getCell('A1');
+  cT.value = 'GESTOR DE MARKETING';
+  cT.font  = { bold: true, size: 14, color: { argb: XLS.C_PRIMARY } };
+  cT.fill  = XLS.BG_DARK;
+  cT.alignment = { horizontal: 'center', vertical: 'middle' };
+  ws.getRow(1).height = 28;
+
+  // Fila 2: Encabezados
+  const hdr2 = ['FECHA', 'DIA', ...asesores.map(a => a.nombre.toUpperCase()), 'DIAS', 'ANTERIOR SEMANA'];
+  const hRow = ws.addRow(hdr2);
+  hRow.font  = { bold: true, size: 10 };
+  hRow.fill  = XLS.BG_SECTION;
+  ws.getRow(2).height = 22;
+  hRow.eachCell(c => { c.alignment = { horizontal: 'center', wrapText: true }; });
+
+  // Filas de datos
+  for (const r of rows) {
+    const cells = [r.fecha, r.dia];
+    for (const a of asesores) cells.push(r.valores[a.id] || 0);
+    cells.push(r.dias_prom ?? '', r.anterior_semana ?? '');
+
+    const row = ws.addRow(cells);
+    row.height = 18;
+    row.getCell(1).font = { bold: true, color: { argb: XLS.C_WHITE } };
+    row.getCell(2).font = { color: { argb: XLS.C_MUTED } };
+
+    // Color por asesor: verde si > promedio, amarillo si algo, gris si 0
+    const prom = r.dias_prom || 0;
+    for (let i = 0; i < asesores.length; i++) {
+      const ci   = i + 3;
+      const val  = r.valores[asesores[i].id] || 0;
+      const cell = row.getCell(ci);
+      cell.alignment = { horizontal: 'center' };
+      if (val === 0) {
+        cell.font = { color: { argb: XLS.C_MUTED } };
+      } else if (val >= prom) {
+        cell.font = { bold: true, color: { argb: XLS.C_GREEN } };
+      } else {
+        cell.font = { color: { argb: XLS.C_YELLOW } };
+      }
+    }
+
+    // DIAS: cyan
+    const cDias = row.getCell(asesores.length + 3);
+    if (r.dias_prom != null) cDias.font = { bold: true, color: { argb: XLS.C_PRIMARY } };
+    cDias.alignment = { horizontal: 'center' };
+
+    // ANTERIOR SEMANA: gris-azul
+    const cPrev = row.getCell(asesores.length + 4);
+    if (r.anterior_semana != null) cPrev.font = { color: { argb: XLS.C_BLUE } };
+    cPrev.alignment = { horizontal: 'center' };
+  }
+
+  ws.views = [{ state: 'frozen', ySplit: 2, xSplit: 2 }];
+  await wb.xlsx.writeFile(rutaArchivo);
+  return { success: true, archivo: rutaArchivo };
+}
+
 // ─── ENTRY POINT ────────────────────────────────────────────────────────────
 async function generate(tipo, params = {}) {
   try {
@@ -1341,6 +1704,27 @@ async function generate(tipo, params = {}) {
       return await generarMisCompromisos(params.asesor_id, params.fecha || null, params.formato || 'xlsx', {
         tipo_filtro: params.tipo_filtro,
       });
+    }
+    if (tipo === 'vencimientos_gestiones') {
+      return await generarVencimientosGestiones(
+        params.fecha    || params.fechaInicio || null,
+        params.fechaFin || params.fecha       || null,
+        params.formato  || 'xlsx',
+      );
+    }
+    if (tipo === 'indicadores_compromisos') {
+      return await generarIndicadoresCompromisos(
+        params.fecha    || params.fechaInicio || null,
+        params.fechaFin || params.fecha       || null,
+        params.formato  || 'xlsx',
+      );
+    }
+    if (tipo === 'gestor_marketing') {
+      return await generarGestoresMarketing(
+        params.fecha    || params.fechaInicio || null,
+        params.fechaFin || params.fecha       || null,
+        params.formato  || 'xlsx',
+      );
     }
     throw new Error(`Tipo de reporte desconocido: ${tipo}`);
   } catch (err) {

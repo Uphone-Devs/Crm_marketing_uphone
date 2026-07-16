@@ -122,6 +122,17 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
   const [editsSegs,          setEditsSegs]          = useState({}); // campanaId → { '0':{monto,und}, '1':..., '2':..., global:{...} }
   const [expandedCamp,       setExpandedCamp]       = useState(null);
 
+  // Lista de campañas para el selector
+  const [campanas, setCampanas] = useState([]);
+  useEffect(() => {
+    if (!apiBase) return;
+    fetch(`${apiBase}/campanas`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setCampanas(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBase, token]);
+
   // Filtros
   const todayISO = new Date().toISOString().slice(0, 10);
   const [campanaId,    setCampanaId]    = useState('');
@@ -284,7 +295,17 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
         </div>
 
         <div className="dd-filters">
-          <input aria-label="ID Campaña" type="text" placeholder="ID Campaña" value={campanaId} onChange={e => setCampanaId(e.target.value)} />
+          <select
+            aria-label="Campaña"
+            value={campanaId}
+            onChange={e => setCampanaId(e.target.value)}
+            style={{ background: '#1a1a2e', border: '1px solid rgba(0,230,118,0.25)', borderRadius: 8, padding: '6px 10px', color: '#fff', fontSize: 13, cursor: 'pointer' }}
+          >
+            <option value="">Todas las campañas</option>
+            {campanas.map(c => (
+              <option key={c.id} value={c.id}>{c.nombre}</option>
+            ))}
+          </select>
           <input type="text" placeholder="Distribuidor" value={distribuidor} onChange={e => setDistribuidor(e.target.value)} />
           <input type="text" placeholder="Grupo"        value={grupo}        onChange={e => setGrupo(e.target.value)} />
           <input type="text" placeholder="N° Cuota"     value={numeroCuota}  onChange={e => setNumeroCuota(e.target.value)} />
