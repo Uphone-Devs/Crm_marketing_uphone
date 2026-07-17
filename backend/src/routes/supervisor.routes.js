@@ -870,6 +870,19 @@ router.post('/validacion/confirmar', requireRole('jefe_area', 'admin'), async (r
         where: { id: { in: excluir } },
         data: { yaPago: true, validadoPago: true, estadoMarcacion: 'YA_PAGO', ordenMarcacion: null },
       });
+
+      // Marcar CDRs de HOY como COMP_CUM para que el compromiso del asesor
+      // refleje el pago validado sin depender del campo permanente ya_pago.
+      const hoyGye = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
+      await db.$executeRaw`
+        UPDATE cdrs SET resultado = 'COMP_CUM'
+        WHERE contacto_id = ANY(${excluir}::int[])
+          AND resultado IS DISTINCT FROM 'COMP_CUM'
+          AND DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') = ${hoyGye}::date
+          AND tipificacion_id IN (
+            SELECT id FROM tipificaciones WHERE codigo IN ('PMP','AB_PARC','PEND_COMP')
+          )
+      `;
     }
 
     // Notificar asesores en tiempo real
@@ -2412,6 +2425,10 @@ router.get('/mis-compromisos', async (req, res, next) => {
         co.telefono,
         co.metadata,
         co.ya_pago,
+        EXISTS (
+          SELECT 1 FROM validacion_pagos vp
+          WHERE vp.contacto_id = co.id AND vp.estado_pago = 'ABONO_PARCIAL'
+        ) AS tiene_abono,
         COALESCE(
           c.scheduled_datetime,
           (
@@ -2475,6 +2492,7 @@ router.get('/mis-compromisos', async (req, res, next) => {
         dias_mora,
         fecha_promesa: r.fecha_promesa || null,
         ya_pago: r.ya_pago === true || r.ya_pago === 1,
+        tiene_abono: r.tiene_abono === true || r.tiene_abono === 't',
       };
     });
 

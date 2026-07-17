@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { todayLocalISO } from '../shared/timeUtils';
 
 const TIPO_LABEL = {
@@ -139,6 +139,14 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
 
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [fecha, usuario?.id, refreshSignal]);
 
+  // Polling de respaldo: actualiza aunque el WS esté caído
+  const cargarRef = useRef(cargar);
+  cargarRef.current = cargar;
+  useEffect(() => {
+    const iv = setInterval(() => cargarRef.current?.(), 30_000);
+    return () => clearInterval(iv);
+  }, []); // eslint-disable-line
+
   // Auto-expandir fila cuando viene highlight desde alerta 5-min
   useEffect(() => {
     if (!highlightCdrId) return;
@@ -169,7 +177,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
   // KPIs específicos del asesor
   const cntPagados   = registros.filter(r => r.resultado === 'COMP_CUM').length;
   const cntPMP       = filtrados.filter(r => r.tipificacion_codigo === 'PMP').length;
-  const cntPago      = filtrados.filter(r => r.tipificacion_codigo === 'PAGO_REAL').length;
+  const cntPago      = filtrados.filter(r => r.tipificacion_codigo === 'PAGO_REAL' || r.resultado === 'COMP_CUM').length;
   const cntVolCall   = filtrados.filter(r => r.tipificacion_codigo === 'VOL_CALL').length;
   const totalMonto   = filtrados
     .filter(r => r.tipificacion_codigo !== 'INCUMP' && r.resultado !== 'INCUMP')
@@ -468,8 +476,11 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                 const color = TIPO_COLOR[r.tipificacion_codigo] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc' };
                 const promesa = fmtPromesaInfo(r.fecha_promesa);
                 const esPagado = r.resultado === 'COMP_CUM';
+                const esAbono  = !esPagado && !!r.tiene_abono;
                 const rowBg = esPagado
                   ? 'rgba(0,230,118,0.05)'
+                  : esAbono
+                  ? 'rgba(255,193,7,0.04)'
                   : esIncumplido
                   ? 'rgba(244,67,54,0.04)'
                   : promesa?.urgent  ? 'rgba(255,193,7,0.06)'
@@ -499,6 +510,9 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                           </span>
                           {r.resultado === 'COMP_CUM' && (
                             <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(0,230,118,0.15)', color: 'var(--color-primary)' }}>PAGADO</span>
+                          )}
+                          {esAbono && (
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,193,7,0.18)', color: '#ffd54f' }}>ABONO PARCIAL</span>
                           )}
                           {r.resultado === 'REAG' && r.tipificacion_codigo !== 'INCUMP' && (
                             <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,152,0,0.15)', color: '#ffcc02' }}>REAGENDADO</span>
@@ -729,9 +743,29 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>cancel</span>
                                 Compromiso incumplido — contacto reasignado a PENDIENTE
                               </div>
+                            ) : esPagado ? (
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '5px 12px', borderRadius: 6, fontSize: 12,
+                                background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.25)',
+                                color: 'var(--color-primary)',
+                              }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check_circle</span>
+                                Pago validado — compromiso cumplido
+                              </div>
+                            ) : esAbono ? (
+                              <div style={{
+                                display: 'flex', alignItems: 'center', gap: 6,
+                                padding: '5px 12px', borderRadius: 6, fontSize: 12,
+                                background: 'rgba(255,193,7,0.08)', border: '1px solid rgba(255,193,7,0.3)',
+                                color: '#ffd54f',
+                              }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>payments</span>
+                                Abono parcial registrado — pendiente saldo restante
+                              </div>
                             ) : (
                               <>
-                                {CODIGOS_CONFIRMABLES.has(r.tipificacion_codigo) && pagoFormId !== r.cdr_id && (
+                                {CODIGOS_CONFIRMABLES.has(r.tipificacion_codigo) && !esPagado && !esAbono && pagoFormId !== r.cdr_id && (
                                   <button type="button"
                                     className="btn btn-sm"
                                     style={{
@@ -745,7 +779,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     Pago Realizado
                                   </button>
                                 )}
-                                {CODIGOS_REAGENDABLES.has(r.tipificacion_codigo) && reagendaFormId !== r.cdr_id && (
+                                {CODIGOS_REAGENDABLES.has(r.tipificacion_codigo) && !esPagado && !esAbono && reagendaFormId !== r.cdr_id && (
                                   <button type="button"
                                     className="btn btn-sm"
                                     style={{
@@ -759,7 +793,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     Reagendar
                                   </button>
                                 )}
-                                {CODIGOS_INCUMPLIBLES.has(r.tipificacion_codigo) && (
+                                {CODIGOS_INCUMPLIBLES.has(r.tipificacion_codigo) && !esPagado && !esAbono && (
                                   <button type="button"
                                     className="btn btn-sm"
                                     disabled={incumpGuardandoId === r.cdr_id}

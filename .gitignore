@@ -5,6 +5,8 @@
 
 # graphify output (should not be committed)
 graphify-out/
+dist2/*.exe
+dist2/*.asar
 
 # Database
 *.db
