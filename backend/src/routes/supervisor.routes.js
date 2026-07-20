@@ -467,14 +467,14 @@ router.get('/metricas-campana/:campanaId', async (req, res, next) => {
       SELECT COUNT(*)::int AS registros, MIN(fecha_asignacion) AS asignada
       FROM contactos c WHERE c.campana_id = $1 ${scopeAsesor ? 'AND c.asignado_a = $2' : ''}
     `, ...(scopeAsesor ? [campanaId, targetId] : [campanaId])).catch(() => [{}]);
-    const camp = await db.campana.findUnique({ where: { id: campanaId }, select: { nombre: true, creadoEn: true } }).catch(() => null);
+    const camp = await db.campana.findUnique({ where: { id: campanaId }, select: { nombre: true } }).catch(() => null);
 
     res.json({
       campana_id: campanaId,
       campana_nombre: camp?.nombre || null,
       usuario_id: targetId,
       registros: Number(info[0]?.registros || 0),
-      fecha_asignacion: info[0]?.asignada ? new Date(info[0].asignada).toISOString().slice(0, 10) : (camp?.creadoEn ? new Date(camp.creadoEn).toISOString().slice(0, 10) : null),
+      fecha_asignacion: info[0]?.asignada ? new Date(info[0].asignada).toISOString().slice(0, 10) : null,
       marcaciones:       Number(agg.marcaciones || 0),
       cdrs_total:        Number(agg.gestiones || 0),
       total_compromisos: Number(agg.compromisos || 0),
