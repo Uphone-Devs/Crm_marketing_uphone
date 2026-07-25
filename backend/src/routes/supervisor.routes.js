@@ -45,13 +45,18 @@ function _gyeDayBounds(fechaStr) {
 // Returns Prisma-compatible where clause. Uses raw SQL when metadata filters present.
 async function resolveContactoWhere(q) {
   const { campanaId, distribuidor, grupo, numeroCuota } = q || {};
+  const empresa = q?.empresa && ['TEC_SAS', 'SCC'].includes(q.empresa) ? q.empresa : null;
 
   if (!distribuidor && !grupo && !numeroCuota) {
-    return campanaId ? { campanaId: parseInt(campanaId) } : {};
+    const w = {};
+    if (campanaId) w.campanaId = parseInt(campanaId);
+    if (empresa)   w.empresa   = empresa;
+    return w;
   }
 
   const parts = [];
   if (campanaId) parts.push(Prisma.sql`AND campana_id = ${parseInt(campanaId)}`);
+  if (empresa)   parts.push(Prisma.sql`AND empresa = ${empresa}`);
   if (distribuidor) {
     const d = `%${distribuidor}%`;
     parts.push(Prisma.sql`AND (
@@ -81,18 +86,24 @@ async function resolveContactoWhere(q) {
 
 // Convierte el where de Prisma a fragmento SQL raw para contactos
 function buildContactoRawWhere(cWhere) {
+  const parts = [];
   if (cWhere.id?.in?.length) {
-    return Prisma.sql`AND id IN (${Prisma.join(cWhere.id.in.map(id => Prisma.sql`${id}`))})`;
+    parts.push(Prisma.sql`AND id IN (${Prisma.join(cWhere.id.in.map(id => Prisma.sql`${id}`))})`);
+  } else if (cWhere.campanaId) {
+    parts.push(Prisma.sql`AND campana_id = ${cWhere.campanaId}`);
   }
-  if (cWhere.campanaId) return Prisma.sql`AND campana_id = ${cWhere.campanaId}`;
-  return Prisma.sql``;
+  if (cWhere.empresa) parts.push(Prisma.sql`AND empresa = ${cWhere.empresa}`);
+  return parts.length ? Prisma.join(parts, ' ') : Prisma.sql``;
 }
-function buildCdrContactoRawWhere(cWhere) {
+function buildCdrContactoRawWhere(cWhere, alias = 'c') {
+  const parts = [];
   if (cWhere.id?.in?.length) {
-    return Prisma.sql`AND c.id IN (${Prisma.join(cWhere.id.in.map(id => Prisma.sql`${id}`))})`;
+    parts.push(Prisma.sql`AND ${Prisma.raw(alias)}.id IN (${Prisma.join(cWhere.id.in.map(id => Prisma.sql`${id}`))})`);
+  } else if (cWhere.campanaId) {
+    parts.push(Prisma.sql`AND ${Prisma.raw(alias)}.campana_id = ${cWhere.campanaId}`);
   }
-  if (cWhere.campanaId) return Prisma.sql`AND c.campana_id = ${cWhere.campanaId}`;
-  return Prisma.sql``;
+  if (cWhere.empresa) parts.push(Prisma.sql`AND ${Prisma.raw(alias)}.empresa = ${cWhere.empresa}`);
+  return parts.length ? Prisma.join(parts, ' ') : Prisma.sql``;
 }
 
 const DIAS_SEG_EXPR = `COALESCE(NULLIF(metadata->>'DIAS IMPAGO',''),NULLIF(metadata->>'DIAS EN MORA',''),NULLIF(metadata->>'DIAS MORA',''))`;
@@ -1712,9 +1723,7 @@ router.get('/jefe/indicadores', async (req, res, next) => {
 router.get('/jefe/productividad', async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
-    const cWhere  = await resolveContactoWhere(req.query);
-    const empresa = req.query.empresa && ['TEC_SAS', 'SCC'].includes(req.query.empresa)
-      ? req.query.empresa : null;
+    const cWhere = await resolveContactoWhere(req.query); // empresa incluida si viene en query
 
     // Rango de apertura (fecha_asignacion)
     let fechaDesde, fechaHasta;
@@ -1728,11 +1737,9 @@ router.get('/jefe/productividad', async (req, res, next) => {
       fechaDesde = b.inicio; fechaHasta = b.fin;
     }
 
-    const contactoFrag = buildContactoRawWhere(cWhere);
-    const cdrCtFrag    = buildCdrContactoRawWhere(cWhere);
-    const empresaCtFrag  = empresa ? Prisma.sql`AND empresa = ${empresa}`      : Prisma.empty;
-    const empresaCo2Frag = empresa ? Prisma.sql`AND co.empresa = ${empresa}`   : Prisma.empty;
-    const apoyoFrag      = _APOYO_IDS.length
+    const contactoFrag = buildContactoRawWhere(cWhere);           // incluye empresa si viene en cWhere
+    const cdrCtFrag    = buildCdrContactoRawWhere(cWhere, 'co');  // idem, alias co
+    const apoyoFrag    = _APOYO_IDS.length
       ? Prisma.sql`AND cr.usuario_id NOT IN (${Prisma.join(_APOYO_IDS)})`
       : Prisma.empty;
 
@@ -1746,7 +1753,6 @@ router.get('/jefe/productividad', async (req, res, next) => {
         FROM contactos
         WHERE fecha_asignacion >= ${fechaDesde}
           AND fecha_asignacion <= ${fechaHasta}
-          ${empresaCtFrag}
           ${contactoFrag}
       `,
       // Numerador: contratos únicos con al menos 1 CDR en el mismo rango (excluye apoyo)
@@ -1762,7 +1768,6 @@ router.get('/jefe/productividad', async (req, res, next) => {
           AND cr.timestamp_inicio  >= ${fechaDesde}
           AND cr.timestamp_inicio  <= ${fechaHasta}
           ${apoyoFrag}
-          ${empresaCo2Frag}
           ${cdrCtFrag}
       `,
       // CDRs por canal en el rango (intentos totales — puede superar contratos únicos)
@@ -1773,7 +1778,6 @@ router.get('/jefe/productividad', async (req, res, next) => {
         WHERE cr.timestamp_inicio >= ${fechaDesde}
           AND cr.timestamp_inicio <= ${fechaHasta}
           ${apoyoFrag}
-          ${empresaCo2Frag}
           ${cdrCtFrag}
         GROUP BY cr.canal
       `,
