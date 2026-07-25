@@ -3051,8 +3051,16 @@ router.get('/reports/gestiones', requireRole('supervisor', 'jefe_area', 'admin')
 });
 
 // ── GET /api/reports/equipo & /api/reports/diario — Informe Operativo ────────
-async function _getMetricasAsesor(asesorId, inicio, fin) {
-  const cdrWhere = { usuarioId: asesorId, timestampInicio: { gte: inicio, lte: fin } };
+async function _getMetricasAsesor(asesorId, inicio, fin, empresa = null) {
+  const empresaFiltro = empresa && ['TEC_SAS', 'SCC'].includes(empresa) ? empresa : null;
+  const contactoFilter = empresaFiltro ? { empresa: empresaFiltro } : {};
+
+  const cdrWhere = {
+    usuarioId: asesorId,
+    timestampInicio: { gte: inicio, lte: fin },
+    ...(empresaFiltro ? { contacto: { empresa: empresaFiltro } } : {}),
+  };
+
   const [
     totalMarcaciones,
     aggDuracion,
@@ -3078,15 +3086,36 @@ async function _getMetricasAsesor(asesorId, inicio, fin) {
   const fechaInicioStr = inicio.toISOString().slice(0, 10);
   const fechaFinStr    = fin.toISOString().slice(0, 10);
   const [wspEnviados, rcsEnviados, correosEnviados] = await Promise.all([
-    db.contacto.count({ where: { asignadoA: asesorId, whatsappStatus: 'ENVIADO', wspEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr } } }),
-    db.contacto.count({ where: { asignadoA: asesorId, rcsStatus: 'ENVIADO', rcsEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr } } }),
-    db.contacto.count({ where: { asignadoA: asesorId, correoStatus: 'ENVIADO', correoEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr } } }),
+    db.contacto.count({ where: { asignadoA: asesorId, whatsappStatus: 'ENVIADO', wspEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr }, ...contactoFilter } }),
+    db.contacto.count({ where: { asignadoA: asesorId, rcsStatus: 'ENVIADO', rcsEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr }, ...contactoFilter } }),
+    db.contacto.count({ where: { asignadoA: asesorId, correoStatus: 'ENVIADO', correoEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr }, ...contactoFilter } }),
   ]);
+
+  // Cobertura: DISTINCT nro_contrato con CDR / DISTINCT nro_contrato asignado (apertura-anchored)
+  const coberturaRows = await db.$queryRawUnsafe(`
+    SELECT
+      COUNT(DISTINCT co.nro_contrato)                                          AS total_contratos,
+      COUNT(DISTINCT CASE WHEN c.id IS NOT NULL THEN co.nro_contrato END)      AS gestionados
+    FROM contactos co
+    LEFT JOIN cdrs c ON c.contacto_id = co.id
+      AND c.usuario_id = $1
+      AND c.timestamp_inicio >= $2
+      AND c.timestamp_inicio <= $3
+    WHERE co.asignado_a = $1
+      AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $4 AND $5
+      ${empresaFiltro ? `AND co.empresa = '${empresaFiltro}'` : ''}
+      AND co.nro_contrato IS NOT NULL
+  `, asesorId, inicio, fin, fechaInicioStr, fechaFinStr);
+
+  const totalContratos = Number(coberturaRows[0]?.total_contratos || 0);
+  const gestionados    = Number(coberturaRows[0]?.gestionados     || 0);
+  const cobertura      = totalContratos > 0 ? Math.min(100, Math.round((gestionados / totalContratos) * 100)) : 0;
 
   const durSeg = aggDuracion._sum.duracionSeg || 0;
   const tiempoAlAire = `${String(Math.floor(durSeg / 3600)).padStart(2,'0')}:${String(Math.floor((durSeg % 3600) / 60)).padStart(2,'0')}:${String(durSeg % 60).padStart(2,'0')}`;
 
   return {
+    empresa: empresaFiltro || 'TODAS',
     totalMarcaciones,
     tiempoAlAire,
     productividad: totalMarcaciones > 0 ? Math.round((cdrsConTipif / totalMarcaciones) * 100) : 0,
@@ -3101,21 +3130,23 @@ async function _getMetricasAsesor(asesorId, inicio, fin) {
     wspEnviados,
     rcsEnviados,
     correosEnviados,
+    totalContratos,
+    gestionados,
+    cobertura,
   };
 }
 
-function _buildOperativoWb(dataEquipo, titulo) {
+function _addOperativoSheet(wb, dataEquipo, titulo, sheetName = 'Informe Operativo') {
   const COLS = [
-    'Asesor','Marcaciones','T. Aire','Productividad%','Eficacia%',
+    'Asesor','Empresa','Contratos','Gestionados','Cobertura%',
+    'Marcaciones','T. Aire','Productividad%','Eficacia%',
     'CDRs','Efectivos','Neutros','No Contactados',
     'Compromisos','M. Comprometido','M. Recaudado',
     'WhatsApp','RCS/SMS','Correos','Total Digital',
   ];
-  const wb = new ExcelJS.Workbook();
-  wb.creator = 'UPHONE-CRM';
-  const ws = wb.addWorksheet('Informe Operativo');
+  const ws = wb.addWorksheet(sheetName);
 
-  ws.mergeCells('A1:P1');
+  ws.mergeCells(`A1:T1`);
   const ct = ws.getCell('A1');
   ct.value = titulo;
   ct.font  = { bold: true, size: 13, color: { argb: 'FF58A6FF' } };
@@ -3130,18 +3161,43 @@ function _buildOperativoWb(dataEquipo, titulo) {
   for (const d of dataEquipo) {
     const td = d.wspEnviados + d.rcsEnviados + d.correosEnviados;
     const row = ws.addRow([
-      d.nombre, d.totalMarcaciones, d.tiempoAlAire, d.productividad, d.eficacia,
+      d.nombre, d.empresa || 'TODAS', d.totalContratos, d.gestionados, d.cobertura,
+      d.totalMarcaciones, d.tiempoAlAire, d.productividad, d.eficacia,
       d.cdrsTotal, d.efectivos, d.neutros, d.noContactados,
       d.compromisos, d.montoComprometido, d.montoRecaudado,
       d.wspEnviados, d.rcsEnviados, d.correosEnviados, td,
     ]);
-    row.getCell(11).numFmt = '#,##0.00';
-    row.getCell(12).numFmt = '#,##0.00';
-    if (d.efectivos > 0)   row.getCell(7).font  = { bold: true, color: { argb: 'FF00E676' } };
-    if (d.compromisos > 0) row.getCell(10).font = { bold: true, color: { argb: 'FFFFB74D' } };
+    row.getCell(15).numFmt = '#,##0.00';
+    row.getCell(16).numFmt = '#,##0.00';
+    // Cobertura: verde si >=80, naranja si <50
+    const covCell = row.getCell(5);
+    covCell.numFmt = '0"%"';
+    if (d.cobertura >= 80)      covCell.font = { bold: true, color: { argb: 'FF00E676' } };
+    else if (d.cobertura < 50)  covCell.font = { bold: true, color: { argb: 'FFFF5252' } };
+    if (d.efectivos > 0)   row.getCell(11).font = { bold: true, color: { argb: 'FF00E676' } };
+    if (d.compromisos > 0) row.getCell(14).font = { bold: true, color: { argb: 'FFFFB74D' } };
   }
 
-  ws.columns = [22,13,11,15,12,9,11,10,15,13,17,16,12,12,12,14].map(w => ({ width: w }));
+  ws.columns = [22,10,11,12,11,13,11,15,12,9,11,10,15,13,17,16,12,12,12,14].map(w => ({ width: w }));
+  return ws;
+}
+
+function _buildOperativoWb(dataEquipo, titulo) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'UPHONE-CRM';
+
+  // Hoja principal con todos los datos
+  _addOperativoSheet(wb, dataEquipo, titulo);
+
+  // Hojas resumen por empresa si hay datos mixtos
+  const empresas = [...new Set(dataEquipo.map(d => d.empresa).filter(e => e && e !== 'TODAS'))];
+  if (empresas.length > 1) {
+    for (const emp of empresas) {
+      const subset = dataEquipo.filter(d => d.empresa === emp);
+      _addOperativoSheet(wb, subset, `${titulo} — ${emp}`, emp);
+    }
+  }
+
   return wb;
 }
 
@@ -3149,6 +3205,7 @@ router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), a
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const empresa     = ['TEC_SAS', 'SCC'].includes(req.query.empresa) ? req.query.empresa : null;
     const inicio = new Date(fechaInicio + 'T00:00:00');
     const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
 
@@ -3158,11 +3215,21 @@ router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), a
       orderBy: { nombre: 'asc' },
     });
 
-    const dataEquipo = await Promise.all(
-      asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin) }))
-    );
+    // Sin filtro de empresa: generar una fila por asesor×empresa para tener resumen por empresa
+    let dataEquipo;
+    if (empresa) {
+      dataEquipo = await Promise.all(
+        asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, empresa) }))
+      );
+    } else {
+      const rows = await Promise.all(asesores.flatMap(a =>
+        ['TEC_SAS', 'SCC'].map(async emp => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, emp) }))
+      ));
+      dataEquipo = rows;
+    }
 
-    const titulo   = `Informe Operativo Equipo — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
+    const empLabel = empresa ? ` — ${empresa}` : '';
+    const titulo   = `Informe Operativo Equipo${empLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
     const filename = encodeURIComponent(`informe_operativo_equipo_${fechaInicio}.xlsx`);
     const wb = _buildOperativoWb(dataEquipo, titulo);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -3177,6 +3244,7 @@ router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), a
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
+    const empresa     = ['TEC_SAS', 'SCC'].includes(req.query.empresa) ? req.query.empresa : null;
     const inicio = new Date(fechaInicio + 'T00:00:00');
     const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
 
@@ -3192,12 +3260,21 @@ router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), a
       });
     }
 
-    const dataEquipo = await Promise.all(
-      asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin) }))
-    );
+    let dataEquipo;
+    if (empresa) {
+      dataEquipo = await Promise.all(
+        asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, empresa) }))
+      );
+    } else {
+      const rows = await Promise.all(asesores.flatMap(a =>
+        ['TEC_SAS', 'SCC'].map(async emp => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, emp) }))
+      ));
+      dataEquipo = rows;
+    }
 
     const nombreLabel = asesores.length === 1 ? asesores[0].nombre : 'Equipo';
-    const titulo   = `Informe Operativo — ${nombreLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
+    const empLabel    = empresa ? ` — ${empresa}` : '';
+    const titulo   = `Informe Operativo — ${nombreLabel}${empLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
     const filename = encodeURIComponent(`informe_operativo_${nombreLabel.replace(/\s+/g, '_')}_${fechaInicio}.xlsx`);
     const wb = _buildOperativoWb(dataEquipo, titulo);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
