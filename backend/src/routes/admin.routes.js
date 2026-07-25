@@ -72,9 +72,18 @@ router.get('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (r
         const users = raw.map(u => ({ ...u, supervisor_id: u.supervisorId }));
         res.json(users);
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
+
+// Roles que cada caller puede asignar — jefe_area solo puede crear asesores
+const ROLES_ASIGNABLES = {
+    admin:     ['admin', 'jefe_area', 'asesor'],
+    jefe_area: ['asesor'],
+};
+function rolPermitido(callerRol, rolSolicitado) {
+    return (ROLES_ASIGNABLES[callerRol] || []).includes(rolSolicitado);
+}
 
 router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
@@ -82,22 +91,19 @@ router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (
         if (!nombre || !email || !password || !rol) {
             return res.status(400).json({ error: 'Campos requeridos: nombre, email, password, rol' });
         }
+        if (!rolPermitido(req.user.rol, rol)) {
+            return res.status(403).json({ error: `No puedes asignar el rol '${rol}'` });
+        }
         const existing = await prisma.usuario.findUnique({ where: { email } });
         if (existing) return res.status(409).json({ error: 'Email ya registrado' });
 
         const passwordHash = await bcrypt.hash(password, 10);
         const user = await prisma.usuario.create({
-            data: {
-                nombre,
-                email,
-                passwordHash,
-                rol,
-                supervisorId: supervisor_id ?? null,
-            },
+            data: { nombre, email, passwordHash, rol, supervisorId: supervisor_id ?? null },
         });
         res.status(201).json({ success: true, id: user.id });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Error al crear usuario' });
     }
 });
 
@@ -108,13 +114,16 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), asyn
         if (!nombre || !email || !rol) {
             return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
         }
+        if (!rolPermitido(req.user.rol, rol)) {
+            return res.status(403).json({ error: `No puedes asignar el rol '${rol}'` });
+        }
         const data = { nombre, email, rol, supervisorId: supervisor_id ?? null };
         if (estado) data.estado = estado;
         const user = await prisma.usuario.update({ where: { id }, data });
         res.json({ success: true, id: user.id });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Error al actualizar usuario' });
     }
 });
 
@@ -131,7 +140,7 @@ router.post('/users/:id/toggle', authMiddleware, requireRole('admin', 'jefe_area
         });
         res.json({ success: true, estado: user.estado });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -147,7 +156,7 @@ router.post('/users/:id/password', authMiddleware, requireRole('admin'), async (
         res.json({ success: true });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
@@ -226,7 +235,7 @@ router.delete('/users/:id', authMiddleware, requireRole('admin'), async (req, re
         });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado.' });
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: 'Error interno del servidor' });
     }
 });
 
