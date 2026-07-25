@@ -130,6 +130,7 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       return res.status(400).json({ error: 'Fecha inválida' });
     }
     const { inicio, fin } = _gyeDayBounds(req.query.fecha);
+    const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
 
     const asesorIds = await getAsesorIdsDelEquipo(req.user); // null = admin (todos)
     const usuarioWhere = { estado: 'activo', rol: 'asesor' };
@@ -141,7 +142,9 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
     });
 
     const asesorIdList = asesores.map(a => a.id);
-    const [grupos, tipifs, avanceRows] = await Promise.all([
+    // Una sola query para avance + segmentos por asesor (reemplaza N×2 queries + segRows)
+    const fechaYmd = _gyeDayBounds(req.query.fecha).ymd; // 'YYYY-MM-DD'
+    const [grupos, tipifs, detalleRows, canalRows, segActualRows] = await Promise.all([
       db.cdr.groupBy({
         by: ['usuarioId', 'tipificacionId'],
         where: {
@@ -155,14 +158,148 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       db.tipificacion.findMany({
         select: { id: true, codigo: true, descripcion: true, categoria: true },
       }),
-      Promise.all(asesorIdList.map(id =>
-        Promise.all([
-          db.contacto.count({ where: { asignadoA: id } }),
-          db.contacto.count({ where: { asignadoA: id, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } }),
-        ]).then(([asignados, gestionados]) => ({ id, asignados, gestionados }))
-      )),
+      // detalleRows: avance por asesor+segmento de la apertura de hoy
+      asesorIdList.length === 0 ? Promise.resolve([]) : (() => {
+        const idsStr    = asesorIdList.join(',');                                  // safe: validated integers
+        const campClause = campanaId ? `AND campana_id = ${campanaId}` : '';      // safe: validated integer
+        const SEG_EXPR  = `CASE
+          WHEN COALESCE(
+            CASE WHEN metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (metadata->>'DIAS MORA')::int    END
+          ) >= 2 THEN '2'
+          WHEN COALESCE(
+            CASE WHEN metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (metadata->>'DIAS MORA')::int    END
+          ) = 1 THEN '1'
+          WHEN COALESCE(
+            CASE WHEN metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (metadata->>'DIAS MORA')::int    END
+          ) = 0 THEN '0'
+          ELSE 'sin_seg' END`;
+        return db.$queryRawUnsafe(`
+          SELECT asignado_a, seg,
+            COUNT(*)::int AS total,
+            COUNT(CASE WHEN estado_marcacion <> 'PENDIENTE' THEN 1 END)::int AS gestionados
+          FROM (
+            SELECT asignado_a, estado_marcacion, ${SEG_EXPR} AS seg
+            FROM contactos
+            WHERE asignado_a IN (${idsStr})
+              ${campClause}
+              AND DATE(fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date
+          ) sub
+          GROUP BY asignado_a, seg
+        `);
+      })(),
+      // canalRows: WSP/RCS/CORREO de la apertura de hoy por asesor+segmento
+      asesorIdList.length === 0 ? Promise.resolve([]) : (() => {
+        const idsStr     = asesorIdList.join(',');
+        const campClause = campanaId ? `AND co.campana_id = ${campanaId}` : '';
+        const isoInicio  = inicio.toISOString();
+        const isoFin     = fin.toISOString();
+        const SEG_CO     = `CASE
+          WHEN COALESCE(
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
+          ) >= 2 THEN '2'
+          WHEN COALESCE(
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
+          ) = 1 THEN '1'
+          WHEN COALESCE(
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
+          ) = 0 THEN '0'
+          ELSE 'sin_seg' END`;
+        return db.$queryRawUnsafe(`
+          SELECT usuario_id, canal, seg, COUNT(*)::int AS total
+          FROM (
+            SELECT cr.usuario_id, cr.canal, ${SEG_CO} AS seg
+            FROM cdrs cr
+            JOIN contactos co ON co.id = cr.contacto_id
+            WHERE cr.usuario_id IN (${idsStr})
+              AND cr.timestamp_inicio >= '${isoInicio}' AND cr.timestamp_inicio <= '${isoFin}'
+              AND cr.canal IN ('whatsapp', 'rcs', 'gmail')
+              ${campClause}
+              AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date
+          ) sub
+          GROUP BY usuario_id, canal, seg
+        `);
+      })(),
+      // segActualRows: segmento del CDR más reciente hoy por asesor
+      asesorIdList.length === 0 ? Promise.resolve([]) : (() => {
+        const idsStr    = asesorIdList.join(',');
+        const isoInicio = inicio.toISOString();
+        const isoFin    = fin.toISOString();
+        const SEG_CO    = `CASE
+          WHEN COALESCE(
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
+          ) >= 2 THEN '2'
+          WHEN COALESCE(
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
+          ) = 1 THEN '1'
+          WHEN COALESCE(
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
+          ) = 0 THEN '0'
+          ELSE NULL END`;
+        return db.$queryRawUnsafe(`
+          SELECT DISTINCT ON (cr.usuario_id)
+            cr.usuario_id,
+            ${SEG_CO} AS segmento_actual
+          FROM cdrs cr
+          JOIN contactos co ON co.id = cr.contacto_id
+          WHERE cr.usuario_id IN (${idsStr})
+            AND cr.timestamp_inicio >= '${isoInicio}' AND cr.timestamp_inicio <= '${isoFin}'
+          ORDER BY cr.usuario_id, cr.timestamp_inicio DESC
+        `);
+      })(),
     ]);
-    const avanceMap = new Map(avanceRows.map(x => [x.id, x]));
+
+    // Construir mapa (asesorId → { asignados, gestionados, segmentos })
+    const avanceMap = new Map();
+    for (const row of detalleRows) {
+      const aid  = Number(row.asignado_a);
+      const seg  = String(row.seg ?? '').trim();
+      const tot  = Number(row.total);
+      const gest = Number(row.gestionados);
+      if (!avanceMap.has(aid)) avanceMap.set(aid, { asignados: 0, gestionados: 0, segmentos: {} });
+      const entry = avanceMap.get(aid);
+      entry.asignados   += tot;
+      entry.gestionados += gest;
+      if (['0', '1', '2'].includes(seg)) {
+        entry.segmentos[seg] = { total: tot, gestionados: gest, pct: tot > 0 ? Math.round((gest / tot) * 10000) / 100 : 0 };
+      }
+    }
+
+    // canalMap[asesorId][canal][seg] = count
+    const canalMap = new Map();
+    for (const row of canalRows) {
+      const aid   = Number(row.usuario_id);
+      const canal = String(row.canal);       // 'whatsapp' | 'rcs' | 'gmail'
+      const seg   = String(row.seg ?? 'sin_seg').trim();
+      const tot   = Number(row.total);
+      if (!canalMap.has(aid)) canalMap.set(aid, {});
+      const cm = canalMap.get(aid);
+      if (!cm[canal]) cm[canal] = {};
+      cm[canal][seg] = (cm[canal][seg] || 0) + tot;
+    }
+
+    // segActualMap[asesorId] = segmento_actual (del CDR más reciente hoy)
+    const segActualMap = new Map();
+    for (const row of segActualRows) {
+      segActualMap.set(Number(row.usuario_id), row.segmento_actual ?? null);
+    }
 
     const tipMap = new Map(tipifs.map(t => [t.id, t]));
     const CAT_CANON = {
@@ -186,8 +323,11 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       detalle: [],
       total_count: 0,
       total_tiempo_seg: 0,
-      total_asignados: avanceMap.get(a.id)?.asignados || 0,
-      gestionados: avanceMap.get(a.id)?.gestionados || 0,
+      total_asignados:          avanceMap.get(a.id)?.asignados   || 0,
+      gestionados:              avanceMap.get(a.id)?.gestionados || 0,
+      segmentos:                avanceMap.get(a.id)?.segmentos   || {},
+      canales_apertura:         canalMap.get(a.id)    || {},
+      segmento_actual_apertura: segActualMap.get(a.id) ?? null,
     }]));
 
     for (const g of grupos) {
@@ -213,7 +353,30 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
     const salida = [...porAsesor.values()];
     salida.forEach(a => a.detalle.sort((x, y) => y.count - x.count));
 
-    res.json({ fecha: _gyeDayBounds(req.query.fecha).ymd, asesores: salida });
+    // Totales globales derivados de avanceMap (ya calculados por la query única)
+    const avanceArr   = [...avanceMap.values()];
+    const globalTotal = avanceArr.reduce((s, x) => s + x.asignados,   0);
+    const globalGest  = avanceArr.reduce((s, x) => s + x.gestionados, 0);
+    // Agregar segmentos globales sumando sobre todos los asesores
+    const segmentos = {};
+    for (const entry of avanceArr) {
+      for (const [seg, s] of Object.entries(entry.segmentos)) {
+        if (!segmentos[seg]) segmentos[seg] = { total: 0, gestionados: 0, pct: 0 };
+        segmentos[seg].total      += s.total;
+        segmentos[seg].gestionados += s.gestionados;
+      }
+    }
+    for (const s of Object.values(segmentos)) {
+      s.pct = s.total > 0 ? Math.round((s.gestionados / s.total) * 10000) / 100 : 0;
+    }
+    const avance_global = {
+      total: globalTotal,
+      gestionados: globalGest,
+      pct: globalTotal > 0 ? Math.round((globalGest / globalTotal) * 10000) / 100 : 0,
+      segmentos,
+    };
+
+    res.json({ fecha: _gyeDayBounds(req.query.fecha).ymd, asesores: salida, avance_global });
   } catch (err) { next(err); }
 });
 
@@ -997,14 +1160,16 @@ router.get('/cartera/detalle-contactabilidad', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
     const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
-    const { inicio } = _gyeDayBounds(req.query.fecha);
-    const { fin }    = _gyeDayBounds(req.query.fecha_fin || req.query.fecha);
+    const { inicio, ymd } = _gyeDayBounds(req.query.fecha);
+    const { fin }         = _gyeDayBounds(req.query.fecha_fin || req.query.fecha);
 
     const asesorIds = await getAsesorIdsDelEquipo(req.user);
 
     const conds = [Prisma.sql`cr.timestamp_inicio >= ${inicio} AND cr.timestamp_inicio <= ${fin}`];
     if (asesorIds && asesorIds.length) conds.push(Prisma.sql`AND cr.usuario_id IN (${Prisma.join(asesorIds)})`);
     if (campanaId) conds.push(Prisma.sql`AND ct.campana_id = ${campanaId}`);
+    // Filtrar por apertura de hoy: solo contactos cuya fecha_asignacion es la fecha solicitada
+    conds.push(Prisma.sql`AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = ${ymd}::date`);
     const whereSql = Prisma.join(conds, ' ');
 
     const rows = await db.$queryRaw(Prisma.sql`
@@ -3013,6 +3178,55 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       cdrsMap[f][Number(r.dias)] = { gestiones: Number(r.gestiones), whasp: Number(r.whasp), llamadas: Number(r.llamadas) };
     }
 
+    // Contactos únicos gestionados por día/segmento — solo de la apertura de ESE día.
+    // Filtramos por fecha_asignacion = fecha del CDR/bulk para no inflar el pct con
+    // contactos de aperturas anteriores gestionados en el mismo día.
+    const unicosRows = await db.$queryRawUnsafe(`
+      SELECT fecha, dias, COUNT(DISTINCT ct_id) AS gestionados_unicos
+      FROM (
+        SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+          ${DIAS_CT} AS dias,
+          c.contacto_id AS ct_id
+        FROM cdrs c
+        JOIN contactos ct ON ct.id = c.contacto_id
+        WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+          AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil')
+          AND ${DIAS_CT} IN (0, 1, 2)
+        UNION
+        SELECT c.wsp_enviado_fecha AS fecha,
+          ${_diasExpr('c')} AS dias,
+          c.id AS ct_id
+        FROM contactos c
+        WHERE c.wsp_enviado_fecha BETWEEN $1 AND $2
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.wsp_enviado_fecha
+          AND ${_diasExpr('c')} IN (0, 1, 2)
+        UNION
+        SELECT c.rcs_enviado_fecha AS fecha,
+          ${_diasExpr('c')} AS dias,
+          c.id AS ct_id
+        FROM contactos c
+        WHERE c.rcs_enviado_fecha BETWEEN $1 AND $2
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.rcs_enviado_fecha
+          AND ${_diasExpr('c')} IN (0, 1, 2)
+        UNION
+        SELECT c.correo_enviado_fecha AS fecha,
+          ${_diasExpr('c')} AS dias,
+          c.id AS ct_id
+        FROM contactos c
+        WHERE c.correo_enviado_fecha BETWEEN $1 AND $2
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.correo_enviado_fecha
+          AND ${_diasExpr('c')} IN (0, 1, 2)
+      ) sub
+      GROUP BY fecha, dias
+    `, fechaInicio, fechaFin);
+
+    const unicosMap = {};
+    for (const r of unicosRows) {
+      const f = typeof r.fecha === 'string' ? r.fecha.slice(0, 10) : r.fecha.toISOString().slice(0, 10);
+      if (!unicosMap[f]) unicosMap[f] = {};
+      unicosMap[f][Number(r.dias)] = Number(r.gestionados_unicos);
+    }
+
     // Compromisos diarios por segmento — fecha en hora local Ecuador
     const compRows = await db.$queryRawUnsafe(`
       SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
@@ -3096,6 +3310,9 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         const compromisos    = (compMap[fecha] || {})[dias] || 0;
         const totalWhasp     = c.whasp + b.whasp;
         const totalGestiones = c.gestiones + b.whasp + b.rcs + b.correo;
+        // Usar contactos únicos gestionados (CDR UNION bulk) para pct_cartera
+        // evita que CDRs múltiples por contacto + bulk infle sobre el 100%.
+        const gestionadosUnicos = (unicosMap[fecha] || {})[dias] || 0;
         row.segmentos[dias] = {
           unidades:    s.unidades,
           dinero:      s.dinero,
@@ -3103,7 +3320,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
           whasp:       totalWhasp,
           llamadas:    c.llamadas,
           compromisos,
-          pct_cartera: s.unidades > 0 ? Math.min(1, totalGestiones / s.unidades) : 0,
+          pct_cartera: s.unidades > 0 ? Math.min(1, gestionadosUnicos / s.unidades) : 0,
         };
       }
       dataRows.push(row);

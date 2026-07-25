@@ -3,6 +3,10 @@
 .env.local
 .env.*.local
 
+# DB dumps
+scripts/*.sql
+scripts/*.json
+
 # graphify output (should not be committed)
 graphify-out/
 dist2/*.exe

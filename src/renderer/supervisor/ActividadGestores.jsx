@@ -52,29 +52,39 @@ const CANAL_DETALLE = {
   sms:    'sms_detalle',
   correo: 'email_detalle',
 };
+// Clave en canales_apertura (del backend, filtrado por apertura del día)
+const CANAL_APERTURA_KEY = {
+  wsp:    'whatsapp',
+  sms:    'rcs',
+  correo: 'gmail',
+};
 
-export default function ActividadGestores({ apiBase, authToken, refreshSignal, estadosWS, metricasCanales }) {
+export default function ActividadGestores({ apiBase, authToken, refreshSignal, estadosWS, metricasCanales, campanas = [] }) {
   const [fecha, setFecha] = useState(hoyStr());
+  const [campanaId, setCampanaId] = useState('');
   const [data, setData] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
   const [detalleAsesor, setDetalleAsesor] = useState(null); // asesor seleccionado para modal
   const fechaRef = useRef(fecha);
+  const campanaIdRef = useRef(campanaId);
   fechaRef.current = fecha;
+  campanaIdRef.current = campanaId;
 
   const esHoy = fecha === hoyStr();
 
-  const cargar = useCallback(async (f) => {
+  const cargar = useCallback(async (f, cid) => {
     if (!apiBase) return;
     setCargando(true);
     try {
-      const res = await fetch(`${apiBase}/actividad-tipificacion?fecha=${f}`, {
+      const qs = new URLSearchParams({ fecha: f });
+      if (cid) qs.set('campanaId', cid);
+      const res = await fetch(`${apiBase}/actividad-tipificacion?${qs}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      // Evitar pisar datos si el usuario cambió de fecha mientras cargaba
-      if (fechaRef.current === f) {
+      if (fechaRef.current === f && campanaIdRef.current === cid) {
         setData(json);
         setError(null);
       }
@@ -86,15 +96,22 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
     }
   }, [apiBase, authToken]);
 
-  // Carga inicial y al cambiar fecha
-  useEffect(() => { cargar(fecha); }, [fecha, cargar]);
+  // Carga inicial y al cambiar fecha o campaña
+  useEffect(() => { cargar(fecha, campanaId); }, [fecha, campanaId, cargar]);
 
   // Refetch live con debounce 2s — solo si la fecha visible es hoy
   useEffect(() => {
     if (!refreshSignal || !esHoy) return;
-    const t = setTimeout(() => cargar(fechaRef.current), 2000);
+    const t = setTimeout(() => cargar(fechaRef.current, campanaIdRef.current), 2000);
     return () => clearTimeout(t);
   }, [refreshSignal, esHoy, cargar]);
+
+  // Polling cada 30s como fallback (CDRs se crean antes de tipificar)
+  useEffect(() => {
+    if (!esHoy) return;
+    const iv = setInterval(() => cargar(fechaRef.current, campanaIdRef.current), 30_000);
+    return () => clearInterval(iv);
+  }, [esHoy, cargar]);
 
   if (!apiBase) {
     return (
@@ -104,7 +121,10 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
     );
   }
 
-  const asesores = [...(data?.asesores || [])].sort((a, b) => b.total_count - a.total_count);
+  // Cuando hay campaña seleccionada, ocultar asesores sin contactos en esa apertura (no pertenecen)
+  const asesores = [...(data?.asesores || [])]
+    .filter(a => !campanaId || (a.total_asignados ?? 0) > 0)
+    .sort((a, b) => b.total_count - a.total_count);
   const hayDatos = asesores.some(a => a.total_count > 0);
   const maxTotal = Math.max(1, ...asesores.map(a => a.total_count));
   const conectadosCount = asesores.filter(a => estadosWS && estadosWS[a.asesor_id]).length;
@@ -177,13 +197,25 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
         {error && (
           <span className="badge badge-warning">{error}</span>
         )}
+        <select
+          className="input"
+          value={campanaId}
+          onChange={e => setCampanaId(e.target.value)}
+          style={{ marginLeft: 'auto', width: 'auto', padding: '10px 14px', fontSize: 13 }}
+        >
+          <option value="">Todas las campañas</option>
+          {[...campanas]
+            .sort((a, b) => new Date(b.fechaInicio || b.createdAt || 0) - new Date(a.fechaInicio || a.createdAt || 0))
+            .map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)
+          }
+        </select>
         <input
           type="date"
           className="input"
           value={fecha}
           max={hoyStr()}
           onChange={e => { if (e.target.value) setFecha(e.target.value); }}
-          style={{ marginLeft: 'auto', width: 'auto', padding: '10px 14px', fontSize: 13 }}
+          style={{ width: 'auto', padding: '10px 14px', fontSize: 13 }}
         />
       </div>
 
@@ -195,49 +227,121 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
         const noContact = equipo.cats['NO CONTACTADO'];
         const pctNoContact = equipo.total_count > 0 ? Math.round((noContact.count / equipo.total_count) * 100) : 0;
         return (
-          <div className="bento-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 'var(--space-lg)' }}>
-            <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)' }}>
-              <div className="text-label" style={{ color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>
-                Llamadas tipificadas hoy
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800 }}>{equipo.total_count}</span>
-                <span style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>
-                  {fmtTiempo(equipo.total_tiempo)} al aire
-                </span>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-on-surface-variant)', opacity: 0.6 }}>
-                {conectadosCount}/{asesores.length} gestores conectados
-              </div>
-            </div>
-            <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)', borderLeft: '3px solid #00e676' }}>
-              <div className="text-label" style={{ color: '#00e676', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>trending_up</span>
-                Avance Cartera
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800, color: '#00e676' }}>{totalGestionados}</span>
-                <span style={{ fontSize: 12, opacity: 0.6 }}>/ {totalAsignados}</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#00e676' }}>{pctAvanceEquipo}%</span>
-              </div>
-              <div style={{ marginTop: 6, height: 3, maxWidth: 140, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${pctAvanceEquipo}%`, background: '#00e676', borderRadius: 99 }} />
-              </div>
-            </div>
-            <div className="card" style={{ padding: 'var(--space-md) var(--space-lg)', borderLeft: `3px solid ${CAT_META['NO CONTACTADO'].color}` }}>
-              <div className="text-label" style={{ color: CAT_META['NO CONTACTADO'].color, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>phone_missed</span>
-                No Contactados
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 6 }}>
-                <span className="text-mono" style={{ fontSize: 26, fontWeight: 800 }}>{noContact.count}</span>
-                <span style={{ fontSize: 12, color: 'var(--color-on-surface-variant)', opacity: 0.7 }}>{pctNoContact}%</span>
-              </div>
-              <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-on-surface-variant)', opacity: 0.6 }}>
-                {fmtTiempo(noContact.tiempo)} al aire
-              </div>
-            </div>
-          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 'var(--space-lg)' }}>
+            {/* Card 1 — Llamadas */}
+            {(() => {
+              const C = '#00E5FF';
+              const R = 28; const circ = 2 * Math.PI * R;
+              return (
+                <div style={{ background: `rgba(0,229,255,0.05)`, border: `1px solid rgba(0,229,255,0.18)`, borderRadius: 14, padding: '18px 22px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.5px', color: C, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 16 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>call</span>
+                    LLAMADAS TIPIFICADAS HOY
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ position: 'relative', width: 64, height: 64, flexShrink: 0 }}>
+                      <svg viewBox="0 0 64 64" style={{ transform: 'rotate(-90deg)', width: 64, height: 64 }}>
+                        <circle cx="32" cy="32" r={R} fill="none" stroke={`rgba(0,229,255,0.12)`} strokeWidth="5" />
+                        <circle cx="32" cy="32" r={R} fill="none" stroke={C} strokeWidth="5"
+                          strokeDasharray={circ} strokeDashoffset={0} strokeLinecap="round" />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: C }}>{conectadosCount}/{asesores.length}</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 38, fontWeight: 900, color: '#fff', lineHeight: 1, letterSpacing: '-1px' }}>{equipo.total_count.toLocaleString()}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 5 }}>{fmtTiempo(equipo.total_tiempo)} al aire</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 3 }}>{conectadosCount}/{asesores.length} gestores activos</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Card 2 — Avance Cartera */}
+            {(() => {
+              const C = '#00e676';
+              const R = 28; const circ = 2 * Math.PI * R;
+              const pct  = data?.avance_global?.pct ?? pctAvanceEquipo;
+              const gest = data?.avance_global?.gestionados ?? totalGestionados;
+              const tot  = data?.avance_global?.total ?? totalAsignados;
+              const segs = data?.avance_global?.segmentos || {};
+              const SEG_COLORS = { '0': '#00E5FF', '1': '#FFD740', '2': '#F50057' };
+              const offset = circ - (Math.min(pct, 100) / 100) * circ;
+              return (
+                <div style={{ background: 'rgba(0,230,118,0.05)', border: '1px solid rgba(0,230,118,0.18)', borderRadius: 14, padding: '18px 22px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.5px', color: C, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 16 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>trending_up</span>
+                    AVANCE CARTERA {campanaId ? '' : '(GLOBAL)'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 14 }}>
+                    <div style={{ position: 'relative', width: 64, height: 64, flexShrink: 0 }}>
+                      <svg viewBox="0 0 64 64" style={{ transform: 'rotate(-90deg)', width: 64, height: 64 }}>
+                        <circle cx="32" cy="32" r={R} fill="none" stroke="rgba(0,230,118,0.12)" strokeWidth="5" />
+                        <circle cx="32" cy="32" r={R} fill="none" stroke={C} strokeWidth="5"
+                          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+                          style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: C }}>{pct}%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 38, fontWeight: 900, color: C, lineHeight: 1, letterSpacing: '-1px' }}>{gest.toLocaleString()}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 5 }}>de {tot.toLocaleString()} contactos</div>
+                    </div>
+                  </div>
+                  {['0','1','2'].some(s => segs[s]?.total > 0) && (
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {['0','1','2'].map(seg => {
+                        const s = segs[seg];
+                        if (!s || s.total === 0) return null;
+                        return (
+                          <div key={seg} style={{ flex: 1, textAlign: 'center', padding: '7px 4px', background: `rgba(${seg==='0'?'0,229,255':seg==='1'?'255,215,64':'245,0,87'},0.08)`, borderRadius: 9, border: `1px solid rgba(${seg==='0'?'0,229,255':seg==='1'?'255,215,64':'245,0,87'},0.2)` }}>
+                            <div style={{ fontSize: 14, fontWeight: 900, color: SEG_COLORS[seg] }}>{s.pct}%</div>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '1px', marginTop: 2 }}>S{seg}</div>
+                            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginTop: 1 }}>{s.gestionados}/{s.total}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Card 3 — No Contactados */}
+            {(() => {
+              const C = CAT_META['NO CONTACTADO'].color;
+              const R = 28; const circ = 2 * Math.PI * R;
+              const offset = circ - (Math.min(pctNoContact, 100) / 100) * circ;
+              return (
+                <div style={{ background: 'rgba(245,0,87,0.05)', border: '1px solid rgba(245,0,87,0.18)', borderRadius: 14, padding: '18px 22px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '1.5px', color: C, display: 'flex', alignItems: 'center', gap: 5, marginBottom: 16 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>person_off</span>
+                    NO CONTACTADOS
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <div style={{ position: 'relative', width: 64, height: 64, flexShrink: 0 }}>
+                      <svg viewBox="0 0 64 64" style={{ transform: 'rotate(-90deg)', width: 64, height: 64 }}>
+                        <circle cx="32" cy="32" r={R} fill="none" stroke="rgba(245,0,87,0.12)" strokeWidth="5" />
+                        <circle cx="32" cy="32" r={R} fill="none" stroke={C} strokeWidth="5"
+                          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+                          style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: C }}>{pctNoContact}%</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 38, fontWeight: 900, color: '#fff', lineHeight: 1, letterSpacing: '-1px' }}>{noContact.count.toLocaleString()}</div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 5 }}>{fmtTiempo(noContact.tiempo)} al aire</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}</div>
         );
       })()}
 
@@ -307,7 +411,8 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                         <div style={{ fontSize: 11, color: conectado ? 'var(--color-primary)' : 'var(--color-on-surface-variant)', opacity: conectado ? 0.9 : 0.5, display: 'flex', alignItems: 'center', gap: 6 }}>
                           {conectado ? 'Conectado' : 'Desconectado'}
                           {(() => {
-                            const seg = metricasCanales?.[a.asesor_id]?.segmento_actual;
+                            // apertura = CDR más reciente hoy; fallback WS histórico
+                            const seg = a.segmento_actual_apertura ?? metricasCanales?.[a.asesor_id]?.segmento_actual;
                             if (seg == null || !conectado) return null;
                             const SCOLS = ['#ffd54f', '#ff8a65', '#ef9a9a'];
                             return (
@@ -327,28 +432,44 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                   </td>
                   {/* ── AVANCE CARTERA ── */}
                   {(() => {
-                    const asignados = a.total_asignados || 0;
+                    const asignados   = a.total_asignados || 0;
                     const gestionados = a.gestionados || 0;
-                    const pctAvance = asignados > 0 ? Math.min(100, Math.round((gestionados / asignados) * 100)) : 0;
+                    const pctAvance   = asignados > 0 ? Math.min(100, Math.round((gestionados / asignados) * 100)) : 0;
+                    const SEG_COLORS  = { '0': '#00E5FF', '1': '#FFD740', '2': '#F50057' };
                     return (
-                      <td style={{ padding: '14px 20px' }}>
+                      <td style={{ padding: '14px 20px', minWidth: 180 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                           <span className="text-mono" style={{ fontSize: 16, fontWeight: 800, color: '#00e676' }}>
-                            {gestionados}
+                            {gestionados.toLocaleString()}
                           </span>
                           <span style={{ fontSize: 12, opacity: 0.5 }}>/</span>
-                          <span style={{ fontSize: 13, opacity: 0.7 }}>{asignados}</span>
+                          <span style={{ fontSize: 13, opacity: 0.7 }}>{asignados.toLocaleString()}</span>
                           <span style={{ fontSize: 11, fontWeight: 700, color: '#00e676', marginLeft: 4 }}>
                             {pctAvance}%
                           </span>
                         </div>
-                        <div className="progress" style={{ marginTop: 6, height: 3, maxWidth: 100, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+                        <div className="progress" style={{ marginTop: 4, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
                           <div style={{
                             height: '100%', width: `${pctAvance}%`,
                             background: pctAvance >= 70 ? '#00e676' : pctAvance >= 40 ? '#ffc107' : '#ff5252',
                             borderRadius: 99, transition: 'width 0.4s',
                           }} />
                         </div>
+                        {a.segmentos && ['0', '1', '2'].map(seg => {
+                          const s = a.segmentos[seg];
+                          if (!s || s.total === 0) return null;
+                          return (
+                            <div key={seg} style={{ marginTop: 4 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 2, opacity: 0.7 }}>
+                                <span>S{seg} {s.gestionados}/{s.total}</span>
+                                <span style={{ color: SEG_COLORS[seg] }}>{s.pct}%</span>
+                              </div>
+                              <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(s.pct, 100)}%`, background: SEG_COLORS[seg], borderRadius: 99 }} />
+                              </div>
+                            </div>
+                          );
+                        })}
                       </td>
                     );
                   })()}
@@ -365,7 +486,8 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                     </div>
                   </td>
                   {(() => {
-                    const seg = metricasCanales?.[a.asesor_id]?.segmento_actual;
+                    // apertura = CDR más reciente hoy; fallback WS histórico
+                    const seg = a.segmento_actual_apertura ?? metricasCanales?.[a.asesor_id]?.segmento_actual;
                     const SCOLS = ['#ffd54f', '#ff8a65', '#ef9a9a'];
                     const SLABELS = ['Mora 0d', 'Mora 1d', 'Mora ≥2d'];
                     return (
@@ -391,9 +513,18 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                     );
                   })()}
                   {CANAL_KEYS.map(k => {
+                    // Prioridad: canales_apertura (hoy, por apertura) → fallback metricasCanales histórico
+                    const apertura = a.canales_apertura?.[CANAL_APERTURA_KEY[k]] || {};
+                    const s0 = apertura['0'] || 0;
+                    const s1 = apertura['1'] || 0;
+                    const s2 = apertura['2'] || 0;
+                    const totalApertura = s0 + s1 + s2 + (apertura['sin_seg'] || 0);
+                    const usaApertura = Object.keys(apertura).length > 0;
+                    // Fallback: histórico de metricasCanales
                     const cm = metricasCanales?.[a.asesor_id] || {};
-                    const det = cm[CANAL_DETALLE[k]] || { 0: 0, 1: 0, 2: 0 };
-                    const total = (det[0] || 0) + (det[1] || 0) + (det[2] || 0);
+                    const det = cm[CANAL_DETALLE[k]] || {};
+                    const totalHist = (det[0] || 0) + (det[1] || 0) + (det[2] || 0);
+                    const total = usaApertura ? totalApertura : totalHist;
                     const meta = CANAL_META[k];
                     return (
                       <td key={k} style={{ padding: '10px 16px' }} onClick={e => e.stopPropagation()}>
@@ -403,7 +534,14 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                         }}>
                           {total}
                         </span>
-                        {total > 0 && (
+                        {total > 0 && usaApertura && (
+                          <div style={{ display: 'flex', gap: 4, marginTop: 3, fontSize: 10, opacity: 0.65 }}>
+                            {[['0', s0], ['1', s1], ['2', s2]].map(([s, v]) => v > 0 && (
+                              <span key={s} style={{ color: meta.color }}>S{s}:{v}</span>
+                            ))}
+                          </div>
+                        )}
+                        {total > 0 && !usaApertura && (
                           <div style={{ display: 'flex', gap: 4, marginTop: 3, fontSize: 10, opacity: 0.65 }}>
                             {[0, 1, 2].map(s => (
                               <span key={s} style={{ color: meta.color }}>S{s}:{det[s] || 0}</span>

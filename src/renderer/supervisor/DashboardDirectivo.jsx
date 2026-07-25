@@ -351,7 +351,7 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
           {metaDiariaCampanas.length > 0 && (() => {
             const SEG_COLORS = { '0': '#3b82f6', '1': '#8b5cf6', '2': '#06b6d4', global: '#10b981' };
             const SEG_LABELS = { '0': 'S0', '1': 'S1', '2': 'S2', global: 'Global' };
-            const fmtUSD = v => `$${Number(v || 0).toLocaleString('es', { maximumFractionDigits: 0 })}`;
+            const fmtUSD = v => `$${Number(v || 0).toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
             return (
               <div className="chart-container" style={{ marginBottom: 16 }}>
                 <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 700, opacity: 0.85 }}>
@@ -360,7 +360,9 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                   {metaDiariaCampanas.map(c => {
                     const pctGlobal = c.pct_cumplimiento ?? 0;
-                    const colorG = pctGlobal >= 100 ? '#00ff7f' : pctGlobal >= 60 ? '#ffc107' : '#ff5252';
+                    // > 500%: meta mal configurada (muy baja vs cobrado) → ámbar de aviso
+                    const colorG = pctGlobal > 500 ? '#ffc107' : pctGlobal >= 100 ? '#00ff7f' : pctGlobal >= 60 ? '#ffc107' : '#ff5252';
+                    const metaRara = pctGlobal > 500 && c.meta_diaria > 0;
                     const isExp  = expandedCamp === c.id;
                     const segsData = metasSegs[c.id]?.segmentos || [];
                     const segsMap  = Object.fromEntries(segsData.map(s => [s.seg, s]));
@@ -380,7 +382,18 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
                           <div style={{ flex: 1, minWidth: 80, height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                             <div style={{ width: `${Math.min(pctGlobal, 100)}%`, height: '100%', background: colorG, borderRadius: 3, transition: 'width .4s' }} />
                           </div>
-                          <span style={{ fontSize: 12, fontWeight: 800, color: colorG, minWidth: 40 }}>{pctGlobal.toFixed(1)}%</span>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: colorG, minWidth: 40 }}>
+                            {pctGlobal.toFixed(1)}%
+                          </span>
+                          {metaRara && (
+                            <span title="Meta muy baja — verifique el valor ingresado" style={{
+                              fontSize: 10, fontWeight: 700, padding: '1px 6px',
+                              borderRadius: 4, background: 'rgba(255,193,7,0.15)',
+                              border: '1px solid rgba(255,193,7,0.4)', color: '#ffc107',
+                            }}>
+                              ⚠ Meta baja
+                            </span>
+                          )}
                           <span style={{ fontSize: 11, opacity: 0.45, minWidth: 100 }}>
                             {fmtUSD(c.cobrado_hoy)} / {fmtUSD(c.meta_diaria)}
                           </span>

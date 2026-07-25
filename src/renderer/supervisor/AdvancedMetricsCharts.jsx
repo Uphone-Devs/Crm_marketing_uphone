@@ -19,7 +19,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import MetricDetailModal from './MetricDetailModal';
-import AnalisisCartera, { CumplimientoMetas } from './EvolucionCartera';
+import AnalisisCartera from './EvolucionCartera';
 import ContactabilidadDrillDown from './ContactabilidadDrillDown';
 import { todayLocalISO } from '../shared/timeUtils';
 
@@ -234,11 +234,16 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   const [detalleContact, setDetalleContact] = useState([]);
   useEffect(() => {
     const camp = filtroCampana ? Number(filtroCampana) : null;
-    const p = _isRem
-      ? vmFetch(_api, _tok, `/cartera/detalle-contactabilidad?fecha=${filtroDesde || ''}&fecha_fin=${filtroHasta || ''}${camp ? `&campana_id=${camp}` : ''}`)
-      : window.api.invoke('db:getDetalleContactabilidad', filtroDesde || null, null, camp, filtroHasta || null);
-    p.then(d => setDetalleContact(Array.isArray(d) ? d : []))
-      .catch(err => { console.error('[CONTACT_HORA]', err); setDetalleContact([]); });
+    const doFetch = () => {
+      const p = _isRem
+        ? vmFetch(_api, _tok, `/cartera/detalle-contactabilidad?fecha=${filtroDesde || ''}&fecha_fin=${filtroHasta || ''}${camp ? `&campana_id=${camp}` : ''}`)
+        : window.api.invoke('db:getDetalleContactabilidad', filtroDesde || null, null, camp, filtroHasta || null);
+      p.then(d => setDetalleContact(Array.isArray(d) ? d : []))
+        .catch(err => { console.error('[CONTACT_HORA]', err); });
+    };
+    doFetch();
+    const timer = setInterval(doFetch, 60_000);
+    return () => clearInterval(timer);
   }, [filtroDesde, filtroHasta, filtroCampana]);
 
   // Agrupar por hora 0-23
@@ -285,7 +290,6 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   // hora con muchas marcaciones pero pocos efectivos → mala franja horaria.
 
   const volumenInfo = useMemo(() => {
-    // Asesores presentes en el detalle (con al menos 1 CDR)
     const aMap = new Map();
     for (const r of detalleContact) {
       if (r.usuario_id == null) continue;
@@ -297,7 +301,6 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
     const keyOf = (aid) => `a${aid}`;
     const labelOf = (aid) => (aMap.get(aid) || '').split(' ')[0] || `A${aid}`;
 
-    // Buckets 0..23 con un campo por cada asesor
     const buckets = new Array(24).fill(0).map((_, h) => {
       const obj = { hora: `${String(h).padStart(2, '0')}:00`, total: 0 };
       asesorIds.forEach(aid => { obj[keyOf(aid)] = 0; });
@@ -319,6 +322,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
 
     return { data, asesores: asesorIds.map(aid => ({ id: aid, key: keyOf(aid), label: labelOf(aid), nombre: aMap.get(aid) })) };
   }, [detalleContact]);
+
   const totalMarcacionesHora = metricasEquipo?.marcacionesTotales || detalleContact.length;
   const horaPico = volumenInfo.data.reduce((max, b) => b.total > max.total ? b : max, { hora: 'â€"', total: 0 });
 
@@ -531,18 +535,21 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           );
         })()}
 
-        {/* PRIORITARIA · 4. Volumen de Marcación por Hora â€" stack por asesor */}
+        {/* PRIORITARIA · 4. Volumen de Llamadas Tipificadas por Hora — stack por asesor */}
         <div className="card" style={{ ...cardStyle, gridColumn: '1 / -1' }}
              onMouseEnter={onEnter} onMouseLeave={onLeave}
              onClick={() => onOpenVolumen && onOpenVolumen()}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <h3 className="widget-title">Volumen de Marcación por Hora</h3>
+              <h3 className="widget-title">Volumen de Llamadas Tipificadas por Hora</h3>
               <p className="text-body-sm" style={{ opacity: 0.5, marginBottom: 4 }}>
-                {totalMarcacionesHora} marcaciones · {volumenInfo.asesores.length} asesores · pico {horaPico.hora} ({horaPico.total})
+                {totalMarcacionesHora} tipificadas · {volumenInfo.asesores.length} asesores · pico {horaPico.hora} ({horaPico.total})
               </p>
             </div>
-            <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.35 }}>open_in_new</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, opacity: 0.35, color: '#1DE9B6' }}>● live 60s</span>
+              <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.35 }}>open_in_new</span>
+            </div>
           </div>
           <div style={{ height: 240, marginTop: 8 }}>
             <ResponsiveContainer minWidth={1} minHeight={1} width="100%" height="100%">
@@ -587,7 +594,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
           </div>
           {volumenInfo.asesores.length === 0 && (
             <div style={{ padding: '14px 8px', textAlign: 'center', opacity: 0.4, fontSize: 12 }}>
-              Sin marcaciones registradas en el rango seleccionado
+              Sin llamadas tipificadas en el rango seleccionado
             </div>
           )}
           {/* Tabla resumen por asesor */}
@@ -597,7 +604,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.03)', textAlign: 'left' }}>
                     <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>Asesor</th>
-                    <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>Marcaciones</th>
+                    <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>Tipificadas</th>
                     <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'right' }}>% del total</th>
                     <th style={{ padding: '6px 8px', fontSize: 12, opacity: 0.5, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' }}>Hora pico</th>
                   </tr>
@@ -606,7 +613,7 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
                   {volumenInfo.asesores
                     .map((a, i) => {
                       let total = 0;
-                      let peakH = 'â€"', peakV = 0;
+                      let peakH = '—', peakV = 0;
                       volumenInfo.data.forEach(b => {
                         const v = b[a.key] || 0;
                         total += v;
@@ -1124,11 +1131,6 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
         {/* Análisis de Cartera */}
         <div style={{ gridColumn: '1 / -1' }}>
           <AnalisisCartera filtroFechaDesde={filtroDesde} filtroFechaHasta={filtroHasta} />
-        </div>
-
-        {/* Cumplimiento de Metas */}
-        <div style={{ gridColumn: '1 / -1' }}>
-          <CumplimientoMetas filtroFechaDesde={filtroDesde} filtroFechaHasta={filtroHasta} />
         </div>
 
         {/* PRIORITARIA · 7. Proyecciones â€" extrapola rate actual al cierre de jornada */}

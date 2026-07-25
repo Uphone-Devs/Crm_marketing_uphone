@@ -495,7 +495,7 @@ export default function JefePanel({ usuario, onLogout }) {
     if (activePage === 'metricas') {
       cargarMetricasValidacion(metricasFiltroDesde || null, metricasFiltroCampana || null);
     }
-    if (activePage === 'monitoreo' || activePage === 'metricas') {
+    if (activePage === 'monitoreo' || activePage === 'metricas' || activePage === 'actividad') {
       (isRemote
         ? vmFetch(apiBase, authToken, '/campanas')
         : window.api.invoke('db:getCampanas')
@@ -1786,6 +1786,7 @@ export default function JefePanel({ usuario, onLogout }) {
               refreshSignal={actividadRefresh}
               estadosWS={estadosWS}
               metricasCanales={metricasFusionadas}
+              campanas={campanasDisponibles}
             />
           )}
           {activePage === 'compromisos' && (

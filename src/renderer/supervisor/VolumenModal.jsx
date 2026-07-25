@@ -559,8 +559,8 @@ export default function VolumenModal({ fechaDesde, fechaHasta, campanaId, asesor
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.map(r => (
-                    <tr key={`v-${r.cdr_id}`} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  {filtrados.map((r, i) => (
+                    <tr key={r.cdr_id != null ? `v-${r.cdr_id}` : `v-idx-${i}`} style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                       <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_inicio)}</span></td>
                       <td style={td}><span className="text-mono" style={{ fontSize: 12 }}>{fmtHora(r.hora_fin)}</span></td>
                       <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtDuracion(r.duracion_seg)}</td>
