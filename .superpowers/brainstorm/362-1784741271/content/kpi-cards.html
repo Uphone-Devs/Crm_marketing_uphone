@@ -1,0 +1,258 @@
+<h2>Diseño de Cards KPI — Actividad Gestores</h2>
+<p class="subtitle">Elige el estilo visual que más te guste. Datos reales de tu panel.</p>
+
+<div class="cards" style="flex-direction:column;gap:32px;">
+
+  <!-- OPCIÓN A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)" style="cursor:pointer;padding:0;overflow:hidden;border:2px solid transparent;border-radius:14px;">
+    <div class="card-body" style="padding:0;">
+      <div style="padding:10px 18px;background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(255,255,255,0.06);font-size:12px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.35);">
+        A — Bordes gradiente + números grandes
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:rgba(255,255,255,0.06);padding:1px;">
+
+        <!-- Card 1 -->
+        <div style="background:#0f1117;padding:20px 24px;position:relative;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#00E5FF,#0091ff);"></div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#00E5FF;display:flex;align-items:center;gap:5px;margin-bottom:12px;">
+            <span style="font-family:Material Symbols Outlined;font-size:13px;">call</span>
+            LLAMADAS TIPIFICADAS HOY
+          </div>
+          <div style="font-size:42px;font-weight:900;color:#fff;line-height:1;letter-spacing:-1px;">2,128</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:6px;">34h 9m al aire</div>
+          <div style="margin-top:14px;display:flex;align-items:center;gap:6px;">
+            <span style="width:7px;height:7px;border-radius:50%;background:#00E5FF;display:inline-block;animation:pulse 1.5s infinite;box-shadow:0 0 0 0 rgba(0,229,255,.4);"></span>
+            <span style="font-size:11px;color:rgba(255,255,255,0.5);">12/12 gestores conectados</span>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div style="background:#0f1117;padding:20px 24px;position:relative;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#00e676,#1DE9B6);"></div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#00e676;display:flex;align-items:center;gap:5px;margin-bottom:12px;">
+            <span style="font-family:Material Symbols Outlined;font-size:13px;">trending_up</span>
+            AVANCE CARTERA
+          </div>
+          <div style="display:flex;align-items:baseline;gap:8px;">
+            <div style="font-size:42px;font-weight:900;color:#00e676;line-height:1;letter-spacing:-1px;">2,895</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.4);">/ 6,615</div>
+            <div style="font-size:18px;font-weight:800;color:#00e676;">43.76%</div>
+          </div>
+          <div style="margin-top:10px;height:5px;background:rgba(255,255,255,0.07);border-radius:99px;overflow:hidden;">
+            <div style="width:43.76%;height:100%;background:linear-gradient(90deg,#00e676,#1DE9B6);border-radius:99px;"></div>
+          </div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px;">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px;"><span style="color:rgba(255,255,255,0.45);">S0 — 756/897</span><span style="color:#00E5FF;font-weight:700;">84.28%</span></div>
+              <div style="height:3px;background:rgba(255,255,255,0.06);border-radius:99px;"><div style="width:84.28%;height:100%;background:#00E5FF;border-radius:99px;"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px;"><span style="color:rgba(255,255,255,0.45);">S1 — 1,755/5,308</span><span style="color:#FFD740;font-weight:700;">33.06%</span></div>
+              <div style="height:3px;background:rgba(255,255,255,0.06);border-radius:99px;"><div style="width:33.06%;height:100%;background:#FFD740;border-radius:99px;"></div></div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px;"><span style="color:rgba(255,255,255,0.45);">S2 — 384/410</span><span style="color:#F50057;font-weight:700;">93.66%</span></div>
+              <div style="height:3px;background:rgba(255,255,255,0.06);border-radius:99px;"><div style="width:93.66%;height:100%;background:#F50057;border-radius:99px;"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div style="background:#0f1117;padding:20px 24px;position:relative;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#F50057,#ff4081);"></div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#F50057;display:flex;align-items:center;gap:5px;margin-bottom:12px;">
+            <span style="font-family:Material Symbols Outlined;font-size:13px;">person_off</span>
+            NO CONTACTADOS
+          </div>
+          <div style="font-size:42px;font-weight:900;color:#fff;line-height:1;letter-spacing:-1px;">1,955</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:6px;">30h 29m al aire</div>
+          <div style="margin-top:14px;">
+            <span style="font-size:24px;font-weight:800;color:#F50057;">92%</span>
+            <span style="font-size:11px;color:rgba(255,255,255,0.4);margin-left:6px;">del total</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- OPCIÓN B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)" style="cursor:pointer;padding:0;overflow:hidden;border:2px solid transparent;border-radius:14px;">
+    <div class="card-body" style="padding:0;">
+      <div style="padding:10px 18px;background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(255,255,255,0.06);font-size:12px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.35);">
+        B — Glass morphism + anillos de progreso
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:16px;background:#0a0c0f;">
+
+        <!-- Card 1 -->
+        <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:12px;padding:20px;backdrop-filter:blur(10px);">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#00E5FF;display:flex;align-items:center;gap:5px;margin-bottom:16px;">
+            <span style="font-family:Material Symbols Outlined;font-size:13px;">call</span>
+            LLAMADAS HOY
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <div style="position:relative;width:64px;height:64px;flex-shrink:0;">
+              <svg viewBox="0 0 64 64" style="transform:rotate(-90deg);width:64px;height:64px;">
+                <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(0,229,255,0.12)" stroke-width="6"/>
+                <circle cx="32" cy="32" r="26" fill="none" stroke="#00E5FF" stroke-width="6" stroke-dasharray="163.36" stroke-dashoffset="0" stroke-linecap="round"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                <span style="font-size:11px;font-weight:800;color:#00E5FF;">12/12</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:36px;font-weight:900;color:#fff;line-height:1;">2,128</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:4px;">34h 9m al aire</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div style="background:rgba(0,230,118,0.05);border:1px solid rgba(0,230,118,0.15);border-radius:12px;padding:20px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#00e676;display:flex;align-items:center;gap:5px;margin-bottom:16px;">
+            <span style="font-family:Material Symbols Outlined;font-size:13px;">trending_up</span>
+            AVANCE CARTERA
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;">
+            <div style="position:relative;width:64px;height:64px;flex-shrink:0;">
+              <svg viewBox="0 0 64 64" style="transform:rotate(-90deg);width:64px;height:64px;">
+                <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(0,230,118,0.12)" stroke-width="6"/>
+                <circle cx="32" cy="32" r="26" fill="none" stroke="#00e676" stroke-width="6" stroke-dasharray="163.36" stroke-dashoffset="91.2" stroke-linecap="round"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                <span style="font-size:11px;font-weight:800;color:#00e676;">43%</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:36px;font-weight:900;color:#00e676;line-height:1;">2,895</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:4px;">de 6,615 contactos</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <div style="flex:1;text-align:center;padding:6px 4px;background:rgba(0,229,255,0.08);border-radius:8px;border:1px solid rgba(0,229,255,0.15);">
+              <div style="font-size:13px;font-weight:800;color:#00E5FF;">84%</div>
+              <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:1px;">S0</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:6px 4px;background:rgba(255,215,64,0.08);border-radius:8px;border:1px solid rgba(255,215,64,0.15);">
+              <div style="font-size:13px;font-weight:800;color:#FFD740;">33%</div>
+              <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:1px;">S1</div>
+            </div>
+            <div style="flex:1;text-align:center;padding:6px 4px;background:rgba(245,0,87,0.08);border-radius:8px;border:1px solid rgba(245,0,87,0.15);">
+              <div style="font-size:13px;font-weight:800;color:#F50057;">94%</div>
+              <div style="font-size:9px;color:rgba(255,255,255,0.4);letter-spacing:1px;">S2</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div style="background:rgba(245,0,87,0.05);border:1px solid rgba(245,0,87,0.15);border-radius:12px;padding:20px;">
+          <div style="font-size:10px;font-weight:700;letter-spacing:1.5px;color:#F50057;display:flex;align-items:center;gap:5px;margin-bottom:16px;">
+            <span style="font-family:Material Symbols Outlined;font-size:13px;">person_off</span>
+            NO CONTACTADOS
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <div style="position:relative;width:64px;height:64px;flex-shrink:0;">
+              <svg viewBox="0 0 64 64" style="transform:rotate(-90deg);width:64px;height:64px;">
+                <circle cx="32" cy="32" r="26" fill="none" stroke="rgba(245,0,87,0.12)" stroke-width="6"/>
+                <circle cx="32" cy="32" r="26" fill="none" stroke="#F50057" stroke-width="6" stroke-dasharray="163.36" stroke-dashoffset="13.07" stroke-linecap="round"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+                <span style="font-size:11px;font-weight:800;color:#F50057;">92%</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:36px;font-weight:900;color:#fff;line-height:1;">1,955</div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:4px;">30h 29m al aire</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- OPCIÓN C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)" style="cursor:pointer;padding:0;overflow:hidden;border:2px solid transparent;border-radius:14px;">
+    <div class="card-body" style="padding:0;">
+      <div style="padding:10px 18px;background:rgba(255,255,255,0.04);border-bottom:1px solid rgba(255,255,255,0.06);font-size:12px;font-weight:700;letter-spacing:2px;color:rgba(255,255,255,0.35);">
+        C — Layout 2 filas: métricas arriba, avance abajo expandido
+      </div>
+      <div style="padding:16px;background:#0a0c0f;display:flex;flex-direction:column;gap:12px;">
+
+        <!-- Fila 1: 3 métricas compactas -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-left:3px solid #00E5FF;border-radius:10px;padding:14px 18px;">
+            <div style="font-size:10px;color:#00E5FF;letter-spacing:1.5px;font-weight:700;margin-bottom:8px;">📞 LLAMADAS HOY</div>
+            <div style="font-size:34px;font-weight:900;color:#fff;line-height:1;">2,128</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;">34h 9m · 12/12 activos</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-left:3px solid #F50057;border-radius:10px;padding:14px 18px;">
+            <div style="font-size:10px;color:#F50057;letter-spacing:1.5px;font-weight:700;margin-bottom:8px;">🚫 NO CONTACTADOS</div>
+            <div style="font-size:34px;font-weight:900;color:#fff;line-height:1;">1,955</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;">92% del total · 30h 29m</div>
+          </div>
+          <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-left:3px solid #1DE9B6;border-radius:10px;padding:14px 18px;">
+            <div style="font-size:10px;color:#1DE9B6;letter-spacing:1.5px;font-weight:700;margin-bottom:8px;">📊 AVANCE GLOBAL</div>
+            <div style="display:flex;align-items:baseline;gap:6px;">
+              <div style="font-size:34px;font-weight:900;color:#1DE9B6;line-height:1;">43.76%</div>
+            </div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px;">2,895 / 6,615 contactos</div>
+          </div>
+        </div>
+
+        <!-- Fila 2: Avance por segmento expandido -->
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:16px 20px;">
+          <div style="font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:1.5px;font-weight:700;margin-bottom:14px;">AVANCE POR SEGMENTO — apertura 22-07-2026crm.xlsx</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <span style="font-size:14px;font-weight:800;color:#00E5FF;">S0</span>
+                  <span style="font-size:11px;color:rgba(255,255,255,0.4);margin-left:6px;">756 / 897</span>
+                </div>
+                <span style="font-size:18px;font-weight:900;color:#00E5FF;">84.28%</span>
+              </div>
+              <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;">
+                <div style="width:84.28%;height:100%;background:linear-gradient(90deg,#00E5FF,#0091ff);border-radius:99px;"></div>
+              </div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:4px;">Mora 0 días</div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <span style="font-size:14px;font-weight:800;color:#FFD740;">S1</span>
+                  <span style="font-size:11px;color:rgba(255,255,255,0.4);margin-left:6px;">1,755 / 5,308</span>
+                </div>
+                <span style="font-size:18px;font-weight:900;color:#FFD740;">33.06%</span>
+              </div>
+              <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;">
+                <div style="width:33.06%;height:100%;background:linear-gradient(90deg,#FFD740,#ffaa00);border-radius:99px;"></div>
+              </div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:4px;">Mora 1 día</div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                <div>
+                  <span style="font-size:14px;font-weight:800;color:#F50057;">S2</span>
+                  <span style="font-size:11px;color:rgba(255,255,255,0.4);margin-left:6px;">384 / 410</span>
+                </div>
+                <span style="font-size:18px;font-weight:900;color:#F50057;">93.66%</span>
+              </div>
+              <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:99px;overflow:hidden;">
+                <div style="width:93.66%;height:100%;background:linear-gradient(90deg,#F50057,#ff4081);border-radius:99px;"></div>
+              </div>
+              <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-top:4px;">Mora ≥2 días</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<style>
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,229,255,.4)} 50%{box-shadow:0 0 0 6px rgba(0,229,255,0)} }
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined');
+</style>
