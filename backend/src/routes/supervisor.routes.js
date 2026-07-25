@@ -18,6 +18,13 @@ function isSupervisor(rol) {
   return rol === 'jefe_area' || rol === 'jefe' || rol === 'admin';
 }
 
+// IDs de usuarios backoff/apoyo — excluidos de gestiones y reportes
+// Configurar en backend/.env: APOYO_USER_IDS=5,12
+const _APOYO_IDS = (process.env.APOYO_USER_IDS || '')
+  .split(',')
+  .map(s => parseInt(s.trim(), 10))
+  .filter(n => !isNaN(n));
+
 // ── Helper: límites de día Guayaquil ─────────────────────────────────────────
 // CRÍTICO: cdrs.timestamp_inicio es `timestamp WITHOUT time zone`, guarda el
 // wall-clock local de Guayaquil como naive (Prisma lo lee tal cual, tag UTC).
@@ -1684,31 +1691,108 @@ router.get('/jefe/indicadores', async (req, res, next) => {
 });
 
 // ── GET /api/jefe/productividad ───────────────────────────────────────────────
+// Cobertura = contratos únicos con CDR / contratos únicos en apertura — NUNCA > 100%
+// Ancla AMBOS (denominador y numerador) al mismo rango de fecha_asignacion.
+// Deduplica por nro_contrato (no cédula — un cliente puede tener múltiples contratos).
 router.get('/jefe/productividad', async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
-    const cWhere = await resolveContactoWhere(req.query);
-    const cdrWhere = Object.keys(cWhere).length > 0 ? { contacto: cWhere } : {};
+    const cWhere  = await resolveContactoWhere(req.query);
+    const empresa = req.query.empresa && ['TEC_SAS', 'SCC'].includes(req.query.empresa)
+      ? req.query.empresa : null;
 
-    const [cartera_total, gestionados, gestiones_totales,
-           cdrs_llamada, cdrs_whatsapp, cdrs_rcs, cdrs_gmail, contactados_arr] = await Promise.all([
-      db.contacto.count({ where: cWhere }),
-      db.contacto.count({ where: { ...cWhere, estadoMarcacion: { not: 'PENDIENTE' } } }),
-      db.cdr.count({ where: cdrWhere }),
-      db.cdr.count({ where: { canal: 'llamada',   ...cdrWhere } }),
-      db.cdr.count({ where: { canal: 'whatsapp',  ...cdrWhere } }),
-      db.cdr.count({ where: { canal: 'rcs',       ...cdrWhere } }),
-      db.cdr.count({ where: { canal: 'gmail',     ...cdrWhere } }),
-      db.contacto.findMany({ where: { ...cWhere, estadoMarcacion: { not: 'PENDIENTE' } }, select: { id: true } }),
+    // Rango de apertura (fecha_asignacion)
+    let fechaDesde, fechaHasta;
+    if (req.query.fechaDesde) {
+      fechaDesde = new Date(req.query.fechaDesde + 'T00:00:00.000Z');
+      fechaHasta = req.query.fechaHasta
+        ? new Date(req.query.fechaHasta + 'T23:59:59.999Z')
+        : new Date(req.query.fechaDesde + 'T23:59:59.999Z');
+    } else {
+      const b = _gyeDayBounds(req.query.fecha);
+      fechaDesde = b.inicio; fechaHasta = b.fin;
+    }
+
+    const contactoFrag = buildContactoRawWhere(cWhere);
+    const cdrCtFrag    = buildCdrContactoRawWhere(cWhere);
+    const empresaCtFrag  = empresa ? Prisma.sql`AND empresa = ${empresa}`      : Prisma.empty;
+    const empresaCo2Frag = empresa ? Prisma.sql`AND co.empresa = ${empresa}`   : Prisma.empty;
+    const apoyoFrag      = _APOYO_IDS.length
+      ? Prisma.sql`AND cr.usuario_id NOT IN (${Prisma.join(_APOYO_IDS)})`
+      : Prisma.empty;
+
+    const [denomRows, numRows, canalRows] = await Promise.all([
+      // Denominador: contratos únicos en la apertura (por fecha_asignacion)
+      db.$queryRaw`
+        SELECT
+          COUNT(DISTINCT COALESCE(nro_contrato, id::text))::int AS total,
+          COUNT(DISTINCT CASE WHEN empresa = 'TEC_SAS' THEN COALESCE(nro_contrato, id::text) END)::int AS total_tec,
+          COUNT(DISTINCT CASE WHEN empresa = 'SCC'     THEN COALESCE(nro_contrato, id::text) END)::int AS total_scc
+        FROM contactos
+        WHERE fecha_asignacion >= ${fechaDesde}
+          AND fecha_asignacion <= ${fechaHasta}
+          ${empresaCtFrag}
+          ${contactoFrag}
+      `,
+      // Numerador: contratos únicos con al menos 1 CDR en el mismo rango (excluye apoyo)
+      db.$queryRaw`
+        SELECT
+          COUNT(DISTINCT COALESCE(co.nro_contrato, co.id::text))::int AS gestionados,
+          COUNT(DISTINCT CASE WHEN co.empresa = 'TEC_SAS' THEN COALESCE(co.nro_contrato, co.id::text) END)::int AS gest_tec,
+          COUNT(DISTINCT CASE WHEN co.empresa = 'SCC'     THEN COALESCE(co.nro_contrato, co.id::text) END)::int AS gest_scc
+        FROM cdrs cr
+        JOIN contactos co ON co.id = cr.contacto_id
+        WHERE co.fecha_asignacion >= ${fechaDesde}
+          AND co.fecha_asignacion <= ${fechaHasta}
+          AND cr.timestamp_inicio  >= ${fechaDesde}
+          AND cr.timestamp_inicio  <= ${fechaHasta}
+          ${apoyoFrag}
+          ${empresaCo2Frag}
+          ${cdrCtFrag}
+      `,
+      // CDRs por canal en el rango (intentos totales — puede superar contratos únicos)
+      db.$queryRaw`
+        SELECT cr.canal, COUNT(*)::int AS total
+        FROM cdrs cr
+        JOIN contactos co ON co.id = cr.contacto_id
+        WHERE cr.timestamp_inicio >= ${fechaDesde}
+          AND cr.timestamp_inicio <= ${fechaHasta}
+          ${apoyoFrag}
+          ${empresaCo2Frag}
+          ${cdrCtFrag}
+        GROUP BY cr.canal
+      `,
     ]);
 
-    const contactados_unicos = contactados_arr.length;
-    const avance_cartera = cartera_total > 0 ? (gestionados / cartera_total) * 100 : 0;
-    const cobertura      = cartera_total > 0 ? (contactados_unicos / cartera_total) * 100 : 0;
+    const cartera_total     = Number(denomRows[0]?.total     || 0);
+    const gestionados       = Number(numRows[0]?.gestionados  || 0);
+    const gestiones_totales = canalRows.reduce((s, r) => s + Number(r.total), 0);
+    const cobertura = cartera_total > 0
+      ? Math.min(100, Math.round((gestionados / cartera_total) * 100))
+      : 0;
+
+    const canalesMap = { llamada: 0, whatsapp: 0, rcs: 0, gmail: 0 };
+    for (const r of canalRows) {
+      if (r.canal in canalesMap) canalesMap[r.canal] = Number(r.total);
+    }
 
     res.json({
-      avance_cartera, gestiones_totales, cartera_total, contactados_unicos, cobertura,
-      canales: { llamada: cdrs_llamada, whatsapp: cdrs_whatsapp, rcs: cdrs_rcs, gmail: cdrs_gmail },
+      avance_cartera: cobertura,
+      cobertura,
+      gestiones_totales,
+      cartera_total,
+      contactados_unicos: gestionados,
+      canales: canalesMap,
+      por_empresa: {
+        TEC_SAS: {
+          total:       Number(denomRows[0]?.total_tec || 0),
+          gestionados: Number(numRows[0]?.gest_tec    || 0),
+        },
+        SCC: {
+          total:       Number(denomRows[0]?.total_scc || 0),
+          gestionados: Number(numRows[0]?.gest_scc    || 0),
+        },
+      },
     });
   } catch (err) { next(err); }
 });
