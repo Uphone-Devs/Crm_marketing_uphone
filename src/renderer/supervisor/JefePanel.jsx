@@ -124,6 +124,7 @@ export default function JefePanel({ usuario, onLogout }) {
     fechaInicio: todayLocalISO(),
     fechaFin: todayLocalISO(),
     formato: 'xlsx',
+    empresa: '',
   });
   const [reporteTipo, setReporteTipo] = useState('actividad'); // 'actividad' | 'gestiones' | 'vencimientos' | 'marketing' | 'indicadores'
   const [eventos, setEventos] = useState([]);
@@ -1373,6 +1374,33 @@ export default function JefePanel({ usuario, onLogout }) {
                 >
                   {asesores.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                 </select>
+              </div>
+            )}
+
+            {/* Dimensión empresa — solo en reporte de actividad */}
+            {reporteTipo === 'actividad' && (
+              <div style={{ marginBottom: 24 }}>
+                <label className="reporte-form__label" style={{ marginBottom: 10, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
+                  EMPRESA / CARTERA
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {[['', 'domain', 'TODAS'], ['TEC_SAS', 'business', 'TEC SAS'], ['SCC', 'apartment', 'SCC']].map(([val, icon, lbl]) => (
+                    <button key={lbl} type="button"
+                      onClick={() => setReporteFiltros(p => ({ ...p, empresa: val }))}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px',
+                        borderRadius: 8,
+                        border: reporteFiltros.empresa === val ? '2px solid #ffb74d' : '1px solid #30363d',
+                        background: reporteFiltros.empresa === val ? 'rgba(255,183,77,0.12)' : '#161b22',
+                        color: reporteFiltros.empresa === val ? '#ffb74d' : '#8b949e',
+                        fontWeight: 600, fontSize: 11, letterSpacing: 0.8, cursor: 'pointer',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 15 }}>{icon}</span>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
