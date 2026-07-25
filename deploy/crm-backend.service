@@ -1,0 +1,55 @@
+# /etc/systemd/system/crm-backend.service
+#
+# Unidad del backend de CRM Marketing Uphone en la VM de Azure.
+# Instalar:
+#   sudo cp deploy/crm-backend.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now crm-backend
+
+[Unit]
+Description=CRM Marketing Uphone — API REST + WebSocket
+Documentation=https://github.com/Uphone-Devs/Crm_marketing_uphone
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=crm
+Group=crm
+WorkingDirectory=/opt/crm/backend
+ExecStart=/usr/bin/node src/index.js
+
+# El proceso lee backend/.env por ruta absoluta; NODE_ENV se fija aquí también
+# para que nunca dependa de que el archivo esté completo.
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/crm/backend/.env
+
+# Apagado ordenado: index.js maneja SIGTERM, cierra el servidor HTTP y
+# desconecta el pool de Prisma. 15s de margen antes del SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=15
+Restart=always
+RestartSec=5
+
+# Journald recoge stdout/stderr: consultar con `journalctl -u crm-backend -f`
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crm-backend
+
+# ── Endurecimiento ──────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/crm/backend
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target
