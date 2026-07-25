@@ -1,0 +1,36 @@
+# /etc/cloudflared/config.yml
+#
+# Named tunnel — reemplaza al quick tunnel, cuya URL rotaba en cada reinicio
+# (issue C3 de docs/KNOWN-ISSUES.md). Requiere haber creado el túnel una vez:
+#
+#   cloudflared tunnel login
+#   cloudflared tunnel create crm-uphone
+#   cloudflared tunnel route dns crm-uphone crm.tu-dominio.com
+#   sudo cloudflared service install
+#
+# El UUID y la ruta del credentials-file los imprime `tunnel create`.
+
+tunnel: PEGAR-UUID-DEL-TUNEL
+credentials-file: /etc/cloudflared/PEGAR-UUID-DEL-TUNEL.json
+
+# Métricas locales para diagnóstico: curl 127.0.0.1:2000/metrics
+metrics: 127.0.0.1:2000
+
+# Reintento y keepalive: la operación es de voz, una caída de túnel corta el WS.
+retries: 5
+originRequest:
+  connectTimeout: 10s
+  # El WebSocket de monitoreo es de larga duración: sin esto cloudflared lo corta.
+  noTLSVerify: false
+  keepAliveTimeout: 90s
+  keepAliveConnections: 100
+
+ingress:
+  - hostname: crm.tu-dominio.com
+    service: http://127.0.0.1:3001
+    originRequest:
+      # Cabecera Host original para que el rate-limit y los logs vean el dominio.
+      httpHostHeader: crm.tu-dominio.com
+
+  # Regla final obligatoria: todo lo demás se rechaza.
+  - service: http_status:404
