@@ -143,6 +143,13 @@ router.get('/:id/summary', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Normaliza el nombre de empresa del Excel a uno de los dos valores canónicos
+function _normEmpresa(raw) {
+  const v = (raw || '').trim().toUpperCase();
+  if (v.includes('TEC')) return 'TEC_SAS';
+  return 'SCC';
+}
+
 // POST /api/campanas/:id/contactos — Insertar contactos en lote para un asesor
 // archivarAnterior=true → oculta los contactos PENDIENTE del asesor antes de insertar
 router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res, next) => {
@@ -170,17 +177,28 @@ router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res
     }
 
     const now = new Date();
-    const data = contactos.map(c => ({
-      campanaId,
-      asignadoA: asesorId ? parseInt(asesorId) : null,
-      cedula: c.cedula || null,
-      nombreDeudor: c.nombre || null,
-      telefono: c.telefono || '',
-      montoDeuda: c.monto && !isNaN(parseFloat(c.monto)) ? parseFloat(c.monto) : null,
-      producto: c.producto || null,
-      metadata: c.metadata || null,
-      fechaAsignacion: now,
-    }));
+    const data = contactos.map(c => {
+      const meta = c.metadata || {};
+      const nroContrato = (meta['Nº CONTRATO'] || meta['CONTRATO'] || meta['NRO CONTRATO'] || '').trim() || null;
+      const empresa     = _normEmpresa(meta['EMPRESA'] || '');
+      const claveGestion = nroContrato
+        ? `${empresa}|${nroContrato}|${campanaId}`
+        : null;
+      return {
+        campanaId,
+        asignadoA: asesorId ? parseInt(asesorId) : null,
+        cedula: c.cedula || null,
+        nombreDeudor: c.nombre || null,
+        telefono: c.telefono || '',
+        montoDeuda: c.monto && !isNaN(parseFloat(c.monto)) ? parseFloat(c.monto) : null,
+        producto: c.producto || null,
+        metadata: meta || null,
+        fechaAsignacion: now,
+        nroContrato,
+        empresa,
+        claveGestion,
+      };
+    });
     const result = await db.contacto.createMany({ data });
     res.json({ success: true, count: result.count, ocultos });
   } catch (err) { next(err); }
