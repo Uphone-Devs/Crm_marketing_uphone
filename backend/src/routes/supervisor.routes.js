@@ -166,38 +166,53 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
         select: { id: true, codigo: true, descripcion: true, categoria: true },
       }),
       // detalleRows: avance por asesor+segmento de la apertura de hoy
+      // Deduplicado por clave_gestion (contrato único). Gestionados = tiene CDR hoy (no estadoMarcacion global).
       asesorIdList.length === 0 ? Promise.resolve([]) : (() => {
-        const idsStr    = asesorIdList.join(',');                                  // safe: validated integers
-        const campClause = campanaId ? `AND campana_id = ${campanaId}` : '';      // safe: validated integer
+        const idsStr     = asesorIdList.join(',');                                 // safe: validated integers
+        const campClause = campanaId ? `AND co.campana_id = ${campanaId}` : '';   // safe: validated integer
+        const isoInicio  = inicio.toISOString();
+        const isoFin     = fin.toISOString();
+        const empresaClause = req.query.empresa && ['TEC_SAS','SCC'].includes(req.query.empresa)
+          ? `AND co.empresa = '${req.query.empresa}'` : '';
+        const apoyoClause  = _APOYO_IDS.length
+          ? `AND cr2.usuario_id NOT IN (${_APOYO_IDS.join(',')})` : '';
         const SEG_EXPR  = `CASE
           WHEN COALESCE(
-            CASE WHEN metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (metadata->>'DIAS IMPAGO')::int  END,
-            CASE WHEN metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (metadata->>'DIAS EN MORA')::int END,
-            CASE WHEN metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (metadata->>'DIAS MORA')::int    END
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
           ) >= 2 THEN '2'
           WHEN COALESCE(
-            CASE WHEN metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (metadata->>'DIAS IMPAGO')::int  END,
-            CASE WHEN metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (metadata->>'DIAS EN MORA')::int END,
-            CASE WHEN metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (metadata->>'DIAS MORA')::int    END
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
           ) = 1 THEN '1'
           WHEN COALESCE(
-            CASE WHEN metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (metadata->>'DIAS IMPAGO')::int  END,
-            CASE WHEN metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (metadata->>'DIAS EN MORA')::int END,
-            CASE WHEN metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (metadata->>'DIAS MORA')::int    END
+            CASE WHEN co.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (co.metadata->>'DIAS IMPAGO')::int  END,
+            CASE WHEN co.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (co.metadata->>'DIAS EN MORA')::int END,
+            CASE WHEN co.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (co.metadata->>'DIAS MORA')::int    END
           ) = 0 THEN '0'
           ELSE 'sin_seg' END`;
         return db.$queryRawUnsafe(`
-          SELECT asignado_a, seg,
-            COUNT(*)::int AS total,
-            COUNT(CASE WHEN estado_marcacion <> 'PENDIENTE' THEN 1 END)::int AS gestionados
+          SELECT co.asignado_a, seg,
+            COUNT(DISTINCT COALESCE(co.clave_gestion, co.id::text))::int AS total,
+            COUNT(DISTINCT CASE WHEN has_cdr = 1 THEN COALESCE(co.clave_gestion, co.id::text) END)::int AS gestionados
           FROM (
-            SELECT asignado_a, estado_marcacion, ${SEG_EXPR} AS seg
-            FROM contactos
-            WHERE asignado_a IN (${idsStr})
+            SELECT co.id, co.asignado_a, co.clave_gestion, ${SEG_EXPR} AS seg,
+              CASE WHEN EXISTS (
+                SELECT 1 FROM cdrs cr2
+                WHERE cr2.contacto_id = co.id
+                  AND cr2.timestamp_inicio >= '${isoInicio}'
+                  AND cr2.timestamp_inicio <= '${isoFin}'
+                  ${apoyoClause}
+              ) THEN 1 ELSE 0 END AS has_cdr
+            FROM contactos co
+            WHERE co.asignado_a IN (${idsStr})
               ${campClause}
-              AND DATE(fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date
-          ) sub
-          GROUP BY asignado_a, seg
+              ${empresaClause}
+              AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date
+          ) co
+          GROUP BY co.asignado_a, seg
         `);
       })(),
       // canalRows: WSP/RCS/CORREO de la apertura de hoy por asesor+segmento
@@ -285,7 +300,7 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       entry.asignados   += tot;
       entry.gestionados += gest;
       if (['0', '1', '2'].includes(seg)) {
-        entry.segmentos[seg] = { total: tot, gestionados: gest, pct: tot > 0 ? Math.round((gest / tot) * 10000) / 100 : 0 };
+        entry.segmentos[seg] = { total: tot, gestionados: gest, pct: tot > 0 ? Math.min(100, Math.round((gest / tot) * 10000) / 100) : 0 };
       }
     }
 
@@ -374,12 +389,12 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       }
     }
     for (const s of Object.values(segmentos)) {
-      s.pct = s.total > 0 ? Math.round((s.gestionados / s.total) * 10000) / 100 : 0;
+      s.pct = s.total > 0 ? Math.min(100, Math.round((s.gestionados / s.total) * 10000) / 100) : 0;
     }
     const avance_global = {
       total: globalTotal,
       gestionados: globalGest,
-      pct: globalTotal > 0 ? Math.round((globalGest / globalTotal) * 10000) / 100 : 0,
+      pct: globalTotal > 0 ? Math.min(100, Math.round((globalGest / globalTotal) * 10000) / 100) : 0,
       segmentos,
     };
 
