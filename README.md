@@ -1,18 +1,17 @@
-﻿# CRM Marketing Uphone
+# CRM Marketing Uphone
 
 > Plataforma de cobranza telefónica con monitoreo en tiempo real (Asesor / Supervisor / Admin).
-> Aplicación de escritorio (Electron) con modo **local (LAN)** y modo **remoto (VM central)**.
+> Aplicación de escritorio (Electron) conectada a un backend central PostgreSQL vía HTTP/WebSocket.
 
-**Versión:** 3.0 · **Plataforma:** Windows 10/11 64-bit · **Estado:** Producción
+**Versión:** 4.0 · **Plataforma:** Windows 10/11 64-bit · **Estado:** Producción
 
 ---
 
 ## 1. Descripción
 
-Reemplaza funciones de ISSABEL para la gestión de cobranza: marcación asistida vía Android (ADB/scrcpy), tipificación de gestiones, compromisos de pago, validación de pagos, métricas en tiempo real y reportería. Opera en dos modos sin cambiar de binario:
+Reemplaza funciones de ISSABEL para la gestión de cobranza: marcación asistida vía Android (ADB/scrcpy), tipificación de gestiones, compromisos de pago, validación de pagos, métricas en tiempo real y reportería.
 
-- **Local (LAN):** cada PC con su SQLite; un supervisor actúa de servidor en la red local.
-- **Remoto (VM):** todas las PCs (Electron) hablan por HTTP/WebSocket con un backend central en una VM de Azure.
+Todas las PCs (Electron) se conectan por HTTP/WebSocket a un **backend central Express + PostgreSQL** en el servidor LAN. No hay modo SQLite local en producción.
 
 Detalle completo en **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
@@ -22,8 +21,9 @@ Detalle completo en **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 |------|-----------|
 | Runtime | Electron 29 + Node.js |
 | Frontend | React 18 + Vite 5 |
-| Backend | Express 4 + WebSocket (`ws`) — **unificados en puerto 3001** |
-| DB | better-sqlite3 (SQLite) — síncrono |
+| Backend | Express 4 + WebSocket (`ws`) — puerto 3001 |
+| ORM | Prisma 5 + `@prisma/adapter-pg` |
+| DB | PostgreSQL 15 (`crm_marketing`) |
 | Auth | bcryptjs + JSON Web Tokens (HS256) |
 | Mobile | ADB + scrcpy v3.1 (control Android) |
 | Audio | FFmpeg (captura opcional) |
@@ -34,58 +34,96 @@ Detalle completo en **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**.
 
 ```
 crm-marketing-uphone/
+├── backend/                       ← Servidor de producción (Express + Prisma + PostgreSQL)
+│   ├── src/
+│   │   ├── index.js               ← Entry point (puerto 3001)
+│   │   ├── config/db.js           ← PrismaClient singleton (@prisma/adapter-pg)
+│   │   ├── middleware/auth.middleware.js
+│   │   ├── wsServer.js            ← WebSocket (broadcastToAll / broadcastToSupervisors)
+│   │   └── routes/
+│   │       ├── auth.routes.js
+│   │       ├── admin.routes.js
+│   │       ├── campanas.routes.js
+│   │       ├── contactos.routes.js
+│   │       ├── cdrs.routes.js
+│   │       └── supervisor.routes.js
+│   └── prisma/
+│       ├── schema.prisma
+│       └── migrations/
 ├── src/
-│   ├── main/                  ← Proceso principal Electron / backend
-│   │   ├── index.js           ← Entry point
-│   │   ├── apiServer.js       ← API REST + WebSocket (puerto 3001)
-│   │   ├── wsServer.js        ← Lógica WebSocket (estados, métricas)
-│   │   ├── wsGroupFilter.js   ← Aislamiento de broadcasts por equipo
-│   │   ├── ipcHandlers.js     ← Puente IPC (modo local)
-│   │   ├── adbManager.js      ← Control ADB + scrcpy
-│   │   ├── audioManager.js    ← Captura FFmpeg
-│   │   ├── security/          ← Helpers de seguridad (rate-limit keys)
-│   │   ├── database/          ← schema.sql + queries.js + migraciones (db.js)
-│   │   └── reports/           ← Generador XLSX/PDF/CSV
+│   ├── main/                      ← Proceso principal Electron
+│   │   ├── index.js               ← Entry point
+│   │   ├── ipcHandlers.js         ← Puente IPC → backend HTTP
+│   │   ├── adbManager.js          ← Control ADB + scrcpy
+│   │   ├── audioManager.js        ← Captura FFmpeg
+│   │   └── security/
 │   └── renderer/
-│       ├── asesor/            ← Panel del Asesor (React)
-│       ├── supervisor/        ← Panel del Supervisor (React)
-│       ├── admin/             ← Panel del Admin del sistema (React)
-│       └── shared/            ← Design system + apiClient + componentes
-├── tests/                     ← Vitest (unit + helpers de BD real)
-├── docs/                      ← Documentación técnica (ver §8)
-├── scripts/load/              ← Pruebas de carga (k6) + análisis de índices
-└── resources/                 ← ADB / scrcpy / FFmpeg bundleados
+│       ├── asesor/                ← Panel del Asesor (React)
+│       ├── supervisor/            ← Panel del Supervisor (React)
+│       ├── admin/                 ← Panel del Admin (React)
+│       └── shared/                ← Design system + apiClient + componentes
+├── tests/                         ← Vitest (unit + helpers)
+├── docs/                          ← Documentación técnica (ver §9)
+├── scripts/                       ← Utilidades y pruebas de carga (k6)
+└── resources/                     ← ADB / scrcpy / FFmpeg bundleados
 ```
 
 ## 4. Prerrequisitos
 
 - Node.js 18+ (probado en 22)
 - Windows 10/11 64-bit
-- Binarios en `resources/` (ver §7)
+- PostgreSQL 15 corriendo en el servidor LAN
+- Binarios en `resources/` (ver §8)
 
 ## 5. Instalación y desarrollo
 
 ```bash
+# Dependencias frontend / Electron
 npm install
-cp .env.example .env        # completar JWT_SECRET, etc. (ver §6)
-npm run dev                 # modo desarrollo
+
+# Dependencias backend
+cd backend && npm install && cd ..
+
+# Variables de entorno
+cp backend/.env.example backend/.env   # completar DATABASE_URL y JWT_SECRET
+
+# Aplicar migraciones Prisma
+cd backend && npx prisma migrate deploy && cd ..
+
+# Desarrollo (backend + Electron en paralelo)
+cd backend && node src/index.js        # terminal 1 — backend en :3001
+npm run dev                            # terminal 2 — Electron
 ```
 
-## 6. Configuración (`.env`)
+## 6. Configuración (`backend/.env`)
 
-Copiar `.env.example` → `.env` y completar. Variable crítica: **`JWT_SECRET`** (obligatoria en producción; si falta, el servidor no arranca). El `.env` está en `.gitignore` y **nunca** debe commitearse.
+```env
+DATABASE_URL="postgresql://usuario:password@localhost:5432/crm_marketing"
+JWT_SECRET="cadena-secreta-larga"
+PORT=3001
+```
+
+El `.env` está en `.gitignore` y **nunca** debe commitearse.
 
 ## 7. Build / Deploy
 
 ```bash
-npm run build:app           # build de la app (out/) — usado por la VM backend
-npm run build               # build + instalador NSIS (dist/) — para PCs cliente
-npm rebuild better-sqlite3  # si cambia el ABI de Node/Electron
+# Build Electron (instalador NSIS para PCs cliente)
+npm run build
+
+# Reconstruir módulos nativos si cambia el ABI de Node/Electron
+npm rebuild better-sqlite3
 ```
 
-- **VM (backend):** correr `apiServer` desde `out/` bajo PM2.**.
-- **PCs cliente:** distribuir el instalador NSIS de `dist/`.
-- Binarios requeridos en `resources/`:
+**Servidor (backend):**
+```bash
+cd backend
+node src/index.js          # o PM2: pm2 start src/index.js --name crm-backend
+```
+
+**PCs cliente:** distribuir el instalador NSIS de `dist/`. Configurar la IP del servidor en el login.
+
+### Binarios requeridos en `resources/`
 
 | Carpeta | Contenido |
 |---------|-----------|
@@ -98,17 +136,17 @@ npm rebuild better-sqlite3  # si cambia el ABI de Node/Electron
 ```bash
 npm test                    # suite Vitest
 ```
-Las pruebas de queries corren contra una BD SQLite real (ver `tests/helpers/realDb.js`), no copias inline. Pruebas de carga: `scripts/load/` (k6).
+
+Las pruebas de queries corren contra una BD real. Pruebas de carga: `scripts/load/` (k6).
 
 ## 9. Documentación
 
 | Documento | Contenido |
 |-----------|-----------|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura dual-mode, flujo de datos, WS, topología, roadmap de migración |
-| [`docs/DOMAIN-RULES.md`](docs/DOMAIN-RULES.md) | Reglas de negocio (tipificaciones, métricas, compromisos, no-doble-conteo, aislamiento) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura, flujo de datos, WS, topología |
+| [`docs/DOMAIN-RULES.md`](docs/DOMAIN-RULES.md) | Reglas de negocio (tipificaciones, métricas, compromisos) |
 | [`docs/API-REFERENCE.md`](docs/API-REFERENCE.md) | Endpoints REST + WebSocket |
-| [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md) | Esquema y migraciones |
-| [`docs/governance/CLAUSULA-IP-CONFIDENCIALIDAD.template.md`](docs/governance/CLAUSULA-IP-CONFIDENCIALIDAD.template.md) | Cláusula IP + confidencialidad de reglas de negocio (anexo SOW) |
+| [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md) | Esquema Prisma y migraciones |
 | [`SECURITY.md`](SECURITY.md) | Política de seguridad |
 
 ## 10. Compatibilidad INFINIX/MediaTek
@@ -120,7 +158,7 @@ Detección automática: aplica flags ADB específicos (`--no-audio`, `--window-b
 - `contextIsolation: true`, `nodeIntegration: false`
 - JWT con expiración · rate-limit de login por cuenta
 - Dependabot + CI de seguridad (`.github/`)
-- Pendientes documentados en [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md) (cifrado en reposo, URL estable, autoescalado)
+- Pendientes documentados en [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
 
 ---
 
