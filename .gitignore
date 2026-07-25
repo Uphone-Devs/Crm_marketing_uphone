@@ -97,9 +97,13 @@ best_match.txt
 vite-proyect/
 audio con requerimeintos/
 
-# Prisma duplicado en raíz (el real está en backend/)
-prisma/
-prisma.config.ts
+# Prisma duplicado en raíz (el real está en backend/).
+# Anclado con "/": sin la barra inicial el patrón coincide con CUALQUIER directorio
+# llamado prisma, incluido backend/prisma/. Las migraciones entraron al repo solo
+# porque se forzaron; cualquier archivo nuevo bajo backend/prisma/ quedaba fuera
+# sin aviso.
+/prisma/
+/prisma.config.ts
 
 # Temporary/scratch
 scratch/
