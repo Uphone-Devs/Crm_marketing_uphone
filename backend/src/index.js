@@ -22,11 +22,28 @@ const io = new Server(server, {
   },
 });
 
+// ── CORS ──────────────────────────────────────────────────────
+// CORS_ORIGIN en .env: lista separada por comas de orígenes permitidos.
+// Default: permite Electron (sin origin) + localhost + LAN 192.168.x.x
+const _corsWhitelist = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : null;
+
+const corsOptions = {
+  origin: _corsWhitelist || function (origin, cb) {
+    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/.test(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error('CORS: origen no permitido'));
+    }
+  },
+};
+
 // ── Middleware global ─────────────────────────────────────────
-app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(helmet());
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Servir archivos de grabaciones (mock S3) ──────────────────
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
