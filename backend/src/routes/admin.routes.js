@@ -85,6 +85,23 @@ function rolPermitido(callerRol, rolSolicitado) {
     return (ROLES_ASIGNABLES[callerRol] || []).includes(rolSolicitado);
 }
 
+/**
+ * ROLES_ASIGNABLES cubre el rol que se quiere asignar, no el de la cuenta que se
+ * está tocando. Sin esta comprobación un jefe_area podía hacer PUT sobre una
+ * cuenta admin pidiendo rol 'asesor' — asignación permitida para él — y degradarla,
+ * o desactivarla con toggle. Una cuenta admin solo la modifica otro admin.
+ *
+ * @returns {Promise<string|null>} mensaje de error, o null si puede continuar.
+ */
+async function verificarObjetivo(id, caller) {
+    const objetivo = await prisma.usuario.findUnique({ where: { id }, select: { rol: true } });
+    if (!objetivo) return 'Usuario no encontrado';
+    if (objetivo.rol === 'admin' && caller.rol !== 'admin') {
+        return 'Solo un administrador puede modificar una cuenta admin.';
+    }
+    return null;
+}
+
 router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const { nombre, email, password, rol, supervisor_id } = req.body;
@@ -117,6 +134,11 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), asyn
         if (!rolPermitido(req.user.rol, rol)) {
             return res.status(403).json({ error: `No puedes asignar el rol '${rol}'` });
         }
+        const errorObjetivo = await verificarObjetivo(id, req.user);
+        if (errorObjetivo) {
+            const status = errorObjetivo === 'Usuario no encontrado' ? 404 : 403;
+            return res.status(status).json({ error: errorObjetivo });
+        }
         const data = { nombre, email, rol, supervisorId: supervisor_id ?? null };
         if (estado) data.estado = estado;
         const user = await prisma.usuario.update({ where: { id }, data });
@@ -130,6 +152,11 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), asyn
 router.post('/users/:id/toggle', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
+        const errorObjetivo = await verificarObjetivo(id, req.user);
+        if (errorObjetivo) {
+            const status = errorObjetivo === 'Usuario no encontrado' ? 404 : 403;
+            return res.status(status).json({ error: errorObjetivo });
+        }
         const current = await prisma.usuario.findUnique({ where: { id }, select: { estado: true } });
         if (!current) return res.status(404).json({ error: 'Usuario no encontrado' });
 
