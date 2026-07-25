@@ -1,8 +1,13 @@
 /**
- * tunnel.js — Wrapper para cloudflared quick tunnel.
- * PM2 lo gestiona como proceso Node.js, capturando stdout/stderr.
- * Extrae y loguea la URL del tunnel al arrancar.
+ * tunnel.js — Wrapper para cloudflared quick tunnel (solo desarrollo/demo).
+ * NUNCA usar en producción: expone el puerto 3001 a internet sin TLS propio.
+ * En producción usar nginx + certificado + NSG que restrinja el 3001 a localhost.
  */
+if (process.env.NODE_ENV === 'production') {
+  console.error('[TUNNEL] Bloqueado en producción. Usar nginx+TLS en su lugar.');
+  process.exit(1);
+}
+
 const { spawn } = require('child_process');
 const fs        = require('fs');
 const path      = require('path');

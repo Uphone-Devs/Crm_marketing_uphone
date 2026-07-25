@@ -1,5 +1,6 @@
 const { WebSocketServer } = require('ws');
 const authService = require('./services/auth.service');
+const db = require('./config/db');
 
 /**
  * Gestiona la lógica de monitoreo en tiempo real vía WebSockets Nativos.
@@ -7,9 +8,10 @@ const authService = require('./services/auth.service');
  */
 
 // Memoria volátil para estados y métricas en vivo
-const estadosAsesores = {}; // id -> { data, socket }
+const estadosAsesores = {}; // asesorId -> { data, socket, supervisorId }
 const metricasAsesores = {}; // id -> { metrics }
-const supervisores = new Set(); // Sockets de supervisores conectados
+// Map supervisorUserId → ws para enrutar AUDIO_CHUNK solo al supervisor del asesor
+const supervisores = new Map(); // supervisorUserId -> ws
 
 let dialingMode = 'MANUAL';
 
@@ -19,7 +21,7 @@ function setupWsServer(httpServer) {
     wss.on('connection', (ws) => {
         let clientInfo = { rol: null, id: null, nombre: null, autenticado: false };
 
-        ws.on('message', (message) => {
+        ws.on('message', async (message) => {
             try {
                 const msg = JSON.parse(message);
 
@@ -50,18 +52,29 @@ function setupWsServer(httpServer) {
                         clientInfo.rol         = rolWs;
 
                         if (rolWs === 'ASESOR') {
-                            
-                            // 1. Inicializar entrada de estado (Requerimiento del Plan)
+                            // Obtener supervisorId del asesor desde DB (best-effort, no bloquea)
+                            let asesorSupervisorId = null;
+                            try {
+                                const u = await db.usuario.findUnique({
+                                    where: { id: clientInfo.id },
+                                    select: { supervisorId: true }
+                                });
+                                asesorSupervisorId = u?.supervisorId ?? null;
+                            } catch (e) {
+                                console.warn('[WS] No se pudo obtener supervisorId:', e.message);
+                            }
+
                             estadosAsesores[clientInfo.id] = {
                                 socket: ws,
                                 asesor_id: clientInfo.id,
                                 nombre: clientInfo.nombre,
-                                estado_id: msg.estado_id || 1, // Por defecto En Gestión
+                                supervisorId: asesorSupervisorId,
+                                estado_id: msg.estado_id || 1,
                                 timestamp: new Date().toISOString()
                             };
 
                             console.log(`[WS] Asesor conectado: ${clientInfo.nombre} (${clientInfo.id})`);
-                            
+
                             // Notificar a supervisores de la nueva conexión
                             broadcastToSupervisors({
                                 tipo: 'ESTADO_ASESOR',
@@ -69,7 +82,7 @@ function setupWsServer(httpServer) {
                             });
 
                         } else { // SUPERVISOR (jefe_area o admin)
-                            supervisores.add(ws);
+                            supervisores.set(clientInfo.id, ws);
                             console.log(`[WS] Jefe de Área conectado: ${clientInfo.nombre}`);
 
                             ws.send(JSON.stringify({
@@ -128,11 +141,15 @@ function setupWsServer(httpServer) {
                         }
                         break;
 
-                    case 'AUDIO_CHUNK':
-                        // Relay de audio: transmitir solo si hay un supervisor escuchando
-                        // (La lógica de "quién escucha a quién" se maneja en el broadcast filtrado)
-                        broadcastToSupervisors(msg); 
+                    case 'AUDIO_CHUNK': {
+                        // Solo enviar al supervisor asignado a este asesor
+                        const asesorEntry = estadosAsesores[clientInfo.id];
+                        if (asesorEntry?.supervisorId) {
+                            const supWs = supervisores.get(asesorEntry.supervisorId);
+                            if (supWs) safeSend(supWs, JSON.stringify({ ...msg, asesor_id: clientInfo.id }));
+                        }
                         break;
+                    }
 
                     case 'SET_DIALING_MODE':
                         if (clientInfo.rol === 'SUPERVISOR') {
@@ -163,7 +180,7 @@ function setupWsServer(httpServer) {
 
         ws.on('close', () => {
             if (clientInfo.rol === 'SUPERVISOR') {
-                supervisores.delete(ws);
+                supervisores.delete(clientInfo.id);
                 console.log(`[WS] Jefe de Área desconectado: ${clientInfo.nombre}`);
             } else if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
                 delete estadosAsesores[clientInfo.id];
@@ -195,14 +212,12 @@ function safeSend(socket, payload) {
 
 function broadcastToSupervisors(data) {
     const payload = JSON.stringify(data);
-    supervisores.forEach(socket => safeSend(socket, payload));
+    supervisores.forEach(ws => safeSend(ws, payload));
 }
 
 function broadcastToAll(data) {
     const payload = JSON.stringify(data);
-    // Notificar a supervisores
-    supervisores.forEach(s => safeSend(s, payload));
-    // Notificar a asesores (entradas sin socket no deben tumbar el broadcast)
+    supervisores.forEach(ws => safeSend(ws, payload));
     Object.values(estadosAsesores).forEach(a => safeSend(a.socket, payload));
 }
 
