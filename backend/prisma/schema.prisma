@@ -69,6 +69,9 @@ model Contacto {
   wspEnviadoFecha    String?            @map("wsp_enviado_fecha")
   rcsEnviadoFecha    String?            @map("rcs_enviado_fecha")
   correoEnviadoFecha String?            @map("correo_enviado_fecha")
+  nroContrato        String?            @map("nro_contrato")
+  empresa            String?
+  claveGestion       String?            @map("clave_gestion")
   agendamientos      Agendamiento[]
   cdrs               Cdr[]
   asesor             Usuario?           @relation("AsignadoA", fields: [asignadoA], references: [id])
@@ -79,6 +82,9 @@ model Contacto {
   @@index([asignadoA, ordenMarcacion], map: "idx_contactos_orden_marcacion")
   @@index([yaPago], map: "idx_contactos_ya_pago")
   @@index([campanaId, fechaAsignacion], map: "idx_ct_campana_fecha")
+  @@index([nroContrato], map: "idx_ct_nro_contrato")
+  @@index([empresa], map: "idx_ct_empresa")
+  @@index([claveGestion], map: "idx_ct_clave_gestion")
   @@map("contactos")
 }
 
