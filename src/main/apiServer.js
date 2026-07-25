@@ -57,11 +57,11 @@ const { loginRateLimitKey } = require('./security/rateLimitKeys');
 let ReportGenerator = null;
 try { ReportGenerator = require('./reports/ReportGenerator'); } catch { /* ignorar si no está disponible */ }
 
-// ── JWT_SECRET: env variable (production) with dev fallback ──
-const JWT_SECRET = process.env.JWT_SECRET
-  || (process.env.NODE_ENV === 'production'
-    ? (() => { throw new Error('[SEGURIDAD] JWT_SECRET no definido. Detener el proceso.'); })()
-    : 'uphone-local-dev-2026');
+// ── JWT_SECRET: requerido siempre ────────────────────────────
+if (!process.env.JWT_SECRET) {
+  throw new Error('[SEGURIDAD] JWT_SECRET env var no definido. No iniciar sin él.');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 let httpServer = null;
 
