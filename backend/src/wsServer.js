@@ -1,4 +1,5 @@
 const { WebSocketServer } = require('ws');
+const authService = require('./services/auth.service');
 
 /**
  * Gestiona la lógica de monitoreo en tiempo real vía WebSockets Nativos.
@@ -16,19 +17,39 @@ function setupWsServer(httpServer) {
     const wss = new WebSocketServer({ noServer: true });
 
     wss.on('connection', (ws) => {
-        let clientInfo = { rol: null, id: null, nombre: null };
+        let clientInfo = { rol: null, id: null, nombre: null, autenticado: false };
 
         ws.on('message', (message) => {
             try {
                 const msg = JSON.parse(message);
 
-                switch (msg.tipo) {
-                    case 'IDENTIFICAR':
-                        clientInfo.rol = msg.rol;
-                        clientInfo.nombre = msg.nombre;
+                // Todo mensaje (excepto PING) requiere autenticación previa
+                if (msg.tipo !== 'IDENTIFICAR' && msg.tipo !== 'PING' && !clientInfo.autenticado) {
+                    ws.send(JSON.stringify({ tipo: 'ERROR', mensaje: 'No autenticado' }));
+                    return;
+                }
 
-                        if (msg.rol === 'ASESOR') {
-                            clientInfo.id = msg.asesor_id;
+                switch (msg.tipo) {
+                    case 'IDENTIFICAR': {
+                        // Verificar JWT antes de aceptar la conexión
+                        let decoded;
+                        try {
+                            decoded = authService.verificarToken(msg.token);
+                        } catch {
+                            ws.send(JSON.stringify({ tipo: 'ERROR', mensaje: 'Token inválido' }));
+                            ws.close(1008, 'Token inválido');
+                            return;
+                        }
+
+                        // Rol viene del JWT (BD), no del cliente
+                        const rolJwt = decoded.rol; // 'asesor' | 'jefe_area' | 'admin'
+                        const rolWs  = rolJwt === 'asesor' ? 'ASESOR' : 'SUPERVISOR';
+                        clientInfo.autenticado = true;
+                        clientInfo.id          = decoded.id;
+                        clientInfo.nombre      = decoded.nombre;
+                        clientInfo.rol         = rolWs;
+
+                        if (rolWs === 'ASESOR') {
                             
                             // 1. Inicializar entrada de estado (Requerimiento del Plan)
                             estadosAsesores[clientInfo.id] = {
@@ -47,11 +68,10 @@ function setupWsServer(httpServer) {
                                 ...estadosAsesores[clientInfo.id]
                             });
 
-                        } else if (msg.rol === 'SUPERVISOR') {
+                        } else { // SUPERVISOR (jefe_area o admin)
                             supervisores.add(ws);
                             console.log(`[WS] Jefe de Área conectado: ${clientInfo.nombre}`);
 
-                            // Enviar snapshot inicial al supervisor
                             ws.send(JSON.stringify({
                                 tipo: 'SNAPSHOT_ESTADOS',
                                 estados: Object.keys(estadosAsesores).reduce((acc, id) => {
@@ -64,6 +84,7 @@ function setupWsServer(httpServer) {
                             }));
                         }
                         break;
+                    }
 
                     case 'ESTADO_ASESOR':
                         if (clientInfo.rol === 'ASESOR' && clientInfo.id) {

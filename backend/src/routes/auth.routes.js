@@ -3,11 +3,20 @@
  */
 
 const { Router } = require('express');
+const rateLimit = require('express-rate-limit');
 const authService = require('../services/auth.service');
 
 const router = Router();
 
-router.post('/login', async (req, res, next) => {
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10,                   // 10 intentos por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos de login. Intente nuevamente en 15 minutos.' },
+});
+
+router.post('/login', loginLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body;
     const result = await authService.login(email, password);

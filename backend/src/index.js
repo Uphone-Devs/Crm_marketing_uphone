@@ -10,6 +10,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const db = require('./config/db');
 const setupWsServer = require('./wsServer');
+const { authMiddleware } = require('./middleware/auth.middleware');
 
 const app = express();
 const server = http.createServer(app);
@@ -45,8 +46,8 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ── Servir archivos de grabaciones (mock S3) ──────────────────
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// ── Servir archivos de grabaciones — requiere JWT válido ──────
+app.use('/uploads', authMiddleware, express.static(path.join(__dirname, '../uploads')));
 
 // ── Rutas REST ────────────────────────────────────────────────
 app.use('/api/auth',      require('./routes/auth.routes'));
@@ -71,9 +72,10 @@ const monitorWss = setupWsServer(server);
 // ── Error handling middleware ─────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('[Error]', err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-  });
+  // No exponer detalles internos (paths Prisma, stack traces) al cliente
+  const status = err.status || err.statusCode || 500;
+  const safeMsg = status < 500 ? err.message : 'Error interno del servidor';
+  res.status(status).json({ error: safeMsg });
 });
 
 // ── Crear tablas auxiliares que no están en el schema Prisma ─
