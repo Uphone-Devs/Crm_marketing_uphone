@@ -2921,7 +2921,6 @@ async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titul
     where: {
       ...(asesorId ? { usuarioId: asesorId } : {}),
       timestampInicio: { gte: inicio, lte: fin },
-      tipificacionId: { not: null },
       ...(empresaPrisma ? { contacto: { empresa: empresaPrisma } } : {}),
     },
     select: {
