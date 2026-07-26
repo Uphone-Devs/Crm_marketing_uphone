@@ -312,6 +312,8 @@ export default function JefePanel({ usuario, onLogout }) {
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
           setActividadRefresh(p => p + 1);
           setCarterasRefresh(p => p + 1);
+          cargarMetricasAsesores();
+          cargarMetricasEquipo();
         }
         if (msg.tipo === 'RITMO_BAJO') {
           const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
