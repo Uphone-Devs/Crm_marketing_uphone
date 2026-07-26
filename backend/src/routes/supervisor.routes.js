@@ -1171,21 +1171,6 @@ router.get('/cartera/gestiones-asesores', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── POST /api/cartera/meta-asesor ────────────────────────────────────────────
-router.post('/cartera/meta-asesor', async (req, res, next) => {
-  try {
-    res.json({ ok: true });
-  } catch (err) { next(err); }
-});
-
-// ── GET /api/cartera/refinanciada ────────────────────────────────────────────
-router.get('/cartera/refinanciada', async (req, res, next) => {
-  try {
-    if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
-    res.json([]);
-  } catch (err) { next(err); }
-});
-
 // ── GET /api/cartera/detalle-contactabilidad — CDRs por hora del equipo ───────
 // Devuelve una fila por CDR: { hora_bucket, usuario_id, categoria } para la card
 // "Contactabilidad por Hora".
