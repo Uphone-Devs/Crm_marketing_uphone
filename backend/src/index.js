@@ -78,21 +78,6 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: safeMsg });
 });
 
-// ── Crear tablas auxiliares que no están en el schema Prisma ─
-db.$executeRaw`
-  CREATE TABLE IF NOT EXISTS sub_gestiones (
-    id          SERIAL PRIMARY KEY,
-    contacto_id INTEGER REFERENCES contactos(id) ON DELETE CASCADE,
-    asesor_id   INTEGER REFERENCES usuarios(id)  ON DELETE SET NULL,
-    cdr_id      INTEGER REFERENCES cdrs(id)      ON DELETE SET NULL,
-    telefono    TEXT,
-    notas       TEXT,
-    nombre_ref  TEXT,
-    parentesco  TEXT,
-    creado_en   TIMESTAMP DEFAULT NOW()
-  )
-`.catch(e => console.warn('[INIT] sub_gestiones create warning:', e.message));
-
 // ── Server startup ────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 
