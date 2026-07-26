@@ -513,18 +513,9 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                     );
                   })()}
                   {CANAL_KEYS.map(k => {
-                    // Prioridad: canales_apertura (hoy, por apertura) → fallback metricasCanales histórico
-                    const apertura = a.canales_apertura?.[CANAL_APERTURA_KEY[k]] || {};
-                    const s0 = apertura['0'] || 0;
-                    const s1 = apertura['1'] || 0;
-                    const s2 = apertura['2'] || 0;
-                    const totalApertura = s0 + s1 + s2 + (apertura['sin_seg'] || 0);
-                    const usaApertura = Object.keys(apertura).length > 0;
-                    // Fallback: histórico de metricasCanales
-                    const cm = metricasCanales?.[a.asesor_id] || {};
-                    const det = cm[CANAL_DETALLE[k]] || {};
-                    const totalHist = (det[0] || 0) + (det[1] || 0) + (det[2] || 0);
-                    const total = usaApertura ? totalApertura : totalHist;
+                    // Fuente primaria: msg_wsp/msg_rcs/msg_correo del endpoint (polling 30s)
+                    const MSG_KEY = { wsp: 'msg_wsp', sms: 'msg_rcs', correo: 'msg_correo' };
+                    const total = a[MSG_KEY[k]] ?? 0;
                     const meta = CANAL_META[k];
                     return (
                       <td key={k} style={{ padding: '10px 16px' }} onClick={e => e.stopPropagation()}>
@@ -534,20 +525,6 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                         }}>
                           {total}
                         </span>
-                        {total > 0 && usaApertura && (
-                          <div style={{ display: 'flex', gap: 4, marginTop: 3, fontSize: 10, opacity: 0.65 }}>
-                            {[['0', s0], ['1', s1], ['2', s2]].map(([s, v]) => v > 0 && (
-                              <span key={s} style={{ color: meta.color }}>S{s}:{v}</span>
-                            ))}
-                          </div>
-                        )}
-                        {total > 0 && !usaApertura && (
-                          <div style={{ display: 'flex', gap: 4, marginTop: 3, fontSize: 10, opacity: 0.65 }}>
-                            {[0, 1, 2].map(s => (
-                              <span key={s} style={{ color: meta.color }}>S{s}:{det[s] || 0}</span>
-                            ))}
-                          </div>
-                        )}
                       </td>
                     );
                   })}
