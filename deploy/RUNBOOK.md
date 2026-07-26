@@ -8,7 +8,43 @@
 
 ---
 
-## 0. Prerrequisitos
+## 0. Obtener este código
+
+El endurecimiento vive en la rama `fix/predeploy-hardening` (`a536c8b`), que **todavía no está mergeada a `main`**. El PR no se ha abierto.
+
+En la máquina desde la que operes:
+
+```bash
+git clone https://github.com/Uphone-Devs/Crm_marketing_uphone.git
+cd Crm_marketing_uphone
+git checkout fix/predeploy-hardening
+git log --oneline -4
+```
+
+Deben aparecer estos cuatro commits:
+
+```
+a536c8b Documenta cuál es el backend real y añade los artefactos de despliegue
+033d665 Separa el seed de demo del catálogo de producción
+d39c1ab Prepara el ciclo de vida del backend para systemd y retira socket.io
+1e1eaac Protege las cuentas admin de modificación por jefe_area
+```
+
+Abrir el PR (opcional antes de desplegar, obligatorio antes de mergear):
+
+```bash
+gh pr create --base main --head fix/predeploy-hardening \
+  --title "Endurece el backend para el despliegue en la VM" \
+  --body-file deploy/PR-BODY.md
+```
+
+O por navegador: `https://github.com/Uphone-Devs/Crm_marketing_uphone/pull/new/fix/predeploy-hardening`
+
+Se puede desplegar la rama sin mergear —el paso 3 hace `checkout` de ella en la VM— pero conviene mergear antes de dar el despliegue por cerrado, para que `main` refleje lo que está en producción.
+
+---
+
+## 0.1 Prerrequisitos
 
 | Requisito | Comprobación |
 |---|---|
