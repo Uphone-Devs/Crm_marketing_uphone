@@ -179,7 +179,6 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
         where: {
           usuarioId: { in: asesorIdList },
           timestampInicio: { gte: inicio, lte: fin },
-          tipificacionId: { not: null },
         },
         _count: { _all: true },
         _sum: { duracionSeg: true },
@@ -377,10 +376,13 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
 
     for (const g of grupos) {
       const entry = porAsesor.get(g.usuarioId);
-      const tip = tipMap.get(g.tipificacionId);
-      if (!entry || !tip) continue;
+      if (!entry) continue;
       const count  = g._count._all;
       const tiempo = Number(g._sum.duracionSeg || 0);
+      entry.total_count      += count;
+      entry.total_tiempo_seg += tiempo;
+      const tip = g.tipificacionId != null ? tipMap.get(g.tipificacionId) : null;
+      if (!tip) continue;
       const cat = CAT_CANON[tip.categoria] || 'NO CONTACTADO';
       entry.categorias[cat].count      += count;
       entry.categorias[cat].tiempo_seg += tiempo;
@@ -391,8 +393,6 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
         count,
         tiempo_seg: tiempo,
       });
-      entry.total_count      += count;
-      entry.total_tiempo_seg += tiempo;
     }
 
     const salida = [...porAsesor.values()];
