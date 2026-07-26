@@ -312,6 +312,8 @@ export default function JefePanel({ usuario, onLogout }) {
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
           setActividadRefresh(p => p + 1);
           setCarterasRefresh(p => p + 1);
+          cargarMetricasAsesores();
+          cargarMetricasEquipo();
         }
         if (msg.tipo === 'RITMO_BAJO') {
           const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
@@ -1377,14 +1379,14 @@ export default function JefePanel({ usuario, onLogout }) {
               </div>
             )}
 
-            {/* Dimensión empresa — solo en reporte de actividad */}
-            {reporteTipo === 'actividad' && (
+            {/* Dimensión empresa */}
+            {(
               <div style={{ marginBottom: 24 }}>
                 <label className="reporte-form__label" style={{ marginBottom: 10, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
                   EMPRESA / CARTERA
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {[['', 'domain', 'TODAS'], ['TEC_SAS', 'business', 'TEC SAS'], ['SCC', 'apartment', 'SCC']].map(([val, icon, lbl]) => (
+                  {[['', 'domain', 'TODAS'], ['UPHONE', 'business', 'UPHONE'], ['CREDI_TV', 'apartment', 'CREDI TV']].map(([val, icon, lbl]) => (
                     <button key={lbl} type="button"
                       onClick={() => setReporteFiltros(p => ({ ...p, empresa: val }))}
                       style={{
