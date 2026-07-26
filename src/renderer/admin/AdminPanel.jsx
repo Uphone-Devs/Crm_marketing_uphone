@@ -993,6 +993,85 @@ function PageSistema({ sysInfo, dbConfig, reload }) {
   );
 }
 
+// ── PageBackup ───────────────────────────────────────────────────
+
+function PageBackup({ dbConfig }) {
+  const [status, setStatus] = useState('idle'); // idle | loading | ok | err
+  const [errMsg, setErrMsg] = useState('');
+
+  const handleDownload = async () => {
+    if (!IS_VM(dbConfig)) {
+      setErrMsg('Backup solo disponible en modo VM/PostgreSQL.');
+      setStatus('err');
+      return;
+    }
+    setStatus('loading');
+    setErrMsg('');
+    try {
+      const base  = (dbConfig.vmUrl || '').replace(/\/$/, '');
+      const token = dbConfig.vmToken;
+      const res   = await fetch(`${base}/api/admin/backup.dump`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const now  = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `crm_backup_${now}.dump`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setStatus('ok');
+    } catch (e) {
+      setErrMsg(e.message);
+      setStatus('err');
+    }
+  };
+
+  return (
+    <div className="page-grid">
+      <Card title="Backup de Base de Datos" className="card--full">
+        <p style={{ fontSize: 13, color: '#aaa', marginBottom: 16 }}>
+          Genera y descarga un backup completo en formato <code>.dump</code> (pg_dump custom).
+          Requiere modo VM/PostgreSQL activo.
+        </p>
+        {!IS_VM(dbConfig) && (
+          <div className="modal-err" style={{ marginBottom: 16 }}>
+            Sin conexión VM. Configura la BD en <strong>Conexión BD</strong>.
+          </div>
+        )}
+        <button
+          type="button"
+          className="btn btn--primary"
+          onClick={handleDownload}
+          disabled={status === 'loading' || !IS_VM(dbConfig)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          <span className="material-icons" style={{ fontSize: 18 }}>
+            {status === 'loading' ? 'hourglass_top' : 'download'}
+          </span>
+          {status === 'loading' ? 'Generando backup...' : 'Descargar Backup (.dump)'}
+        </button>
+        {status === 'ok' && (
+          <div style={{ marginTop: 12, color: '#00e676', fontSize: 13 }}>
+            <span className="material-icons" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>check_circle</span>
+            Backup descargado correctamente.
+          </div>
+        )}
+        {status === 'err' && (
+          <div className="modal-err" style={{ marginTop: 12 }}>{errMsg}</div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 // ── AdminPanel principal ─────────────────────────────────────────
 
 const NAV = [
@@ -1001,6 +1080,7 @@ const NAV = [
   { id: 'usuarios',   label: 'Gestión Usuarios',    icon: 'manage_accounts'    },
   { id: 'conexion',   label: 'Conexión BD',         icon: 'dns'                },
   { id: 'sistema',    label: 'Sistema',             icon: 'memory'             },
+  { id: 'backup',     label: 'Backup BD',           icon: 'backup'             },
 ];
 
 const PROCESS_LIST = [
@@ -1240,6 +1320,7 @@ export default function AdminPanel() {
           {page === 'usuarios'   && <PageUsuarios users={users} dbConfig={dbConfig} reload={reload} />}
           {page === 'conexion'   && <PageConexion dbConfig={dbConfig} onConfigChange={setDbConfig} />}
           {page === 'sistema'    && <PageSistema sysInfo={sysInfo} dbConfig={dbConfig} reload={reload} />}
+          {page === 'backup'     && <PageBackup dbConfig={dbConfig} />}
         </div>
       </main>
     </div>
