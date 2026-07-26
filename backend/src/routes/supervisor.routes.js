@@ -2883,15 +2883,18 @@ router.post('/marcar-compromiso-incumplido', async (req, res, next) => {
 
 // ── GET /api/reports/gestiones_equipo  &  /api/reports/gestiones ─────────────
 // Genera y descarga xlsx con CDRs del día (o rango) del equipo / asesor.
-async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titulo }) {
+async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titulo, empresa }) {
   const inicio = new Date(fechaInicio + 'T00:00:00');
   const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+  const _emp = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(empresa) ? empresa : null;
+  const empresaPrisma = _emp === 'UPHONE' ? { in: ['TEC_SAS', 'SCC'] } : _emp || undefined;
 
   const cdrs = await db.cdr.findMany({
     where: {
       ...(asesorId ? { usuarioId: asesorId } : {}),
       timestampInicio: { gte: inicio, lte: fin },
       tipificacionId: { not: null },
+      ...(empresaPrisma ? { contacto: { empresa: empresaPrisma } } : {}),
     },
     select: {
       id: true,
@@ -3017,9 +3020,7 @@ router.get('/reports/gestiones_equipo', requireRole('supervisor', 'jefe_area', '
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
-    const where = req.user.rol !== 'admin'
-      ? { usuario: { supervisorId: req.user.id } }
-      : {};
+    const empresa     = req.query.empresa || '';
     const equipoIds = (await db.usuario.findMany({
       where: { rol: 'asesor', estado: 'activo', ...(req.user.rol !== 'admin' ? { supervisorId: req.user.id } : {}) },
       select: { id: true },
@@ -3027,7 +3028,7 @@ router.get('/reports/gestiones_equipo', requireRole('supervisor', 'jefe_area', '
 
     await _buildGestionesXlsx(res, {
       asesorId: equipoIds.length ? { in: equipoIds } : undefined,
-      fechaInicio, fechaFin,
+      fechaInicio, fechaFin, empresa,
       titulo: `Gestiones Equipo — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
     });
   } catch (err) { next(err); }
@@ -3038,10 +3039,11 @@ router.get('/reports/gestiones', requireRole('supervisor', 'jefe_area', 'admin')
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
+    const empresa     = req.query.empresa || '';
     const asesor      = asesorId ? await db.usuario.findUnique({ where: { id: asesorId }, select: { nombre: true } }) : null;
     await _buildGestionesXlsx(res, {
       asesorId: asesorId || undefined,
-      fechaInicio, fechaFin,
+      fechaInicio, fechaFin, empresa,
       titulo: `Gestiones${asesor ? ' — ' + asesor.nombre : ''} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
     });
   } catch (err) { next(err); }
@@ -3287,6 +3289,8 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const _ve = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
+    const empC  = (a) => _ve === 'UPHONE' ? `AND ${a}.empresa IN ('TEC_SAS','SCC')` : _ve ? `AND ${a}.empresa = '${_ve}'` : '';
 
     const _diasExpr = (alias) => `CAST(COALESCE(
       NULLIF(${alias}.metadata->>'DIAS IMPAGO', ''),
@@ -3308,6 +3312,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       WHERE DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
         AND ${DIAS_EXPR} IN (0, 1, 2)
         AND c.fecha_asignacion IS NOT NULL
+        ${empC('c')}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3326,6 +3331,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       FROM contactos
       WHERE DATE(fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
         AND fecha_asignacion IS NOT NULL
+        ${_ve === 'UPHONE' ? "AND empresa IN ('TEC_SAS','SCC')" : _ve ? `AND empresa = '${_ve}'` : ''}
       GROUP BY fecha
     `, fechaInicio, fechaFin);
 
@@ -3346,6 +3352,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       JOIN contactos ct ON ct.id = c.contacto_id
       WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
         AND ${DIAS_CT} IN (0, 1, 2)
+        ${empC('ct')}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3370,6 +3377,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
           AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil')
           AND ${DIAS_CT} IN (0, 1, 2)
+          ${empC('ct')}
         UNION
         SELECT c.wsp_enviado_fecha AS fecha,
           ${_diasExpr('c')} AS dias,
@@ -3378,6 +3386,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         WHERE c.wsp_enviado_fecha BETWEEN $1 AND $2
           AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.wsp_enviado_fecha
           AND ${_diasExpr('c')} IN (0, 1, 2)
+          ${empC('c')}
         UNION
         SELECT c.rcs_enviado_fecha AS fecha,
           ${_diasExpr('c')} AS dias,
@@ -3386,6 +3395,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         WHERE c.rcs_enviado_fecha BETWEEN $1 AND $2
           AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.rcs_enviado_fecha
           AND ${_diasExpr('c')} IN (0, 1, 2)
+          ${empC('c')}
         UNION
         SELECT c.correo_enviado_fecha AS fecha,
           ${_diasExpr('c')} AS dias,
@@ -3394,6 +3404,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         WHERE c.correo_enviado_fecha BETWEEN $1 AND $2
           AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.correo_enviado_fecha
           AND ${_diasExpr('c')} IN (0, 1, 2)
+          ${empC('c')}
       ) sub
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
@@ -3417,6 +3428,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
         AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
         AND ${DIAS_CT} IN (0, 1, 2)
+        ${empC('ct')}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3435,6 +3447,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       FROM contactos c
       WHERE c.wsp_enviado_fecha BETWEEN $1 AND $2
         AND ${DIAS_EXPR} IN (0, 1, 2)
+        ${empC('c')}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3445,6 +3458,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       FROM contactos c
       WHERE c.rcs_enviado_fecha BETWEEN $1 AND $2
         AND ${DIAS_EXPR} IN (0, 1, 2)
+        ${empC('c')}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3455,6 +3469,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       FROM contactos c
       WHERE c.correo_enviado_fecha BETWEEN $1 AND $2
         AND ${DIAS_EXPR} IN (0, 1, 2)
+        ${empC('c')}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3584,6 +3599,8 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const _ic = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
+    const icEmpC = _ic === 'UPHONE' ? `AND ct.empresa IN ('TEC_SAS','SCC')` : _ic ? `AND ct.empresa = '${_ic}'` : '';
 
     const DIAS_CT = `CAST(COALESCE(
       NULLIF(ct.metadata->>'DIAS IMPAGO', ''),
@@ -3604,6 +3621,7 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
         AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
         AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
         AND ${DIAS_CT} IN (0, 1, 2)
+        ${icEmpC}
       GROUP BY fecha, dias
     `, fechaInicio, fechaFin);
 
@@ -3730,6 +3748,10 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const _gm = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
+    const gmEmpJoin  = _gm ? `JOIN contactos ct ON ct.id = contacto_id` : '';
+    const gmEmpWhere = _gm === 'UPHONE' ? `AND ct.empresa IN ('TEC_SAS','SCC')` : _gm ? `AND ct.empresa = '${_gm}'` : '';
+    const gmCtEmp    = _gm === 'UPHONE' ? `AND empresa IN ('TEC_SAS','SCC')` : _gm ? `AND empresa = '${_gm}'` : '';
 
     const asesores = await db.usuario.findMany({
       where: { rol: 'asesor', estado: 'activo' },
@@ -3742,7 +3764,9 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
       SELECT DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
         usuario_id, COUNT(*) AS gestiones
       FROM cdrs
+      ${gmEmpJoin}
       WHERE DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        ${gmEmpWhere}
       GROUP BY fecha, usuario_id
     `, fechaInicio, fechaFin);
 
@@ -3758,6 +3782,7 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
       SELECT wsp_enviado_fecha AS fecha, asignado_a AS usuario_id, COUNT(*) AS cnt
       FROM contactos
       WHERE wsp_enviado_fecha BETWEEN $1 AND $2 AND asignado_a IS NOT NULL
+        ${gmCtEmp}
       GROUP BY fecha, usuario_id
     `, fechaInicio, fechaFin);
 
@@ -3765,6 +3790,7 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
       SELECT rcs_enviado_fecha AS fecha, asignado_a AS usuario_id, COUNT(*) AS cnt
       FROM contactos
       WHERE rcs_enviado_fecha BETWEEN $1 AND $2 AND asignado_a IS NOT NULL
+        ${gmCtEmp}
       GROUP BY fecha, usuario_id
     `, fechaInicio, fechaFin);
 
@@ -3772,6 +3798,7 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
       SELECT correo_enviado_fecha AS fecha, asignado_a AS usuario_id, COUNT(*) AS cnt
       FROM contactos
       WHERE correo_enviado_fecha BETWEEN $1 AND $2 AND asignado_a IS NOT NULL
+        ${gmCtEmp}
       GROUP BY fecha, usuario_id
     `, fechaInicio, fechaFin);
 
