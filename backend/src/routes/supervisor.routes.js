@@ -173,7 +173,7 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
     const asesorIdList = asesores.map(a => a.id);
     // Una sola query para avance + segmentos por asesor (reemplaza N×2 queries + segRows)
     const fechaYmd = _gyeDayBounds(req.query.fecha).ymd; // 'YYYY-MM-DD'
-    const [grupos, tipifs, detalleRows, canalRows, segActualRows] = await Promise.all([
+    const [grupos, tipifs, detalleRows, canalRows, segActualRows, msgRows] = await Promise.all([
       db.cdr.groupBy({
         by: ['usuarioId', 'tipificacionId'],
         where: {
@@ -308,6 +308,21 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
           ORDER BY cr.usuario_id, cr.timestamp_inicio DESC
         `);
       })(),
+      // msgRows: WSP/RCS/CORREO enviados por asesor (desde contactos, no CDRs)
+      asesorIdList.length === 0 ? Promise.resolve([]) : (() => {
+        const idsStr     = asesorIdList.join(',');
+        const campClause = campanaId ? `AND campana_id = ${campanaId}` : '';
+        return db.$queryRawUnsafe(`
+          SELECT asignado_a,
+            COUNT(CASE WHEN whatsapp_status = 'ENVIADO' THEN 1 END)::int AS wsp,
+            COUNT(CASE WHEN rcs_status      = 'ENVIADO' THEN 1 END)::int AS rcs,
+            COUNT(CASE WHEN correo_status   = 'ENVIADO' THEN 1 END)::int AS correo
+          FROM contactos
+          WHERE asignado_a IN (${idsStr})
+            ${campClause}
+          GROUP BY asignado_a
+        `);
+      })(),
     ]);
 
     // Construir mapa (asesorId → { asignados, gestionados, segmentos })
@@ -345,6 +360,16 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       segActualMap.set(Number(row.usuario_id), row.segmento_actual ?? null);
     }
 
+    // msgMap[asesorId] = { wsp, rcs, correo } enviados desde contactos
+    const msgMap = new Map();
+    for (const row of msgRows) {
+      msgMap.set(Number(row.asignado_a), {
+        wsp:    Number(row.wsp    || 0),
+        rcs:    Number(row.rcs    || 0),
+        correo: Number(row.correo || 0),
+      });
+    }
+
     const tipMap = new Map(tipifs.map(t => [t.id, t]));
     const CAT_CANON = {
       'CONTACTO_EFECTIVO': 'CONTACTO EXITOSO',
@@ -372,6 +397,9 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       segmentos:                avanceMap.get(a.id)?.segmentos   || {},
       canales_apertura:         canalMap.get(a.id)    || {},
       segmento_actual_apertura: segActualMap.get(a.id) ?? null,
+      msg_wsp:    msgMap.get(a.id)?.wsp    ?? 0,
+      msg_rcs:    msgMap.get(a.id)?.rcs    ?? 0,
+      msg_correo: msgMap.get(a.id)?.correo ?? 0,
     }]));
 
     for (const g of grupos) {
