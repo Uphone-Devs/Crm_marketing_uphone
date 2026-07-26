@@ -3379,30 +3379,30 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
           AND ${DIAS_CT} IN (0, 1, 2)
           ${empC('ct')}
         UNION
-        SELECT c.wsp_enviado_fecha AS fecha,
+        SELECT c.wsp_enviado_fecha::date AS fecha,
           ${_diasExpr('c')} AS dias,
           c.id AS ct_id
         FROM contactos c
-        WHERE c.wsp_enviado_fecha BETWEEN $1 AND $2
-          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.wsp_enviado_fecha
+        WHERE c.wsp_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil')::text = c.wsp_enviado_fecha
           AND ${_diasExpr('c')} IN (0, 1, 2)
           ${empC('c')}
         UNION
-        SELECT c.rcs_enviado_fecha AS fecha,
+        SELECT c.rcs_enviado_fecha::date AS fecha,
           ${_diasExpr('c')} AS dias,
           c.id AS ct_id
         FROM contactos c
-        WHERE c.rcs_enviado_fecha BETWEEN $1 AND $2
-          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.rcs_enviado_fecha
+        WHERE c.rcs_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil')::text = c.rcs_enviado_fecha
           AND ${_diasExpr('c')} IN (0, 1, 2)
           ${empC('c')}
         UNION
-        SELECT c.correo_enviado_fecha AS fecha,
+        SELECT c.correo_enviado_fecha::date AS fecha,
           ${_diasExpr('c')} AS dias,
           c.id AS ct_id
         FROM contactos c
-        WHERE c.correo_enviado_fecha BETWEEN $1 AND $2
-          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = c.correo_enviado_fecha
+        WHERE c.correo_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil')::text = c.correo_enviado_fecha
           AND ${_diasExpr('c')} IN (0, 1, 2)
           ${empC('c')}
       ) sub
@@ -3445,33 +3445,33 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         ${DIAS_EXPR} AS dias,
         COUNT(*) AS cnt
       FROM contactos c
-      WHERE c.wsp_enviado_fecha BETWEEN $1 AND $2
+      WHERE c.wsp_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
         AND ${DIAS_EXPR} IN (0, 1, 2)
         ${empC('c')}
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `);
 
     const bulkRcsRows = await db.$queryRawUnsafe(`
       SELECT c.rcs_enviado_fecha AS fecha,
         ${DIAS_EXPR} AS dias,
         COUNT(*) AS cnt
       FROM contactos c
-      WHERE c.rcs_enviado_fecha BETWEEN $1 AND $2
+      WHERE c.rcs_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
         AND ${DIAS_EXPR} IN (0, 1, 2)
         ${empC('c')}
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `);
 
     const bulkCorreoRows = await db.$queryRawUnsafe(`
       SELECT c.correo_enviado_fecha AS fecha,
         ${DIAS_EXPR} AS dias,
         COUNT(*) AS cnt
       FROM contactos c
-      WHERE c.correo_enviado_fecha BETWEEN $1 AND $2
+      WHERE c.correo_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
         AND ${DIAS_EXPR} IN (0, 1, 2)
         ${empC('c')}
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `);
 
     const bulkMap = {};
     const _addBulk = (rows, field) => {
