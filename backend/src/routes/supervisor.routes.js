@@ -232,7 +232,7 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
             WHERE co.asignado_a IN (${idsStr})
               ${campClause}
               ${empresaClause}
-              AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date
+              ${campanaId ? '' : `AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date`}
           ) co
           GROUP BY co.asignado_a, seg
         `);
@@ -270,7 +270,7 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
               AND cr.timestamp_inicio >= '${isoInicio}' AND cr.timestamp_inicio <= '${isoFin}'
               AND cr.canal IN ('whatsapp', 'rcs', 'gmail')
               ${campClause}
-              AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date
+              ${campanaId ? '' : `AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = '${fechaYmd}'::date`}
           ) sub
           GROUP BY usuario_id, canal, seg
         `);
