@@ -1377,8 +1377,8 @@ export default function JefePanel({ usuario, onLogout }) {
               </div>
             )}
 
-            {/* Dimensión empresa — solo en reporte de actividad */}
-            {reporteTipo === 'actividad' && (
+            {/* Dimensión empresa */}
+            {(
               <div style={{ marginBottom: 24 }}>
                 <label className="reporte-form__label" style={{ marginBottom: 10, display: 'block', fontSize: 11, letterSpacing: 1.5 }}>
                   EMPRESA / CARTERA
