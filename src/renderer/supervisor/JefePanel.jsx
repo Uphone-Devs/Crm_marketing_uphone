@@ -1384,7 +1384,7 @@ export default function JefePanel({ usuario, onLogout }) {
                   EMPRESA / CARTERA
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {[['', 'domain', 'TODAS'], ['TEC_SAS', 'business', 'TEC SAS'], ['SCC', 'apartment', 'SCC']].map(([val, icon, lbl]) => (
+                  {[['', 'domain', 'TODAS'], ['UPHONE', 'business', 'UPHONE'], ['CREDI_TV', 'apartment', 'CREDI TV']].map(([val, icon, lbl]) => (
                     <button key={lbl} type="button"
                       onClick={() => setReporteFiltros(p => ({ ...p, empresa: val }))}
                       style={{
