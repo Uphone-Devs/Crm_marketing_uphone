@@ -12,6 +12,11 @@ const setupWsServer = require('./wsServer');
 const { authMiddleware } = require('./middleware/auth.middleware');
 
 const app = express();
+// El backend siempre corre detrás de cloudflared en la misma VM (Internet -> Cloudflare
+// -> cloudflared -> 127.0.0.1:3001), así que el único hop real es desde loopback. Sin esto,
+// express-rate-limit no puede confiar en X-Forwarded-For y falla identificando al cliente
+// (ERR_ERL_UNEXPECTED_X_FORWARDED_FOR), degradando el rate-limit de login a una clave compartida.
+app.set('trust proxy', 'loopback');
 const server = http.createServer(app);
 
 // Socket.io retirado: el namespace /calls (sockets/call.socket.js) no exigía
