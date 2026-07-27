@@ -271,14 +271,14 @@ export default function SupervisorPanel({ usuario, onLogout }) {
         clearInterval(wsPingRef.current);
         wsPingRef.current = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ tipo: 'ping' }));
+            socket.send(JSON.stringify({ tipo: 'PING' }));
           }
         }, 25000);
       };
 
       socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
-        if (msg.tipo === 'pong') return;
+        if (msg.tipo === 'PONG') return;
         if (msg.tipo === 'ESTADO_ASESOR') {
           setEstadosWS(prev => ({ ...prev, [msg.asesor_id]: msg }));
           setTiemposEstado(prev => ({ ...prev, [msg.asesor_id]: 0 }));
