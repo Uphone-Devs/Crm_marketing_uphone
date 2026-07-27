@@ -962,7 +962,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         clearInterval(wsPingRef.current);
         wsPingRef.current = setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ tipo: 'ping' }));
+            socket.send(JSON.stringify({ tipo: 'PING' }));
           }
         }, 25000);
       };
@@ -970,7 +970,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       socket.onmessage = (e) => {
         const msg = JSON.parse(e.data);
 
-        if (msg.tipo === 'pong') return;
+        if (msg.tipo === 'PONG') return;
 
         if (msg.tipo === 'REMOTE_DIAL' || msg.tipo === 'MARCAR_CLIENTE') {
           const tel = msg.telefono || msg.cliente?.telefono;
