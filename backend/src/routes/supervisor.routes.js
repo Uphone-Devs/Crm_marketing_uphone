@@ -1196,9 +1196,11 @@ router.get('/cartera/rotacion', async (req, res, next) => {
     const detalle = await Promise.all(asesores.map(async (a) => {
       const baseWhere = { asignadoA: a.id, ...(campanaId ? { campanaId } : {}) };
       let gestionados;
-      if (fechaInicio) {
-        // Con filtro de fecha: contar contactos únicos con al menos un CDR en el período
-        const cdrWhere = { usuarioId: a.id, timestampInicio: { gte: fechaInicio, lte: fechaFin } };
+      if (fechaInicio || campanaId) {
+        // Con filtro de fecha o de apertura: contar contactos únicos con al menos un CDR
+        // (cualquier llamada = gestionado para el avance de rotación)
+        const cdrWhere = { usuarioId: a.id };
+        if (fechaInicio) cdrWhere.timestampInicio = { gte: fechaInicio, lte: fechaFin };
         if (campanaId) cdrWhere.contacto = { campanaId };
         const uniques = await db.cdr.findMany({ where: cdrWhere, select: { contactoId: true }, distinct: ['contactoId'] });
         gestionados = uniques.length;
