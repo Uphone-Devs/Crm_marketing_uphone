@@ -21,10 +21,13 @@ const TIPO_COLOR = {
 };
 
 const fmt$ = (n) => n != null ? `$${Number(n).toFixed(2)}` : '—';
+// Parsea timestamp naive UTC (sin Z) como hora local para evitar conversión TZ en cliente Ecuador
+const parseNaive = (ts) => new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
+
 const fmtHora = (ts) => {
   if (!ts || typeof ts !== 'string') return '—';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch { return '—'; }
@@ -33,7 +36,7 @@ const fmtHora = (ts) => {
 const fmtPromesaInfo = (ts) => {
   if (!ts || typeof ts !== 'string') return null;
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return null;
     const now = new Date();
     const todayStr = now.toDateString();
