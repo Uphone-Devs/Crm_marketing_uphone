@@ -41,6 +41,18 @@ function _gyeDayBounds(fechaStr) {
   };
 }
 
+// Parsea strings datetime sin zona como hora Ecuador (UTC-5 fijo, sin DST).
+// Evita que el servidor US interprete la hora del usuario como US local.
+const parseGYE = (s) => {
+  if (!s) return null;
+  if (/Z|[+-]\d{2}:?\d{2}$/.test(s)) return new Date(s);
+  return new Date(s + '-05:00');
+};
+
+// Convierte un Date (UTC) a ISO local Guayaquil sin Z: "YYYY-MM-DDTHH:MM:SS"
+const toGYELocalISO = (d) =>
+  new Date(d).toLocaleString('sv-SE', { timeZone: 'America/Guayaquil' }).replace(' ', 'T');
+
 // ── Helper: Resolve contacto WHERE with JSON metadata filters ─────────────────
 // Returns Prisma-compatible where clause. Uses raw SQL when metadata filters present.
 async function resolveContactoWhere(q) {
@@ -2253,11 +2265,12 @@ router.get('/cartera', async (req, res, next) => {
         gestiones_count: gestionesMap.get(ct.id) ?? 0,
         gestiones_hoy: gestionesHoyMap.get(ct.id) ?? 0,
         agendamiento_hora: ct.agendamientos?.[0]?.fechaHora
-          ? new Date(ct.agendamientos[0].fechaHora).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
+          ? new Date(ct.agendamientos[0].fechaHora).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Guayaquil' })
           : null,
-        // Datetime crudo del compromiso vigente → excluir de vueltas hasta que pase la hora
+        // Datetime crudo del compromiso vigente → excluir de vueltas hasta que pase la hora.
+        // Se envía como hora Ecuador local (sin Z) para comparar directamente con _nowWall del frontend.
         agendamiento_fecha_hora: ct.agendamientos?.[0]?.fechaHora
-          ? new Date(ct.agendamientos[0].fechaHora).toISOString()
+          ? toGYELocalISO(ct.agendamientos[0].fechaHora)
           : null,
         agendamiento_tipo: ct.agendamientos?.[0]?.tipo || null,
       };
@@ -2622,7 +2635,7 @@ router.post('/agendamientos', async (req, res, next) => {
         contactoId,
         asesorId,
         tipo,
-        fechaHora: new Date(fechaHora),
+        fechaHora: parseGYE(fechaHora),
         notas:  body.notas || null,
         estado: 'pendiente',
       },
@@ -2862,7 +2875,7 @@ router.post('/reagendar-compromiso', async (req, res, next) => {
           contactoId: cdr.contactoId,
           asesorId: cdr.usuarioId,
           tipo: 'PMP',
-          fechaHora: new Date(`${nuevaFecha}T${nuevaHora}:00`),
+          fechaHora: new Date(`${nuevaFecha}T${nuevaHora}:00-05:00`),
           estado: 'pendiente',
         },
       });
