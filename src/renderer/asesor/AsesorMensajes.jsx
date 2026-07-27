@@ -60,7 +60,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false, call
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [callApi]);
 
   useEffect(() => {
     cargarMensajes();
@@ -77,7 +77,8 @@ export default function AsesorMensajes({ usuario, cartera, compact = false, call
         if (
           data.tipo === 'NUEVO_MENSAJE_SUPERVISOR' ||
           data.tipo === 'MENSAJE_DESACTIVADO' ||
-          data.tipo === 'MENSAJE_BROADCAST'
+          data.tipo === 'NUEVO_MENSAJE_BROADCAST' ||
+          data.tipo === 'MENSAJE_BROADCAST_DESACTIVADO'
         ) {
           cargarMensajes();
         }
