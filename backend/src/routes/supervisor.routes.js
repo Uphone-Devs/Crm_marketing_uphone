@@ -2265,12 +2265,11 @@ router.get('/cartera', async (req, res, next) => {
         gestiones_count: gestionesMap.get(ct.id) ?? 0,
         gestiones_hoy: gestionesHoyMap.get(ct.id) ?? 0,
         agendamiento_hora: ct.agendamientos?.[0]?.fechaHora
-          ? new Date(ct.agendamientos[0].fechaHora).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Guayaquil' })
+          ? new Date(ct.agendamientos[0].fechaHora).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
           : null,
-        // Datetime crudo del compromiso vigente → excluir de vueltas hasta que pase la hora.
-        // Se envía como hora Ecuador local (sin Z) para comparar directamente con _nowWall del frontend.
+        // Datetime crudo del compromiso vigente → excluir de vueltas hasta que pase la hora
         agendamiento_fecha_hora: ct.agendamientos?.[0]?.fechaHora
-          ? toGYELocalISO(ct.agendamientos[0].fechaHora)
+          ? new Date(ct.agendamientos[0].fechaHora).toISOString()
           : null,
         agendamiento_tipo: ct.agendamientos?.[0]?.tipo || null,
       };
@@ -2635,7 +2634,7 @@ router.post('/agendamientos', async (req, res, next) => {
         contactoId,
         asesorId,
         tipo,
-        fechaHora: parseGYE(fechaHora),
+        fechaHora: new Date(fechaHora),
         notas:  body.notas || null,
         estado: 'pendiente',
       },
@@ -2875,7 +2874,7 @@ router.post('/reagendar-compromiso', async (req, res, next) => {
           contactoId: cdr.contactoId,
           asesorId: cdr.usuarioId,
           tipo: 'PMP',
-          fechaHora: new Date(`${nuevaFecha}T${nuevaHora}:00-05:00`),
+          fechaHora: new Date(`${nuevaFecha}T${nuevaHora}:00`),
           estado: 'pendiente',
         },
       });
