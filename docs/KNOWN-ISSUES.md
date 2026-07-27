@@ -51,4 +51,5 @@
 
 ## Deuda menor
 - Código muerto: `renderPersonalConfig` en `SupervisorPanel.jsx` (apartado removido, función sin uso).
-- Dir `backend/` (Prisma) divergente del backend real (`src/main/apiServer.js`).
+- **Corregido 2026-07-25:** esta línea decía que `backend/` estaba divergente del "backend real (`src/main/apiServer.js`)". Es al revés. El backend de producción es `backend/` (Express + Prisma + PostgreSQL), que `src/main/index.js` arranca como proceso hijo. `src/main/apiServer.js` es código muerto: `initApiServer` solo se invoca desde `src/main/server.js`, un entry que ningún script ni build referencia. Ver `deploy/RUNBOOK.md`.
+- Código muerto pendiente de retirar: `src/main/apiServer.js`, `src/main/server.js` y `src/main/database/`. Mientras sigan en el árbol, las mitigaciones que implementan se leen como si estuvieran activas y no lo están — fue el origen de la confusión anterior.

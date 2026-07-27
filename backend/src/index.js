@@ -5,7 +5,6 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const db = require('./config/db');
@@ -13,15 +12,17 @@ const setupWsServer = require('./wsServer');
 const { authMiddleware } = require('./middleware/auth.middleware');
 
 const app = express();
+// El backend siempre corre detrás de cloudflared en la misma VM (Internet -> Cloudflare
+// -> cloudflared -> 127.0.0.1:3001), así que el único hop real es desde loopback. Sin esto,
+// express-rate-limit no puede confiar en X-Forwarded-For y falla identificando al cliente
+// (ERR_ERL_UNEXPECTED_X_FORWARDED_FOR), degradando el rate-limit de login a una clave compartida.
+app.set('trust proxy', 'loopback');
 const server = http.createServer(app);
 
-// Initialize Socket.io
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CORS_ORIGIN || '*',
-    methods: ['GET', 'POST'],
-  },
-});
+// Socket.io retirado: el namespace /calls (sockets/call.socket.js) no exigía
+// autenticación y ningún cliente lo consumía — el renderer usa el WS nativo y no
+// incluye socket.io-client. Los archivos siguen en el árbol por si el flujo de
+// llamadas se retoma; volver a montarlo requiere autenticar el handshake.
 
 // ── CORS ──────────────────────────────────────────────────────
 // CORS_ORIGIN en .env: lista separada por comas de orígenes permitidos.
@@ -57,14 +58,24 @@ app.use('/api/cdrs',      require('./routes/cdrs.routes'));
 app.use('/api/admin',     require('./routes/admin.routes'));
 app.use('/api',           require('./routes/supervisor.routes'));
 
-// ── Health check ──────────────────────────────────────────────
-app.get('/health', (req, res) => {
+// ── Liveness: responde mientras el proceso siga en pie ────────
+app.get('/live', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// ── Sockets ───────────────────────────────────────────────────
-const setupCallSockets = require('./sockets/call.socket');
-setupCallSockets(io);
+// ── Readiness: solo OK si la base responde ───────────────────
+// Un health que no consulta la base deja al túnel enrutando tráfico a un
+// backend con PostgreSQL caído, y el problema se ve como errores sueltos
+// en los paneles en vez de como una caída.
+app.get('/health', async (req, res) => {
+  try {
+    await db.$queryRaw`SELECT 1`;
+    res.json({ status: 'OK', db: 'up', timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('[HEALTH] Base no disponible:', err.message);
+    res.status(503).json({ status: 'DEGRADED', db: 'down' });
+  }
+});
 
 // ── Native Monitoring WS Server ───────────────────────────────
 const monitorWss = setupWsServer(server);
@@ -81,25 +92,46 @@ app.use((err, req, res, next) => {
 // ── Server startup ────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
 
-process.on('SIGINT', async () => {
-  await db.$disconnect();
-  process.exit(0);
-});
-
-const HOST = process.env.HOST || '0.0.0.0';
+// Por defecto solo loopback: el acceso externo entra por el túnel de Cloudflare,
+// que corre en la misma VM. Exponer en 0.0.0.0 debe ser una decisión explícita.
+const HOST = process.env.HOST || '127.0.0.1';
 server.listen(PORT, HOST, () => {
-  console.log(`🚀 API + Socket.io Server running on ${HOST}:${PORT}`);
+  console.log(`🚀 API + WebSocket escuchando en ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
 });
 
-// Manejo de Upgrade para WebSockets Nativos (Monitor)
-server.on('upgrade', (request, socket, head) => {
-  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+// systemd envía SIGTERM, no SIGINT: sin este handler el proceso moría sin cerrar
+// el servidor HTTP ni drenar el pool de Prisma en cada `systemctl restart`.
+let cerrando = false;
+async function apagar(senal) {
+  if (cerrando) return;
+  cerrando = true;
+  console.log(`[APP] ${senal} recibido — cerrando...`);
 
-  // Si no es un request de Socket.io (que usualmente empieza por /socket.io),
-  // permitir que el monitorWss lo maneje.
-  if (!pathname.startsWith('/socket.io')) {
-    monitorWss.handleUpgrade(request, socket, head, (ws) => {
-      monitorWss.emit('connection', ws, request);
-    });
-  }
+  const forzar = setTimeout(() => {
+    console.error('[APP] Cierre forzado tras 10s');
+    process.exit(1);
+  }, 10_000);
+  forzar.unref();
+
+  server.close(async () => {
+    try {
+      await db.$disconnect();
+    } catch (err) {
+      console.error('[APP] Error al desconectar Prisma:', err.message);
+    }
+    console.log('[APP] Cierre limpio');
+    process.exit(0);
+  });
+}
+
+process.on('SIGTERM', () => apagar('SIGTERM'));
+process.on('SIGINT', () => apagar('SIGINT'));
+
+// Manejo de Upgrade para WebSockets Nativos (Monitor).
+// Retirado socket.io, todo upgrade corresponde al WS de monitoreo. La sesión sigue
+// autenticándose en el mensaje IDENTIFICAR (ver wsServer.js), no aquí.
+server.on('upgrade', (request, socket, head) => {
+  monitorWss.handleUpgrade(request, socket, head, (ws) => {
+    monitorWss.emit('connection', ws, request);
+  });
 });
