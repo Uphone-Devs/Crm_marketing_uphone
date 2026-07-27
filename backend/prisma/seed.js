@@ -1,6 +1,23 @@
+/**
+ * seed.js — SEED DE DEMO. NO EJECUTAR CONTRA LA BASE DE PRODUCCIÓN.
+ *
+ * Crea 10 cuentas con la contraseña `REDACTED` — pública, este repositorio es
+ * abierto —, una campaña ficticia y 50 deudores inventados. Sirve para levantar
+ * un entorno local de desarrollo, nada más.
+ *
+ * Para la VM: `npm run seed:catalogo` (prisma/seed-catalogo.js), que siembra solo
+ * el catálogo de tipificaciones y no toca usuarios ni contactos.
+ */
+
 require('dotenv').config();
 const prisma = require('../src/config/db');
 const bcrypt = require('bcryptjs');
+
+if (process.env.NODE_ENV === 'production') {
+  console.error('❌ seed.js es un seed de DEMO y no puede ejecutarse con NODE_ENV=production.');
+  console.error('   Para el catálogo de producción: npm run seed:catalogo');
+  process.exit(1);
+}
 
 const SALT_ROUNDS = 10;
 
