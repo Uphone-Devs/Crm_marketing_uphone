@@ -26,10 +26,12 @@ const PARENTESCOS = [
   'Amigo/a', 'Trabajo', 'Vecino/a', 'Otro',
 ];
 
+// Parsea timestamp naive UTC (sin Z) como hora local para evitar conversión TZ en cliente Ecuador
+const parseNaive = (ts) => new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
 const fmtFechaHora = (ts) => {
   if (!ts) return '—';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     return d.toLocaleString('es-EC', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
   } catch { return ts; }
 };

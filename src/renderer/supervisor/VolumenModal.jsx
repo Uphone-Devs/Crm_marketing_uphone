@@ -26,10 +26,12 @@ const _EMPTY_ARR = [];
 
 const VOLUMEN_COLORS = ['#00E5FF', '#2979FF', '#651FFF', '#FF6E40', '#1DE9B6', '#FFD740', '#F50057', '#7C4DFF', '#69F0AE', '#FFAB40', '#40C4FF', '#B388FF'];
 
+// Parsea timestamp naive UTC (sin Z) como hora local para evitar conversión TZ en cliente Ecuador
+const parseNaive = (ts) => new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
 const fmtHora = (ts) => {
   if (!ts || typeof ts !== 'string') return 'â€"';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return 'â€"';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   } catch { return 'â€"'; }

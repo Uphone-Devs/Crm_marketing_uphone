@@ -140,8 +140,8 @@ export default function HistoryPage() {
                 cdrs.map(cdr => (
                   <tr key={cdr.id}>
                     <td>
-                      <div className="text-body-sm">{new Date(cdr.creado_en).toLocaleTimeString()}</div>
-                      <div className="text-label-sm" style={{ opacity: 0.5 }}>{new Date(cdr.creado_en).toLocaleDateString()}</div>
+                      <div className="text-body-sm">{new Date(String(cdr.timestamp_inicio || cdr.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })}</div>
+                      <div className="text-label-sm" style={{ opacity: 0.5 }}>{new Date(String(cdr.timestamp_inicio || cdr.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleDateString('es-EC')}</div>
                     </td>
                     <td className="text-body-sm" style={{ fontWeight: 600 }}>{cdr.asesor_nombre}</td>
                     <td>

@@ -20,10 +20,12 @@ const TIPO_COLOR = {
 };
 
 const fmt$ = (n) => n != null ? `$${Number(n).toFixed(2)}` : '—';
+// Parsea timestamp naive UTC (sin Z) como hora local para evitar conversión TZ en cliente Ecuador
+const parseNaive = (ts) => new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
 const fmtFechaHora = (ts) => {
   if (!ts || typeof ts !== 'string') return '—';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleString('es-EC', {
       day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
@@ -33,7 +35,7 @@ const fmtFechaHora = (ts) => {
 const fmtHora = (ts) => {
   if (!ts || typeof ts !== 'string') return '—';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch { return '—'; }

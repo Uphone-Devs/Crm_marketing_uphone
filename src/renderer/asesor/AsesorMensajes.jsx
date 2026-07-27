@@ -173,7 +173,7 @@ export default function AsesorMensajes({ usuario, cartera, compact = false, call
           )}
         </div>
         <div style={{ fontSize: 12, opacity: 0.5 }}>
-          {new Date(msg.creado_en).toLocaleString()}
+          {new Date(String(msg.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}
         </div>
       </div>
       

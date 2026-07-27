@@ -242,7 +242,7 @@ export default function SupervisorMensajes({ usuario }) {
           </span>
           {!isActive && <span style={{ fontSize: 12, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Desactivado</span>}
         </div>
-        <span style={{ fontSize: 12, opacity: 0.5 }}>{new Date(msg.creado_en).toLocaleString()}</span>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{new Date(String(msg.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</span>
       </div>
       <p style={{ margin: '8px 0', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5, opacity: 0.9 }}>
         {msg.mensaje}

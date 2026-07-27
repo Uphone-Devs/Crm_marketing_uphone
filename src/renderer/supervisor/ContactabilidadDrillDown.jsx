@@ -24,10 +24,12 @@ const CAT_INFO = {
   SIN_TIPIFICAR:  { label: 'Sin Tipificar',    color: '#ff8a65', match: (cat) => cat == null || cat === '' },
 };
 
+// Parsea timestamp naive UTC (sin Z) como hora local para evitar conversión TZ en cliente Ecuador
+const parseNaive = (ts) => new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
 const fmtHora = (ts) => {
   if (!ts || typeof ts !== 'string') return '—';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return '—';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
   } catch { return '—'; }

@@ -1097,7 +1097,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             }
             const fmt = (n) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
             const fmtFecha = (f) => !f ? 'N/A' : (f.includes(' ') || f.includes('T'))
-              ? new Date(f).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+              ? new Date(f.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
               : f.split('-').reverse().join('/');
             const bdr = '1px solid rgba(255,255,255,0.05)';
 

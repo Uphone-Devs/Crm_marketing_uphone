@@ -121,7 +121,7 @@ function MensajeCard({ m, showDelete, segmentoMeta, onDesactivar }) {
         </div>
         <div style={{ marginLeft: 'auto', opacity: 0.3, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 4 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 12 }}>schedule</span>
-          {m.creado_en ? new Date(m.creado_en).toLocaleString('es-EC', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
+          {m.creado_en ? new Date(String(m.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : ''}
         </div>
       </div>
 
