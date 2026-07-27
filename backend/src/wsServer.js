@@ -180,11 +180,16 @@ function setupWsServer(httpServer) {
 
         ws.on('close', () => {
             if (clientInfo.rol === 'SUPERVISOR') {
-                supervisores.delete(clientInfo.id);
-                console.log(`[WS] Jefe de Área desconectado: ${clientInfo.nombre}`);
+                // Solo eliminar si este socket sigue siendo el registrado (evita race condition en reconexión)
+                if (supervisores.get(clientInfo.id) === ws) {
+                    supervisores.delete(clientInfo.id);
+                    console.log(`[WS] Jefe de Área desconectado: ${clientInfo.nombre}`);
+                }
             } else if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
-                delete estadosAsesores[clientInfo.id];
-                console.log(`[WS] Asesor desconectado: ${clientInfo.nombre}`);
+                if (estadosAsesores[clientInfo.id]?.socket === ws) {
+                    delete estadosAsesores[clientInfo.id];
+                    console.log(`[WS] Asesor desconectado: ${clientInfo.nombre}`);
+                }
                 broadcastToSupervisors({
                     tipo: 'ASESOR_DESCONECTADO',
                     asesor_id: clientInfo.id,
