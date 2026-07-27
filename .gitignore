@@ -21,6 +21,8 @@ dist2/*.asar
 *.sqlite-shm
 datos_uphone.sql
 db_prueba.sql
+*_dump_*.sql
+prima.sql
 
 # Build output
 out/
