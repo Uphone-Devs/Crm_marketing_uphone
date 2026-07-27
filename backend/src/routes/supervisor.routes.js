@@ -510,14 +510,16 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
     // Segmentos de mensajería: enviados (S0) y activos/pendientes (S1)
     const codigosCompromiso = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
 
+    const cdrBaseWhere = { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin } };
     const [
       cdrsHoy, cdrsConTipifAsesor, agendados, gestionados,
       wspEnv, rcsEnv, correoEnv,
       wspActivo, rcsActivo, correoActivo,
       compCumpl, compReag, compIncump,
+      cdrsEfectivos, cdrsNeutros, cdrsNoContactados,
     ] = await Promise.all([
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin } } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, tipificacionId: { not: null } } }).catch(() => 0),
+      db.cdr.count({ where: cdrBaseWhere }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, tipificacionId: { not: null } } }).catch(() => 0),
       db.agendamiento.count({ where: { asesorId: targetId, creadoEn: { gte: inicio, lte: fin } } }).catch(() => 0),
       db.contacto.count({ where: { asignadoA: targetId, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } }).catch(() => 0),
       db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ENVIADO' } }).catch(() => 0),
@@ -526,9 +528,12 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ACTIVO'  } }).catch(() => 0),
       db.contacto.count({ where: { ...msgWhere, rcsStatus:       'ACTIVO'  } }).catch(() => 0),
       db.contacto.count({ where: { ...msgWhere, correoStatus:    'ACTIVO'  } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'COMP_CUM' } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'REAG' } }).catch(() => 0),
-      db.cdr.count({ where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, resultado: 'INCUMP' } }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'COMP_CUM' } }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'REAG' } }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'INCUMP' } }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['CONTACTO_NEUTRO',   'CONTACTO NEUTRO']  } } } }).catch(() => 0),
+      db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO',     'NO CONTACTADO']    } } } }).catch(() => 0),
     ]);
 
     const [cdrsConTipif, pmpHoy, tiemposEstado] = await Promise.all([
@@ -643,6 +648,10 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
       compromisos_reagendados: compReag,
       compromisos_incumplidos: compIncump,
       marcaciones_detalle: [cdrS0, cdrS1, cdrS2],
+      contactos_efectivos:  cdrsEfectivos,
+      cdrs_neutros:         cdrsNeutros,
+      cdrs_no_contactados:  cdrsNoContactados,
+      cdrs_sin_tipificar:   cdrsHoy - cdrsConTipifAsesor,
       // Mensajería real del día (por *_enviado_fecha) — para revisión histórica
       msg_dia: msgDia,
     });
