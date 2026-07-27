@@ -295,6 +295,8 @@ export default function JefePanel({ usuario, onLogout }) {
           if (msg.metricas) setMetricasWS(msg.metricas);
           if (msg.dialing_mode) setDialingMode(msg.dialing_mode);
           if (msg.intentos) setIntentosConfig(msg.intentos);
+          // Backend restarted → WS metrics lost → refresh DB fallback immediately
+          cargarMetricasAsesores();
         }
         if (msg.tipo === 'SET_DIALING_MODE') {
           setDialingMode(msg.modo);
@@ -415,6 +417,7 @@ export default function JefePanel({ usuario, onLogout }) {
   // ── Effects ──
   useEffect(() => {
     cargarAsesores();
+    cargarMetricasAsesores();
     cargarMetricasEquipo();
     cargarMetricasValidacion();
     conectarWS();
