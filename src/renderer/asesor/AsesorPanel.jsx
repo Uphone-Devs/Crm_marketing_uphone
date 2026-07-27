@@ -271,7 +271,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
       // Si parece ISO, intentar conversión a hora local del navegador
       if (rawStr.includes('T') || rawStr.includes('Z')) {
         try {
-          const d = new Date(rawStr.replace(' ', 'T'));
+          // Timestamp naive UTC (sin Z) parseado como hora local para evitar
+          // conversión TZ en cliente Ecuador (ver parseNaive en otros paneles)
+          const d = new Date(rawStr.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
           if (!isNaN(d.getTime())) {
             return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
           }
@@ -2385,7 +2387,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const fmtHora = (ts) => {
                   if (!ts || typeof ts !== 'string') return '-';
                   try {
-                    const d = new Date(ts.replace(' ', 'T'));
+                    const d = new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
                     if (isNaN(d.getTime())) return '-';
                     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
                   } catch { return '-'; }
@@ -4251,7 +4253,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   const fmtHora = (ts) => {
                     if (!ts || typeof ts !== 'string') return '-';
                     try {
-                      const d = new Date(ts.replace(' ', 'T'));
+                      const d = new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
                       if (isNaN(d.getTime())) return '-';
                       return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false });
                     } catch { return '-'; }
@@ -4259,7 +4261,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   const fmtFecha = (ts) => {
                     if (!ts || typeof ts !== 'string') return '-';
                     try {
-                      const d = new Date(ts.replace(' ', 'T'));
+                      const d = new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
                       if (isNaN(d.getTime())) return '-';
                       return d.toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: '2-digit' });
                     } catch { return '-'; }
@@ -4906,7 +4908,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
               </div>
               <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '10px 14px' }}>
                 <p style={{ margin: 0, fontSize: 11, opacity: 0.45, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>Fecha / Hora</p>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{(() => { const ts = historialContactoPopup.hora_gestion || historialContactoPopup.timestamp_inicio || historialContactoPopup.creado_en; if (!ts) return '-'; try { const d = new Date(String(ts).replace(' ', 'T')); return isNaN(d) ? ts : d.toLocaleString('es-EC', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }); } catch { return ts; } })()}</p>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>{(() => { const ts = historialContactoPopup.hora_gestion || historialContactoPopup.timestamp_inicio || historialContactoPopup.creado_en; if (!ts) return '-'; try { const d = new Date(String(ts).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')); return isNaN(d) ? ts : d.toLocaleString('es-EC', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', hour12: false }); } catch { return ts; } })()}</p>
               </div>
               {historialContactoPopup.notas && (
                 <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '10px 14px' }}>

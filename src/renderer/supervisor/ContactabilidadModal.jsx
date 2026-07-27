@@ -33,10 +33,12 @@ const CAT_COLOR = {
   'NO CONTACTADO':     { bg: 'rgba(158,158,158,0.15)', fg: '#9E9E9E', label: 'No contactado' },
 };
 
+// Parsea timestamp naive UTC (sin Z) como hora local para evitar conversión TZ en cliente Ecuador
+const parseNaive = (ts) => new Date(ts.replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, ''));
 const fmtHora = (ts) => {
   if (!ts || typeof ts !== 'string') return 'â€"';
   try {
-    const d = new Date(ts.replace(' ', 'T'));
+    const d = parseNaive(ts);
     if (isNaN(d.getTime())) return 'â€"';
     return d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
   } catch { return 'â€"'; }
