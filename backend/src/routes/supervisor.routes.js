@@ -3405,43 +3405,45 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
     // Contactos únicos gestionados por día/segmento — solo de la apertura de ESE día.
     // Filtramos por fecha_asignacion = fecha del CDR/bulk para no inflar el pct con
     // contactos de aperturas anteriores gestionados en el mismo día.
+    // Cobertura acumulada: agrupa por fecha de APERTURA (fecha_asignacion), no por fecha de CDR.
+    // Un contacto de la apertura del 24 gestionado el 25, 26 o 27 SÍ cuenta en el 24.
     const unicosRows = await db.$queryRawUnsafe(`
       SELECT fecha, dias, COUNT(DISTINCT ct_id) AS gestionados_unicos
       FROM (
-        SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
+        SELECT DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') AS fecha,
           ${DIAS_CT} AS dias,
           c.contacto_id AS ct_id
         FROM cdrs c
         JOIN contactos ct ON ct.id = c.contacto_id
         WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
-          AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') = DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil')
+          AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
           AND ${DIAS_CT} IN (0, 1, 2)
           ${empC('ct')}
         UNION
-        SELECT c.wsp_enviado_fecha::date AS fecha,
+        SELECT DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') AS fecha,
           ${_diasExpr('c')} AS dias,
           c.id AS ct_id
         FROM contactos c
         WHERE c.wsp_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
-          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil')::text = c.wsp_enviado_fecha
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN '${fechaInicio}'::date AND '${fechaFin}'::date
           AND ${_diasExpr('c')} IN (0, 1, 2)
           ${empC('c')}
         UNION
-        SELECT c.rcs_enviado_fecha::date AS fecha,
+        SELECT DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') AS fecha,
           ${_diasExpr('c')} AS dias,
           c.id AS ct_id
         FROM contactos c
         WHERE c.rcs_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
-          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil')::text = c.rcs_enviado_fecha
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN '${fechaInicio}'::date AND '${fechaFin}'::date
           AND ${_diasExpr('c')} IN (0, 1, 2)
           ${empC('c')}
         UNION
-        SELECT c.correo_enviado_fecha::date AS fecha,
+        SELECT DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') AS fecha,
           ${_diasExpr('c')} AS dias,
           c.id AS ct_id
         FROM contactos c
         WHERE c.correo_enviado_fecha BETWEEN '${fechaInicio}' AND '${fechaFin}'
-          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil')::text = c.correo_enviado_fecha
+          AND DATE(c.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN '${fechaInicio}'::date AND '${fechaFin}'::date
           AND ${_diasExpr('c')} IN (0, 1, 2)
           ${empC('c')}
       ) sub
