@@ -4,6 +4,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, Legend,
 } from 'recharts';
 import './AdminPanel.css';
+import UpdaterListener from '../shared/UpdaterListener';
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -1251,6 +1252,7 @@ export default function AdminPanel() {
 
   return (
     <div className="admin-shell">
+      <UpdaterListener />
       {/* Sidebar */}
       <aside className="admin-sidebar">
         <div className="sidebar-brand">
