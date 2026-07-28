@@ -7,6 +7,19 @@ const prisma = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { getConnectedStats } = require('../wsServer');
 
+const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+function validarPolicy(b) {
+    if (!b || typeof b !== 'object') return 'payload requerido';
+    if (typeof b.enabled !== 'boolean') return 'enabled debe ser boolean';
+    if (!HHMM_RE.test(b.startTime)) return 'startTime formato HH:MM';
+    if (!HHMM_RE.test(b.endTime)) return 'endTime formato HH:MM';
+    if (!Array.isArray(b.days) || b.days.some((d) => !Number.isInteger(d) || d < 0 || d > 6))
+        return 'days debe ser array de enteros 0-6';
+    if (!Number.isInteger(b.checkIntervalMin) || b.checkIntervalMin <= 0)
+        return 'checkIntervalMin debe ser entero > 0';
+    return null;
+}
+
 function getCpuUsage() {
     return new Promise((resolve) => {
         const cpus1 = os.cpus();
@@ -315,6 +328,38 @@ router.get('/backup.dump', authMiddleware, requireRole('admin'), (req, res) => {
       res.status(500).json({ error: `pg_dump terminó con código ${code}` });
     }
   });
+});
+
+// ── Auto-update: política de ventana horaria ───────────────────────────────
+// GET público: el main process de cada cliente lo lee sin token (schedule no es secreto).
+router.get('/update-policy', async (req, res) => {
+    try {
+        const policy = await prisma.updatePolicy.upsert({
+            where: { id: 1 },
+            update: {},
+            create: { id: 1 },
+        });
+        res.json(policy);
+    } catch (err) {
+        res.status(500).json({ error: 'Error obteniendo política de update' });
+    }
+});
+
+// PUT admin-only: editar la ventana.
+router.put('/update-policy', authMiddleware, requireRole('admin'), async (req, res) => {
+    const errorMsg = validarPolicy(req.body);
+    if (errorMsg) return res.status(400).json({ error: errorMsg });
+    try {
+        const { enabled, startTime, endTime, days, checkIntervalMin } = req.body;
+        const policy = await prisma.updatePolicy.upsert({
+            where: { id: 1 },
+            update: { enabled, startTime, endTime, days, checkIntervalMin },
+            create: { id: 1, enabled, startTime, endTime, days, checkIntervalMin },
+        });
+        res.json(policy);
+    } catch (err) {
+        res.status(500).json({ error: 'Error guardando política de update' });
+    }
 });
 
 module.exports = router;
