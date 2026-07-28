@@ -136,6 +136,7 @@ app.on('will-quit', () => {
   console.log('[APP] Cerrando — limpiando procesos...');
   stopBackend();
   stopScheduler();
+  try { require('./updater').stopUpdater(); } catch {}
   stopAdbProcesses();
   stopWebSocketServer();
   stopApiServer();
