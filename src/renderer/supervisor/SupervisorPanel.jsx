@@ -23,6 +23,7 @@ import MetricsOverview from './MetricsOverview';
 import AdvisorList from './AdvisorList';
 import ActivityLog from './ActivityLog';
 import ToastContainer, { showToast } from '../shared/Toast';
+import UpdaterListener from '../shared/UpdaterListener';
 import Modal from '../shared/Modal';
 import AudioMonitor from './AudioMonitor';
 import HistoryPage from './HistoryPage';
@@ -1457,6 +1458,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
   return (
     <div className="app-layout">
       <ToastContainer />
+      <UpdaterListener />
 
       <NavigationDrawer
         userRole="supervisor"

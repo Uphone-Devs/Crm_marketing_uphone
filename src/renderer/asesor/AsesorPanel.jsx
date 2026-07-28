@@ -3,6 +3,7 @@ import NavigationDrawer from '../shared/NavigationDrawer';
 import TopAppBar from '../shared/TopAppBar';
 import Modal from '../shared/Modal';
 import ToastContainer, { showToast } from '../shared/Toast';
+import UpdaterListener from '../shared/UpdaterListener';
 import '../shared/theme.css';
 import './AsesorPanel.css';
 import CampaignSelector from './CampaignSelector';
@@ -2217,6 +2218,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   return (
     <div className={`app-layout${navCollapsed ? ' nav-collapsed' : ''}`}>
       <ToastContainer />
+      <UpdaterListener />
 
       <NavigationDrawer
         userRole="asesor"
