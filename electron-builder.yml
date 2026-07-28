@@ -35,4 +35,4 @@ nsis:
 
 publish:
   provider: generic
-  url: https://REEMPLAZAR-CON-TU-TUNNEL/updates/
+  url: https://crm.anomalydevs.qzz.io/updates/
