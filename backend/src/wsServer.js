@@ -18,7 +18,16 @@ let dialingMode = 'MANUAL';
 function setupWsServer(httpServer) {
     const wss = new WebSocketServer({ noServer: true });
 
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+        // Pre-extraer token desde URL query string (clientes lo envían como ?token=...)
+        // para que IDENTIFICAR no necesite reenviarlo en el body.
+        if (req) {
+            try {
+                const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
+                ws._urlToken = url.searchParams.get('token') || null;
+            } catch { ws._urlToken = null; }
+        }
+
         let clientInfo = { rol: null, id: null, nombre: null, autenticado: false };
 
         ws.on('message', async (message) => {
@@ -33,10 +42,11 @@ function setupWsServer(httpServer) {
 
                 switch (msg.tipo) {
                     case 'IDENTIFICAR': {
-                        // Verificar JWT antes de aceptar la conexión
+                        // Token: body del mensaje tiene prioridad; fallback a URL query string
+                        const token = msg.token || ws._urlToken;
                         let decoded;
                         try {
-                            decoded = authService.verificarToken(msg.token);
+                            decoded = authService.verificarToken(token);
                         } catch {
                             ws.send(JSON.stringify({ tipo: 'ERROR', mensaje: 'Token inválido' }));
                             ws.close(1008, 'Token inválido');
