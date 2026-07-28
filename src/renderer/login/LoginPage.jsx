@@ -69,6 +69,9 @@ export default function LoginPage({ onLogin }) {
         localStorage.setItem('auth_token', result.token);
         localStorage.setItem('auth_user:v1', JSON.stringify(result.usuario));
         localStorage.setItem('uphone_ws_ip', serverIp);
+        // Arranca el auto-updater en el main con la URL del servidor central.
+        const apiBase = (serverIp.startsWith('http') ? serverIp.replace(/\/$/, '') : `http://${serverIp}:3001`) + '/api';
+        window.api.invoke('updater:start', { apiBase }).catch(() => {});
         setWelcomeData({ usuario: result.usuario, token: result.token });
         setTimeout(async () => {
           await window.api.invoke('app:switch-role', result.usuario.rol);
