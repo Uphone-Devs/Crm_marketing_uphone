@@ -37,6 +37,22 @@ async function vmApiFetch(vmUrl, vmToken, path, options = {}) {
   return res.json();
 }
 
+// ── crmFetch — fetch al backend PostgreSQL central ──────────────
+
+function crmApiBase() {
+  const wsIp = localStorage.getItem('uphone_ws_ip') || '127.0.0.1';
+  return (wsIp.startsWith('http') ? wsIp.replace(/\/$/, '') : `http://${wsIp}:3001`) + '/api';
+}
+async function crmFetch(path, options = {}) {
+  const token = localStorage.getItem('auth_token') || '';
+  const res = await fetch(`${crmApiBase()}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── Sub-componentes ──────────────────────────────────────────────
 
 function GaugeCircle({ percent = 0, label, color = '#00e676', size = 110 }) {
@@ -946,7 +962,78 @@ function PageConexion({ dbConfig, onConfigChange }) {
           </div>
         </div>
       </Card>
+
+      {/* Auto-update: ventana horaria */}
+      <UpdatePolicySection />
     </div>
+  );
+}
+
+// ── UpdatePolicySection — ventana horaria de auto-update ────────
+
+const DIAS_UPDATE = [['Dom', 0], ['Lun', 1], ['Mar', 2], ['Mié', 3], ['Jue', 4], ['Vie', 5], ['Sáb', 6]];
+
+function UpdatePolicySection() {
+  const [p, setP] = React.useState(null);
+  const [msg, setMsg] = React.useState('');
+
+  React.useEffect(() => {
+    crmFetch('/admin/update-policy').then(setP).catch((e) => setMsg('Error: ' + e.message));
+  }, []);
+
+  if (!p) {
+    return (
+      <Card title="Actualizaciones — ventana horaria" className="card--full">
+        <p>{msg || 'Cargando…'}</p>
+      </Card>
+    );
+  }
+
+  const toggleDay = (d) =>
+    setP({ ...p, days: p.days.includes(d) ? p.days.filter((x) => x !== d) : [...p.days, d].sort() });
+
+  const save = async () => {
+    setMsg('Guardando…');
+    try {
+      const body = {
+        enabled: p.enabled,
+        startTime: p.startTime,
+        endTime: p.endTime,
+        days: p.days,
+        checkIntervalMin: Number(p.checkIntervalMin),
+      };
+      const saved = await crmFetch('/admin/update-policy', { method: 'PUT', body: JSON.stringify(body) });
+      setP(saved);
+      setMsg('Guardado ✓');
+    } catch (e) {
+      setMsg('Error: ' + e.message);
+    }
+  };
+
+  return (
+    <Card title="Actualizaciones — ventana horaria" className="card--full">
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" checked={p.enabled} onChange={(e) => setP({ ...p, enabled: e.target.checked })} />
+        Habilitar auto-update
+      </label>
+      <div style={{ display: 'flex', gap: 12, margin: '10px 0', flexWrap: 'wrap' }}>
+        <label>Desde <input type="time" value={p.startTime} onChange={(e) => setP({ ...p, startTime: e.target.value })} /></label>
+        <label>Hasta <input type="time" value={p.endTime} onChange={(e) => setP({ ...p, endTime: e.target.value })} /></label>
+        <label>Chequear cada (min) <input type="number" min="1" value={p.checkIntervalMin} onChange={(e) => setP({ ...p, checkIntervalMin: e.target.value })} style={{ width: 70 }} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 6, margin: '10px 0' }}>
+        {DIAS_UPDATE.map(([label, d]) => (
+          <button key={d} type="button" onClick={() => toggleDay(d)}
+            style={{ padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+                     background: p.days.includes(d) ? '#00e676' : '#333',
+                     color: p.days.includes(d) ? '#000' : '#ccc', border: 'none' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <button type="button" className="btn btn--primary" onClick={save}>Guardar</button>
+      {msg && <span style={{ marginLeft: 12 }}>{msg}</span>}
+    </Card>
   );
 }
 
