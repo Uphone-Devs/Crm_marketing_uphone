@@ -352,11 +352,12 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
             <tr>
               <th style={{ padding: '14px 20px' }}>Gestor</th>
               <th style={{ padding: '14px 20px', color: '#00e676' }}>Avance Cartera</th>
-              {CATEGORIAS.map(cat => (
-                <th key={cat} style={{ padding: '14px 20px', color: CAT_META[cat].color }}>
-                  {CAT_META[cat].label}
-                </th>
-              ))}
+              <th style={{ padding: '14px 20px', color: '#ffd54f', fontSize: 11, letterSpacing: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>speed</span>
+                  GEST/HORA
+                </div>
+              </th>
               <th style={{ padding: '14px 20px' }}>Total Llamadas</th>
               <th style={{ padding: '14px 16px', color: '#ffd54f', fontSize: 11, letterSpacing: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -473,7 +474,25 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                       </td>
                     );
                   })()}
-                  {CATEGORIAS.map(cat => celdaCategoria(a, cat))}
+                  {(() => {
+                    const horas = (a.total_tiempo_seg || 0) / 3600;
+                    const gph = horas > 0 ? (a.total_count / horas).toFixed(1) : null;
+                    return (
+                      <td style={{ padding: '14px 20px' }}>
+                        <span className="text-mono" style={{
+                          fontSize: 16, fontWeight: 700,
+                          color: gph != null ? '#ffd54f' : 'rgba(229,226,225,0.25)',
+                        }}>
+                          {gph != null ? gph : '—'}
+                        </span>
+                        {gph != null && (
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
+                            gest/hr
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })()}
                   <td style={{ padding: '14px 20px' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                       <span className="text-mono" style={{ fontSize: 16, fontWeight: 800 }}>{a.total_count}</span>
