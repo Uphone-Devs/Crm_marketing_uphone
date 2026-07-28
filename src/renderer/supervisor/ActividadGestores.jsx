@@ -127,6 +127,9 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
     .sort((a, b) => b.total_count - a.total_count);
   const hayDatos = asesores.some(a => a.total_count > 0);
   const maxTotal = Math.max(1, ...asesores.map(a => a.total_count));
+  const maxGph = Math.max(1, ...asesores.map(a =>
+    a.total_tiempo_seg > 0 ? a.total_count / (a.total_tiempo_seg / 3600) : 0
+  ));
   const conectadosCount = asesores.filter(a => estadosWS && estadosWS[a.asesor_id]).length;
 
   // Totales del equipo para las cards de resumen
@@ -476,19 +479,37 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                   })()}
                   {(() => {
                     const horas = (a.total_tiempo_seg || 0) / 3600;
-                    const gph = horas > 0 ? (a.total_count / horas).toFixed(1) : null;
+                    const gph = horas > 0 ? a.total_count / horas : null;
+                    const pctMax = gph != null ? Math.round((gph / maxGph) * 100) : 0;
+                    const color = gph == null ? 'rgba(229,226,225,0.2)'
+                      : gph >= 20 ? '#00e676'
+                      : gph >= 10 ? '#ffd54f'
+                      : '#ff5252';
                     return (
-                      <td style={{ padding: '14px 20px' }}>
-                        <span className="text-mono" style={{
-                          fontSize: 16, fontWeight: 700,
-                          color: gph != null ? '#ffd54f' : 'rgba(229,226,225,0.25)',
-                        }}>
-                          {gph != null ? gph : '—'}
-                        </span>
-                        {gph != null && (
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
-                            gest/hr
-                          </div>
+                      <td style={{ padding: '12px 20px', minWidth: 120 }}>
+                        {gph != null ? (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                              <span className="text-mono" style={{ fontSize: 18, fontWeight: 800, color }}>
+                                {gph.toFixed(1)}
+                              </span>
+                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
+                                /hr
+                              </span>
+                            </div>
+                            <div style={{ margin: '5px 0 3px', height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden', maxWidth: 90 }}>
+                              <div style={{
+                                height: '100%', width: `${pctMax}%`,
+                                background: color, borderRadius: 99,
+                                transition: 'width 0.4s',
+                              }} />
+                            </div>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+                              {pctMax}% del máx equipo
+                            </div>
+                          </>
+                        ) : (
+                          <span style={{ fontSize: 13, color: 'rgba(229,226,225,0.2)' }}>—</span>
                         )}
                       </td>
                     );
