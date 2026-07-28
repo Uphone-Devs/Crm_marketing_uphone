@@ -267,6 +267,18 @@ model validacion_sesiones {
   @@index([creado_en(sort: Desc)], map: "idx_vs_creado_en")
 }
 
+model UpdatePolicy {
+  id               Int      @id @default(1)
+  enabled          Boolean  @default(false)
+  startTime        String   @default("13:00") @map("start_time")
+  endTime          String   @default("14:00") @map("end_time")
+  days             Int[]    @default([1, 2, 3, 4, 5])
+  checkIntervalMin Int      @default(30) @map("check_interval_min")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("update_policy")
+}
+
 enum Rol {
   jefe_area
   asesor
