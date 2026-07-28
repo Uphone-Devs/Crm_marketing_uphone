@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('api', {
       'admin:getUsers', 'admin:createUser', 'admin:updateUser', 'admin:toggleUser',
       'admin:changePassword', 'admin:openSupervisor',
       'admin:getDbConfig', 'admin:setDbConfig', 'admin:testVmConnection', 'admin:vmLogin',
+      // Auto-update
+      'updater:start', 'updater:restartNow',
     ];
     if (allowedChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
@@ -73,7 +75,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   on: (channel, callback) => {
-    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar', 'agendamiento:aviso_pmp', 'promesa:aviso_supervisor', 'ws:message'];
+    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar', 'agendamiento:aviso_pmp', 'promesa:aviso_supervisor', 'ws:message', 'updater:downloaded'];
     if (allowedChannels.includes(channel)) {
       const subscription = (event, ...args) => callback(...args);
       ipcRenderer.on(channel, subscription);
@@ -84,7 +86,7 @@ contextBridge.exposeInMainWorld('api', {
   },
 
   removeAllListeners: (channel) => {
-    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar', 'agendamiento:aviso_pmp', 'promesa:aviso_supervisor', 'ws:message'];
+    const allowedChannels = ['audio:chunk', 'audio:error', 'agendamiento:aviso', 'agendamiento:ejecutar', 'agendamiento:aviso_pmp', 'promesa:aviso_supervisor', 'ws:message', 'updater:downloaded'];
     if (allowedChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
