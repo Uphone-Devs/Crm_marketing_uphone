@@ -482,8 +482,8 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                     const gph = horas > 0 ? a.total_count / horas : null;
                     const pctMax = gph != null ? Math.round((gph / maxGph) * 100) : 0;
                     const color = gph == null ? 'rgba(229,226,225,0.2)'
-                      : gph >= 20 ? '#00e676'
-                      : gph >= 10 ? '#ffd54f'
+                      : gph >= 18 ? '#00e676'
+                      : gph >= 12 ? '#ffd54f'
                       : '#ff5252';
                     return (
                       <td style={{ padding: '12px 20px', minWidth: 120 }}>
