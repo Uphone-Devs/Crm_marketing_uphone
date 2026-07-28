@@ -32,8 +32,13 @@ const { createLoginWindow } = require('./windowManager');
  */
 // ── Backend PostgreSQL auto-start ────────────────────────────────
 let backendProcess = null;
+let backendStopping = false;   // true cuando stopBackend() fue llamado — no reiniciar
+let backendRestartDelay = 2000; // ms; se duplica en cada fallo hasta MAX
+const BACKEND_RESTART_MAX = 30000;
 
 function startBackend() {
+  if (backendStopping) return;
+
   const backendDir   = path.join(__dirname, '../../backend');
   const backendEntry = path.join(backendDir, 'src/index.js');
 
@@ -50,12 +55,20 @@ function startBackend() {
   backendProcess.on('close', (code) => {
     console.log(`[BACKEND] Proceso terminado (código ${code})`);
     backendProcess = null;
+    if (backendStopping) return;
+    console.log(`[BACKEND] Reiniciando en ${backendRestartDelay / 1000}s…`);
+    setTimeout(() => {
+      backendRestartDelay = Math.min(backendRestartDelay * 2, BACKEND_RESTART_MAX);
+      startBackend();
+    }, backendRestartDelay);
   });
 
   console.log('[BACKEND] Iniciado — PID:', backendProcess.pid);
+  backendRestartDelay = 2000; // reset al arrancar exitosamente
 }
 
 function stopBackend() {
+  backendStopping = true;
   if (backendProcess) {
     backendProcess.kill('SIGTERM');
     backendProcess = null;
