@@ -33,4 +33,6 @@ nsis:
   shortcutName: "CRM Marketing Uphone"
   include: installer-hooks.nsi
 
-publish: null
+publish:
+  provider: generic
+  url: https://REEMPLAZAR-CON-TU-TUNNEL/updates/
