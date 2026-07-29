@@ -505,38 +505,47 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                     );
                   })()}
                   {(() => {
-                    const horas = (a.total_tiempo_seg || 0) / 3600;
-                    const gph = horas > 0 ? a.total_count / horas : null;
-                    const pctMax = gph != null ? Math.round((gph / maxGph) * 100) : 0;
+                    const gph = calcGph(a.total_count, a.primera_gestion_ts);
+                    const pctMax = gph != null ? Math.min(100, Math.round((gph / maxGph) * 100)) : 0;
                     const color = gph == null ? 'rgba(229,226,225,0.2)'
                       : gph >= 18 ? '#00e676'
                       : gph >= 12 ? '#ffd54f'
                       : '#ff5252';
+                    const proyeccion = getProyeccion(a.total_count, gph);
                     return (
-                      <td style={{ padding: '12px 20px', minWidth: 120 }}>
+                      <td style={{ padding: '10px 16px', minWidth: 130 }}>
                         {gph != null ? (
                           <>
-                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                              <span className="text-mono" style={{ fontSize: 18, fontWeight: 800, color }}>
-                                {gph.toFixed(1)}
-                              </span>
-                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
-                                /hr
-                              </span>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 13, color, verticalAlign: 'middle', lineHeight: 1 }}>speed</span>
+                                <span className="text-mono" style={{ fontSize: 20, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px' }}>
+                                  {Math.round(gph)}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 600 }}>/hr</span>
+                              </div>
+                              <span style={{
+                                display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                                background: color, flexShrink: 0,
+                                boxShadow: `0 0 6px ${color}88`,
+                              }} />
                             </div>
-                            <div style={{ margin: '5px 0 3px', height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 99, overflow: 'hidden', maxWidth: 90 }}>
+                            <div style={{ margin: '5px 0 3px', height: 6, background: 'rgba(255,255,255,0.07)', borderRadius: 99, overflow: 'hidden', maxWidth: 110 }}>
                               <div style={{
                                 height: '100%', width: `${pctMax}%`,
                                 background: color, borderRadius: 99,
-                                transition: 'width 0.4s',
+                                transition: 'width 0.4s ease',
                               }} />
                             </div>
-                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
-                              {pctMax}% del máx equipo
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.32)', display: 'flex', gap: 6 }}>
+                              <span>{pctMax}%</span>
+                              {proyeccion != null && (
+                                <span style={{ color: 'rgba(255,255,255,0.45)' }}>→ ~{proyeccion} hoy</span>
+                              )}
                             </div>
                           </>
                         ) : (
-                          <span style={{ fontSize: 13, color: 'rgba(229,226,225,0.2)' }}>—</span>
+                          <span style={{ fontSize: 14, color: 'rgba(229,226,225,0.2)' }}>—</span>
                         )}
                       </td>
                     );
