@@ -341,6 +341,7 @@ router.get('/update-policy', async (req, res) => {
         });
         res.json(policy);
     } catch (err) {
+        console.error('[UPDATE-POLICY] Error:', err?.message || err);
         res.status(500).json({ error: 'Error obteniendo política de update' });
     }
 });

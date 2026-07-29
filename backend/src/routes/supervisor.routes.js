@@ -466,195 +466,197 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
 });
 
 // ── GET /api/metricas/:usuario_id — Métricas diarias de un asesor ────────────
+// Helper extraído para reusar en /metricas-asesores-bulk sin duplicar lógica.
+async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
+  const { inicio, fin, ymd } = _gyeDayBounds(fechaStr);
+  const campanaId = campanaIdInput ? parseInt(campanaIdInput) : null;
+  const msgWhere = campanaId ? { campanaId } : { asignadoA: targetId };
+  const codigosCompromiso = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
+
+  const segRows = await db.$queryRaw`
+    SELECT
+      COUNT(CASE WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'   ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int   END
+      ) = 0 THEN 1 END)::int AS s0,
+      COUNT(CASE WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'   ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int   END
+      ) = 1 THEN 1 END)::int AS s1,
+      COUNT(CASE WHEN COALESCE(
+        CASE WHEN c.metadata->>'DIAS IMPAGO' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+        CASE WHEN c.metadata->>'DIAS MORA'   ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int   END
+      ) >= 2 THEN 1 END)::int AS s2
+    FROM cdrs cr
+    JOIN contactos c ON c.id = cr.contacto_id
+    WHERE cr.usuario_id = ${targetId}
+      AND cr.timestamp_inicio >= ${inicio}
+      AND cr.timestamp_inicio <= ${fin}
+  `.catch(() => [{ s0: 0, s1: 0, s2: 0 }]);
+
+  const cdrS0 = Number(segRows[0]?.s0) || 0;
+  const cdrS1 = Number(segRows[0]?.s1) || 0;
+  const cdrS2 = Number(segRows[0]?.s2) || 0;
+
+  const cdrBaseWhere = { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin } };
+  const [
+    cdrsHoy, cdrsConTipifAsesor, agendados, gestionados,
+    wspEnv, rcsEnv, correoEnv,
+    wspActivo, rcsActivo, correoActivo,
+    compCumpl, compReag, compIncump,
+    cdrsEfectivos, cdrsNeutros, cdrsNoContactados,
+  ] = await Promise.all([
+    db.cdr.count({ where: cdrBaseWhere }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, tipificacionId: { not: null } } }).catch(() => 0),
+    db.agendamiento.count({ where: { asesorId: targetId, creadoEn: { gte: inicio, lte: fin } } }).catch(() => 0),
+    db.contacto.count({ where: { asignadoA: targetId, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } }).catch(() => 0),
+    db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ENVIADO' } }).catch(() => 0),
+    db.contacto.count({ where: { ...msgWhere, rcsStatus:       'ENVIADO' } }).catch(() => 0),
+    db.contacto.count({ where: { ...msgWhere, correoStatus:    'ENVIADO' } }).catch(() => 0),
+    db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ACTIVO'  } }).catch(() => 0),
+    db.contacto.count({ where: { ...msgWhere, rcsStatus:       'ACTIVO'  } }).catch(() => 0),
+    db.contacto.count({ where: { ...msgWhere, correoStatus:    'ACTIVO'  } }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'COMP_CUM' } }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'REAG' } }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'INCUMP' } }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['CONTACTO_NEUTRO',   'CONTACTO NEUTRO']  } } } }).catch(() => 0),
+    db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO',     'NO CONTACTADO']    } } } }).catch(() => 0),
+  ]);
+
+  const [cdrsConTipif, pmpHoy, tiemposEstado] = await Promise.all([
+    db.cdr.count({
+      where: {
+        usuarioId: targetId,
+        timestampInicio: { gte: inicio, lte: fin },
+        tipificacion: { codigo: { in: codigosCompromiso } },
+        contacto: { validacion_pagos: { none: { validado_en: { gte: inicio, lte: fin } } } },
+      },
+    }).catch(() => 0),
+    db.cdr.count({
+      where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, tipificacion: { codigo: 'PMP' } },
+    }).catch(() => 0),
+    db.evento.groupBy({
+      by: ['estadoId'],
+      where: { usuarioId: targetId, tipo: 'ESTADO', timestamp: { gte: inicio, lte: fin }, duracionSeg: { not: null } },
+      _sum: { duracionSeg: true },
+    }).catch(err => { console.error('[EVENTO_GROUPBY]', err); return []; }),
+  ]);
+
+  const tiempoAlAire = Number(tiemposEstado.find(e => e.estadoId === 1)?._sum?.duracionSeg || 0);
+  const tiempoMuerto = tiemposEstado
+    .filter(e => e.estadoId !== 1)
+    .reduce((acc, e) => acc + Number(e._sum?.duracionSeg || 0), 0);
+
+  const [aggComprometido, aggRecaudadoRaw, aggMoraBase, totalAsignados] = await Promise.all([
+    db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, montoAcordado: { not: null } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
+    db.$queryRaw`
+      SELECT COALESCE(SUM(vp.monto_pagado), 0) AS total
+      FROM validacion_pagos vp
+      JOIN contactos c ON c.id = vp.contacto_id
+      WHERE c.asignado_a = ${targetId}
+    `.catch(() => [{ total: 0 }]),
+    db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: targetId } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
+    db.contacto.count({ where: { asignadoA: targetId } }).catch(() => 0),
+  ]);
+  const montoComprometido = Number(aggComprometido._sum.montoAcordado || 0);
+  const montoRecaudado    = Number(aggRecaudadoRaw[0]?.total || 0);
+  const moraTotalBase     = Number(aggMoraBase._sum.montoDeuda || 0);
+
+  const _segExpr = `CASE
+    WHEN COALESCE(
+      CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+      CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+      CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
+    ) >= 2 THEN 2
+    WHEN COALESCE(
+      CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
+      CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
+      CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
+    ) = 1 THEN 1 ELSE 0 END`;
+  const msgDiaRows = await db.$queryRawUnsafe(`
+    SELECT canal, seg, COUNT(*)::int AS n FROM (
+      SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = $1 AND c.wsp_enviado_fecha = $2
+      UNION ALL
+      SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = $1 AND c.rcs_enviado_fecha = $2
+      UNION ALL
+      SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = $1 AND c.correo_enviado_fecha = $2
+    ) x GROUP BY canal, seg
+  `, targetId, ymd).catch(() => []);
+  const msgDia = { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } };
+  for (const r of msgDiaRows) {
+    const canal = r.canal, seg = Number(r.seg), n = Number(r.n);
+    if (msgDia[canal] && (seg === 0 || seg === 1 || seg === 2)) { msgDia[canal][seg] += n; msgDia[canal].total += n; }
+  }
+
+  return {
+    usuario_id: targetId,
+    fecha: inicio.toISOString().slice(0, 10),
+    marcaciones: cdrsHoy,
+    total_marcaciones: cdrsHoy,
+    cdrs_total: cdrsConTipifAsesor,
+    agendados,
+    gestionados,
+    total_asignados:   totalAsignados,
+    gestionados_base:  gestionados,
+    monto_comprometido: montoComprometido,
+    monto_recaudado:    montoRecaudado,
+    mora_total_base:    moraTotalBase,
+    conectado: false,
+    tiempo_al_aire: tiempoAlAire,
+    tiempo_muerto:  tiempoMuerto,
+    wsp_enviados:     wspEnv,
+    sms_enviados:     rcsEnv,
+    correos_enviados: correoEnv,
+    wsp_detalle:      [wspEnv,    wspActivo,    0],
+    sms_detalle:      [rcsEnv,    rcsActivo,    0],
+    email_detalle:    [correoEnv, correoActivo, 0],
+    total_compromisos:       cdrsConTipif,
+    promesas_pago:           pmpHoy,
+    compromisos_cumplidos:   compCumpl,
+    compromisos_reagendados: compReag,
+    compromisos_incumplidos: compIncump,
+    marcaciones_detalle: [cdrS0, cdrS1, cdrS2],
+    contactos_efectivos:  cdrsEfectivos,
+    cdrs_neutros:         cdrsNeutros,
+    cdrs_no_contactados:  cdrsNoContactados,
+    cdrs_sin_tipificar:   cdrsHoy - cdrsConTipifAsesor,
+    msg_dia: msgDia,
+  };
+}
+
 router.get('/metricas/:usuario_id', async (req, res, next) => {
   try {
     const targetId = parseInt(req.params.usuario_id);
     if (req.user.rol === 'asesor' && req.user.id !== targetId) {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
-    const { inicio, fin, ymd } = _gyeDayBounds(req.query.fecha);
-    const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
+    const data = await _calcMetricasAsesor(targetId, req.query.fecha, req.query.campanaId);
+    res.json(data);
+  } catch (err) { next(err); }
+});
 
-    // Mensajería: filtrar por campaña si está seleccionada, si no por asignación
-    const msgWhere = campanaId ? { campanaId } : { asignadoA: targetId };
-
-    // Turnos (S0/S1/S2) por segmento de días mora desde metadata JSONB
-    const segRows = await db.$queryRaw`
-      SELECT
-        COUNT(CASE WHEN COALESCE(
-          CASE WHEN c.metadata->>'DIAS IMPAGO' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
-          CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-          CASE WHEN c.metadata->>'DIAS MORA'   ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int   END
-        ) = 0 THEN 1 END)::int AS s0,
-        COUNT(CASE WHEN COALESCE(
-          CASE WHEN c.metadata->>'DIAS IMPAGO' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
-          CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-          CASE WHEN c.metadata->>'DIAS MORA'   ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int   END
-        ) = 1 THEN 1 END)::int AS s1,
-        COUNT(CASE WHEN COALESCE(
-          CASE WHEN c.metadata->>'DIAS IMPAGO' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
-          CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-          CASE WHEN c.metadata->>'DIAS MORA'   ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int   END
-        ) >= 2 THEN 1 END)::int AS s2
-      FROM cdrs cr
-      JOIN contactos c ON c.id = cr.contacto_id
-      WHERE cr.usuario_id = ${targetId}
-        AND cr.timestamp_inicio >= ${inicio}
-        AND cr.timestamp_inicio <= ${fin}
-    `.catch(() => [{ s0: 0, s1: 0, s2: 0 }]);
-
-    const cdrS0 = Number(segRows[0]?.s0) || 0;
-    const cdrS1 = Number(segRows[0]?.s1) || 0;
-    const cdrS2 = Number(segRows[0]?.s2) || 0;
-
-    // Segmentos de mensajería: enviados (S0) y activos/pendientes (S1)
-    const codigosCompromiso = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
-
-    const cdrBaseWhere = { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin } };
-    const [
-      cdrsHoy, cdrsConTipifAsesor, agendados, gestionados,
-      wspEnv, rcsEnv, correoEnv,
-      wspActivo, rcsActivo, correoActivo,
-      compCumpl, compReag, compIncump,
-      cdrsEfectivos, cdrsNeutros, cdrsNoContactados,
-    ] = await Promise.all([
-      db.cdr.count({ where: cdrBaseWhere }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, tipificacionId: { not: null } } }).catch(() => 0),
-      db.agendamiento.count({ where: { asesorId: targetId, creadoEn: { gte: inicio, lte: fin } } }).catch(() => 0),
-      db.contacto.count({ where: { asignadoA: targetId, estadoMarcacion: { in: ['GESTIONADO', 'YA_PAGO'] } } }).catch(() => 0),
-      db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ENVIADO' } }).catch(() => 0),
-      db.contacto.count({ where: { ...msgWhere, rcsStatus:       'ENVIADO' } }).catch(() => 0),
-      db.contacto.count({ where: { ...msgWhere, correoStatus:    'ENVIADO' } }).catch(() => 0),
-      db.contacto.count({ where: { ...msgWhere, whatsappStatus: 'ACTIVO'  } }).catch(() => 0),
-      db.contacto.count({ where: { ...msgWhere, rcsStatus:       'ACTIVO'  } }).catch(() => 0),
-      db.contacto.count({ where: { ...msgWhere, correoStatus:    'ACTIVO'  } }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'COMP_CUM' } }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'REAG' } }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, resultado: 'INCUMP' } }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['CONTACTO_NEUTRO',   'CONTACTO NEUTRO']  } } } }).catch(() => 0),
-      db.cdr.count({ where: { ...cdrBaseWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO',     'NO CONTACTADO']    } } } }).catch(() => 0),
-    ]);
-
-    const [cdrsConTipif, pmpHoy, tiemposEstado] = await Promise.all([
-      db.cdr.count({
-        where: {
-          usuarioId: targetId,
-          timestampInicio: { gte: inicio, lte: fin },
-          tipificacion: { codigo: { in: codigosCompromiso } },
-          contacto: {
-            validacion_pagos: {
-              none: { validado_en: { gte: inicio, lte: fin } }
-            }
-          }
-        },
-      }).catch(() => 0),
-      db.cdr.count({
-        where: {
-          usuarioId: targetId,
-          timestampInicio: { gte: inicio, lte: fin },
-          tipificacion: { codigo: 'PMP' },
-        },
-      }).catch(() => 0),
-      db.evento.groupBy({
-        by: ['estadoId'],
-        where: {
-          usuarioId: targetId,
-          tipo: 'ESTADO',
-          timestamp: { gte: inicio, lte: fin },
-          duracionSeg: { not: null },
-        },
-        _sum: { duracionSeg: true },
-      }).catch(err => { console.error('[EVENTO_GROUPBY]', err); return []; }),
-    ]);
-
-    const tiempoAlAire = Number(tiemposEstado.find(e => e.estadoId === 1)?._sum?.duracionSeg || 0);
-    const tiempoMuerto = tiemposEstado
-      .filter(e => e.estadoId !== 1)
-      .reduce((acc, e) => acc + Number(e._sum?.duracionSeg || 0), 0);
-
-    // Monto comprometido (compromisos del día) · recaudado (compromisos cumplidos) ·
-    // mora base (deuda asignada) · total/gestionados de cartera — para las cards del jefe.
-    const [aggComprometido, aggRecaudadoRaw, aggMoraBase, totalAsignados] = await Promise.all([
-      db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { usuarioId: targetId, timestampInicio: { gte: inicio, lte: fin }, montoAcordado: { not: null } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
-      // Suma monto_pagado de validacion_pagos para contactos del asesor (fuente real del recaudado)
-      db.$queryRaw`
-        SELECT COALESCE(SUM(vp.monto_pagado), 0) AS total
-        FROM validacion_pagos vp
-        JOIN contactos c ON c.id = vp.contacto_id
-        WHERE c.asignado_a = ${targetId}
-      `.catch(() => [{ total: 0 }]),
-      db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: targetId } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
-      db.contacto.count({ where: { asignadoA: targetId } }).catch(() => 0),
-    ]);
-    const montoComprometido = Number(aggComprometido._sum.montoAcordado || 0);
-    const montoRecaudado    = Number(aggRecaudadoRaw[0]?.total || 0);
-    const moraTotalBase     = Number(aggMoraBase._sum.montoDeuda || 0);
-
-    // Mensajería ENVIADA en el día `ymd` (por *_enviado_fecha), bucketeada S0/S1/S2 por
-    // días mora. A diferencia de wsp_enviados (status actual, sin fecha), esto es el
-    // conteo real del día → correcto para revisión histórica de cualquier apertura.
-    const _segExpr = `CASE
-      WHEN COALESCE(
-        CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
-        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-        CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
-      ) >= 2 THEN 2
-      WHEN COALESCE(
-        CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
-        CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-        CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
-      ) = 1 THEN 1 ELSE 0 END`;
-    const msgDiaRows = await db.$queryRawUnsafe(`
-      SELECT canal, seg, COUNT(*)::int AS n FROM (
-        SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = $1 AND c.wsp_enviado_fecha = $2
-        UNION ALL
-        SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = $1 AND c.rcs_enviado_fecha = $2
-        UNION ALL
-        SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = $1 AND c.correo_enviado_fecha = $2
-      ) x GROUP BY canal, seg
-    `, targetId, ymd).catch(() => []);
-    const msgDia = { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } };
-    for (const r of msgDiaRows) {
-      const canal = r.canal, seg = Number(r.seg), n = Number(r.n);
-      if (msgDia[canal] && (seg === 0 || seg === 1 || seg === 2)) { msgDia[canal][seg] += n; msgDia[canal].total += n; }
-    }
-
-    res.json({
-      usuario_id: targetId,
-      fecha: inicio.toISOString().slice(0, 10),
-      marcaciones: cdrsHoy,
-      total_marcaciones: cdrsHoy,
-      cdrs_total: cdrsConTipifAsesor,
-      agendados,
-      gestionados,
-      total_asignados:   totalAsignados,
-      gestionados_base:  gestionados,
-      monto_comprometido: montoComprometido,
-      monto_recaudado:    montoRecaudado,
-      mora_total_base:    moraTotalBase,
-      conectado: false,
-      tiempo_al_aire: tiempoAlAire,
-      tiempo_muerto:  tiempoMuerto,
-      wsp_enviados:     wspEnv,
-      sms_enviados:     rcsEnv,
-      correos_enviados: correoEnv,
-      wsp_detalle:      [wspEnv,    wspActivo,    0],
-      sms_detalle:      [rcsEnv,    rcsActivo,    0],
-      email_detalle:    [correoEnv, correoActivo, 0],
-      total_compromisos:       cdrsConTipif,
-      promesas_pago:           pmpHoy,
-      compromisos_cumplidos:   compCumpl,
-      compromisos_reagendados: compReag,
-      compromisos_incumplidos: compIncump,
-      marcaciones_detalle: [cdrS0, cdrS1, cdrS2],
-      contactos_efectivos:  cdrsEfectivos,
-      cdrs_neutros:         cdrsNeutros,
-      cdrs_no_contactados:  cdrsNoContactados,
-      cdrs_sin_tipificar:   cdrsHoy - cdrsConTipifAsesor,
-      // Mensajería real del día (por *_enviado_fecha) — para revisión histórica
-      msg_dia: msgDia,
+// ── GET /api/metricas-asesores-bulk — Métricas del día de todos los asesores ──
+// Reemplaza N+1 (1 GET /asesores + N GET /metricas/:id) con 1 sola llamada HTTP.
+// Los N cálculos internos corren en paralelo con Promise.all.
+router.get('/metricas-asesores-bulk', async (req, res, next) => {
+  try {
+    if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+    const whereU = { rol: 'asesor', estado: 'activo' };
+    if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
+    const asesores = await db.usuario.findMany({
+      where: whereU,
+      select: { id: true, nombre: true, email: true, rol: true, supervisorId: true },
+      orderBy: { nombre: 'asc' },
     });
+    const metricasArr = await Promise.all(
+      asesores.map(a => _calcMetricasAsesor(a.id, req.query.fecha, req.query.campanaId))
+    );
+    const metricas = Object.fromEntries(metricasArr.map(m => [m.usuario_id, m]));
+    res.json({ asesores: asesores.map(a => ({ ...a, conectado: false })), metricas });
   } catch (err) { next(err); }
 });
 
@@ -770,10 +772,13 @@ router.get('/metricas-equipo', async (req, res, next) => {
       db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: { in: asesorIds } } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
     ]);
 
-    const porAsesor = await Promise.all(asesores.map(async (a) => {
-      const m = await db.cdr.count({ where: { usuarioId: a.id, timestampInicio: { gte: inicio, lte: fin } } });
-      return { asesor_id: a.id, nombre: a.nombre, marcaciones: m };
-    }));
+    const cdrsByAsesor = await db.cdr.groupBy({
+      by: ['usuarioId'],
+      where: { usuarioId: { in: asesorIds }, timestampInicio: { gte: inicio, lte: fin } },
+      _count: { _all: true },
+    });
+    const marcByU = Object.fromEntries(cdrsByAsesor.map(r => [r.usuarioId, r._count._all]));
+    const porAsesor = asesores.map(a => ({ asesor_id: a.id, nombre: a.nombre, marcaciones: marcByU[a.id] || 0 }));
 
     const connStats = getConnectedStats();
     // Filtrar solo asesores bajo este supervisor si no es admin
@@ -1106,20 +1111,18 @@ router.post('/validacion/confirmar', requireRole('jefe_area', 'admin'), async (r
       RETURNING id
     `;
 
-    // Guardar cada registro en validacion_pagos
-    for (const m of matchesSel) {
-      await db.$executeRaw`
-        INSERT INTO validacion_pagos
-          (sesion_id, contacto_id, nombre_deudor, cedula, contrato, empresa, campana_nombre,
-           asesor_nombre, estado_pago, valor_en_mora, monto_pagado, validado_por)
-        VALUES (
-          ${sesion.id}, ${m.contactoId}, ${m.nombreDeudor ?? ''}, ${m.cedula ?? ''},
-          ${m.contrato ?? ''}, ${m.empresa ?? ''}, ${m.campanaNombre ?? ''},
-          ${m.asesorNombre ?? ''}, ${m.estadoPago}, ${Number(m.valorEnMora) || 0},
-          ${Number(m.montoPagado) || 0}, ${req.user.id}
-        )
-      `;
-    }
+    // Guardar cada registro en validacion_pagos (paralelo: filas independientes)
+    await Promise.all(matchesSel.map(m => db.$executeRaw`
+      INSERT INTO validacion_pagos
+        (sesion_id, contacto_id, nombre_deudor, cedula, contrato, empresa, campana_nombre,
+         asesor_nombre, estado_pago, valor_en_mora, monto_pagado, validado_por)
+      VALUES (
+        ${sesion.id}, ${m.contactoId}, ${m.nombreDeudor ?? ''}, ${m.cedula ?? ''},
+        ${m.contrato ?? ''}, ${m.empresa ?? ''}, ${m.campanaNombre ?? ''},
+        ${m.asesorNombre ?? ''}, ${m.estadoPago}, ${Number(m.valorEnMora) || 0},
+        ${Number(m.montoPagado) || 0}, ${req.user.id}
+      )
+    `));
 
     // Excluir pagados del marcador
     if (excluir.length) {
