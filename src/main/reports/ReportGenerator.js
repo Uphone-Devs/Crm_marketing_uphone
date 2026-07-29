@@ -721,9 +721,9 @@ async function generarCarteraEquipo(contactoIds, formato = 'xlsx') {
 
   // Obtener cartera completa y filtrar por IDs si vienen
   const todos = getCarteraEquipo();
-  const filtrados = (Array.isArray(contactoIds) && contactoIds.length > 0)
-    ? todos.filter(r => contactoIds.includes(r.id))
-    : todos;
+  const contactoIdsSet = (Array.isArray(contactoIds) && contactoIds.length > 0)
+    ? new Set(contactoIds) : null;
+  const filtrados = contactoIdsSet ? todos.filter(r => contactoIdsSet.has(r.id)) : todos;
 
   const nombreArchivo = `carteras_equipo_${formatDate()}_${_timeSuffix()}.${formato}`;
   const rutaArchivo = path.join(getExportDir(), nombreArchivo);
@@ -938,10 +938,11 @@ async function generarDetalleMetrica(tipoMet, fecha, formato = 'xlsx') {
     PEND_COMP: 'Pendiente Comprobante',
   };
   const codigos = tipoMet === 'PROMESAS' ? ['PMP'] : ['PAGO_REAL', 'AB_PARC', 'PEND_COMP'];
+  const codigosSet = new Set(codigos);
   const titulo = tipoMet === 'PROMESAS' ? 'Detalle — Promesas de Pago' : 'Detalle — Ya Recaudado';
 
   const all = getCompromisosEquipo(fecha || null, null);
-  const filtrados = (Array.isArray(all) ? all : []).filter(r => codigos.includes(r.tipificacion_codigo));
+  const filtrados = (Array.isArray(all) ? all : []).filter(r => codigosSet.has(r.tipificacion_codigo));
 
   const nombreArchivo = `detalle_${tipoMet.toLowerCase()}_${formatDate(fecha)}_${_timeSuffix()}.${formato}`;
   const rutaArchivo = path.join(getExportDir(), nombreArchivo);

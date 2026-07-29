@@ -2528,7 +2528,8 @@ function correlacionarPagos(pagosData, opts = {}) {
 
 function confirmarPagos(contactoIds, supervisorId, matches) {
   const db = getDb();
-  const relevant = matches.filter(m => contactoIds.includes(m.contactoId));
+  const contactoIdsSet = new Set(contactoIds);
+  const relevant = matches.filter(m => contactoIdsSet.has(m.contactoId));
   const montoTotal = relevant.reduce((s, m) => s + (m.montoPagado || 0), 0);
   let sesionId;
 
