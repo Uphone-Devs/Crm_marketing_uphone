@@ -1183,6 +1183,8 @@ const ROL_LABELS = { admin: 'Admin', supervisor: 'Jefe de Area', asesor: 'Gestor
 
 export default function AdminPanel() {
   const [page,       setPage]       = useState('dashboard');
+  const pageRef = useRef(page);
+  useEffect(() => { pageRef.current = page; }, [page]);
   const [sysInfo,    setSysInfo]    = useState(null);
   const [connUsers,  setConnUsers]  = useState([]);
   const [globalMet,  setGlobalMet]  = useState(null);
@@ -1315,9 +1317,15 @@ export default function AdminPanel() {
 
   // Polling
   useEffect(() => {
-    const sysI     = setInterval(loadSys,     3000);
-    const usersI   = setInterval(loadUsers,   5000);
-    const metricsI = setInterval(loadMetrics, 30000);
+    const sysI     = setInterval(() => {
+      if (pageRef.current === 'dashboard' || pageRef.current === 'sistema') loadSys();
+    }, 3000);
+    const usersI   = setInterval(() => {
+      if (pageRef.current === 'dashboard' || pageRef.current === 'conectados' || pageRef.current === 'usuarios') loadUsers();
+    }, 5000);
+    const metricsI = setInterval(() => {
+      if (pageRef.current === 'dashboard') loadMetrics();
+    }, 30000);
     return () => { clearInterval(sysI); clearInterval(usersI); clearInterval(metricsI); };
   }, [loadSys, loadUsers, loadMetrics]);
 
