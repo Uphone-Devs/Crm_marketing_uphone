@@ -89,7 +89,16 @@ async function guardarSegmentosExtra(extras) {
   }
 }
 
-export default function SupervisorMensajes({ usuario }) {
+async function apiFetch(apiBase, token, path, options = {}) {
+  const res = await fetch(`${apiBase}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(options.headers || {}) },
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+export default function SupervisorMensajes({ usuario, apiBase, authToken, refreshSignal }) {
   const [mensaje, setMensaje] = useState('');
   const [segmentoDestino, setSegmentoDestino] = useState('TODOS');
   const [historial, setHistorial] = useState([]);
@@ -153,19 +162,25 @@ export default function SupervisorMensajes({ usuario }) {
 
   const cargarHistorial = useCallback(async () => {
     try {
-      const data = await window.api.invoke('db:getMensajesBroadcast');
+      const data = apiBase
+        ? await apiFetch(apiBase, authToken, '/mensajes-broadcast')
+        : await window.api.invoke('db:getMensajesBroadcast');
       setHistorial(data || []);
     } catch (err) {
       console.error('Error cargando historial de mensajes:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [apiBase, authToken]);
 
   useEffect(() => {
     cargarSegmentosExtra();
     cargarHistorial();
   }, [cargarSegmentosExtra, cargarHistorial]);
+
+  useEffect(() => {
+    if (refreshSignal) cargarHistorial();
+  }, [refreshSignal, cargarHistorial]);
 
   useEffect(() => {
     if (mostrarNuevoTramo && nuevoTramoInputRef.current) {
@@ -181,13 +196,23 @@ export default function SupervisorMensajes({ usuario }) {
 
     setEnviando(true);
     try {
-      const res = await window.api.invoke('db:insertMensajeBroadcast', usuario.id, mensaje.trim(), segmentoDestino);
-      if (res.success) {
+      if (apiBase) {
+        await apiFetch(apiBase, authToken, '/mensajes-broadcast', {
+          method: 'POST',
+          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmentoDestino }),
+        });
         showToast('Mensaje enviado y actualizado para los asesores', 'success');
         setMensaje('');
         cargarHistorial();
       } else {
-        showToast('No se pudo enviar el mensaje', 'error');
+        const res = await window.api.invoke('db:insertMensajeBroadcast', usuario.id, mensaje.trim(), segmentoDestino);
+        if (res.success) {
+          showToast('Mensaje enviado y actualizado para los asesores', 'success');
+          setMensaje('');
+          cargarHistorial();
+        } else {
+          showToast('No se pudo enviar el mensaje', 'error');
+        }
       }
     } catch (err) {
       console.error('Error al enviar mensaje:', err);
@@ -200,12 +225,18 @@ export default function SupervisorMensajes({ usuario }) {
   const handleDesactivar = async (id) => {
     if (!confirm('¿Desea desactivar este mensaje? Los asesores dejarán de verlo inmediatamente.')) return;
     try {
-      const res = await window.api.invoke('db:deleteMensajeBroadcast', id);
-      if (res.success) {
+      if (apiBase) {
+        await apiFetch(apiBase, authToken, `/mensajes-broadcast/${id}`, { method: 'DELETE' });
         showToast('Mensaje desactivado correctamente', 'success');
         cargarHistorial();
       } else {
-        showToast('Error al desactivar el mensaje', 'error');
+        const res = await window.api.invoke('db:deleteMensajeBroadcast', id);
+        if (res.success) {
+          showToast('Mensaje desactivado correctamente', 'success');
+          cargarHistorial();
+        } else {
+          showToast('Error al desactivar el mensaje', 'error');
+        }
       }
     } catch (err) {
       console.error('Error desactivando mensaje:', err);

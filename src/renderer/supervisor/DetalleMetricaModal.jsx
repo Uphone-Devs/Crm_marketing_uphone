@@ -57,7 +57,8 @@ export default function DetalleMetricaModal({ tipo, fecha, campanaId, onClose })
         if (cancelled) return;
         const arr = Array.isArray(data) ? data : [];
         // Filtrar por códigos del tipo
-        let filtrados = arr.filter(r => codigosFiltro.includes(r.tipificacion_codigo));
+        const codigosFiltroSet = new Set(codigosFiltro);
+        let filtrados = arr.filter(r => codigosFiltroSet.has(r.tipificacion_codigo));
         // Filtro adicional por campaña si aplica (en frontend porque el endpoint no soporta campaña)
         if (campanaId) {
           filtrados = filtrados.filter(r => {
