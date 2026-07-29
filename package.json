@@ -21,6 +21,17 @@
     "rebuild:node": "npm rebuild better-sqlite3",
     "doctor": "npx react-doctor@latest"
   },
+  "reactDoctor": {
+    "ignore": {
+      "files": [".venv/**"],
+      "overrides": [
+        {
+          "files": ["src/renderer/**"],
+          "rules": ["deslop/unused-file"]
+        }
+      ]
+    }
+  },
   "dependencies": {
     "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.2",

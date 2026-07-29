@@ -158,34 +158,24 @@ export default function SupervisorPanel({ usuario, onLogout }) {
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
 
   // ── Data loading ──
-  const cargarAsesores = useCallback(async () => {
+  const cargarMetricasBulk = useCallback(async () => {
     try {
-      const data = isRemote
-        ? await vmFetch(apiBase, authToken, '/asesores')
-        : await window.api.invoke('db:getAsesores');
-      setAsesores(data);
+      if (isRemote) {
+        const { asesores: a, metricas: m } = await vmFetch(apiBase, authToken, '/metricas-asesores-bulk');
+        if (Array.isArray(a)) setAsesores(a);
+        if (m && typeof m === 'object') setMetricas(m);
+      } else {
+        const data = await window.api.invoke('db:getAsesores');
+        setAsesores(data);
+        const metricasArray = await Promise.all(
+          data.map(a => window.api.invoke('db:getMetricasDia', a.id))
+        );
+        const mets = {};
+        data.forEach((a, i) => { mets[a.id] = metricasArray[i]; });
+        setMetricas(mets);
+      }
     } catch (err) {
-      console.error('Error cargando asesores:', err);
-    }
-  }, [isRemote, apiBase, authToken]);
-
-  const cargarMetricasAsesores = useCallback(async () => {
-    try {
-      const data = isRemote
-        ? await vmFetch(apiBase, authToken, '/asesores')
-        : await window.api.invoke('db:getAsesores');
-      if (Array.isArray(data) && data.length > 0) setAsesores(data);
-      const metricasArray = await Promise.all(
-        data.map(a => isRemote
-          ? vmFetch(apiBase, authToken, `/metricas/${a.id}`)
-          : window.api.invoke('db:getMetricasDia', a.id)
-        )
-      );
-      const mets = {};
-      data.forEach((a, i) => { mets[a.id] = metricasArray[i]; });
-      setMetricas(mets);
-    } catch (err) {
-      console.error('Error cargando métricas:', err);
+      console.error('Error cargando métricas bulk:', err);
     }
   }, [isRemote, apiBase, authToken]);
 
@@ -338,7 +328,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
         }
         if (msg.tipo === 'LOTE_ENVIADO') {
           // Un asesor marcó un lote de campaña como enviado → refrescar métricas diarias
-          cargarMetricasAsesores();
+          cargarMetricasBulk();
         }
       };
 
@@ -372,8 +362,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
 
   // ── Effects ──
   useEffect(() => {
-    cargarAsesores();
-    cargarMetricasAsesores();
+    cargarMetricasBulk();
     cargarMetricasEquipo();
     cargarMetricasValidacion();
     conectarWS();
@@ -412,7 +401,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
       // Solo refrescar métricas pesadas cuando el usuario está en tabs que las muestran.
       // Evita re-renders innecesarios en Reportes/Config/Red que recalientan el renderer.
       if (activePageRef.current === 'monitoreo' || activePageRef.current === 'metricas') {
-        cargarMetricasAsesores();
+        cargarMetricasBulk();
         cargarMetricasEquipo();
         // Respetar filtros activos para no pisar la vista filtrada
         const fDesde = metricasFiltroDesdeRef.current   || null;
@@ -431,7 +420,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
       clearInterval(pollInterval);
       wsRef.current?.close();
     };
-  }, [cargarAsesores, cargarMetricasEquipo, cargarMetricasAsesores, cargarMetricasValidacion, cargarMetricasEquipoFiltradas, conectarWS]);
+  }, [cargarMetricasBulk, cargarMetricasEquipo, cargarMetricasValidacion, cargarMetricasEquipoFiltradas, conectarWS]);
 
   // ── Alertas de Promesas de Pago (supervisor) ──
   useEffect(() => {
@@ -1226,7 +1215,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
         setNewAsesorName(''); setNewAsesorEmail(''); setNewAsesorPassword(''); setNewAsesorRol('asesor');
        const res = isRemote ? await vmFetch(apiBase, authToken, '/admin/users') : await window.api.invoke('db:getAllUsuarios');
        setAllUsuarios(Array.isArray(res) ? res : []);
-       cargarAsesores();
+       cargarMetricasBulk();
     } catch(e){
        showToast('Error al agregar asesor. Verifique que el correo no esté duplicado.', 'error');
     }
@@ -1240,7 +1229,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
        showToast('Asesor eliminado', 'success');
        const res = await window.api.invoke('db:getAllUsuarios');
        setAllUsuarios(res || []);
-       cargarAsesores();
+       cargarMetricasBulk();
     } catch(e){
        showToast('Error al eliminar: ' + (e?.message || 'error desconocido'), 'error');
     }
@@ -1254,7 +1243,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
        showToast('Asesor anonimizado — historial conservado', 'success');
        const res = await window.api.invoke('db:getAllUsuarios');
        setAllUsuarios(res || []);
-       cargarAsesores();
+       cargarMetricasBulk();
     } catch(e){
        showToast('Error al anonimizar', 'error');
     }
@@ -1267,7 +1256,7 @@ export default function SupervisorPanel({ usuario, onLogout }) {
          : await window.api.invoke('db:updateAsesor', id, { estado: actualEstado === 'activo' ? 'inactivo' : 'activo' });
        const usuarios = isRemote ? await vmFetch(apiBase, authToken, '/admin/users') : await window.api.invoke('db:getAllUsuarios');
        setAllUsuarios(Array.isArray(usuarios) ? usuarios : []);
-       cargarAsesores();
+       cargarMetricasBulk();
        showToast(`Estado actualizado`, 'info');
     } catch(e){
        showToast('Error al actualizar estado', 'error');

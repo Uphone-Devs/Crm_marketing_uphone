@@ -1,7 +1,9 @@
-// .env SIEMPRE el de backend/ (path absoluto): dotenv por defecto lee el del
-// directorio actual, y arrancar desde la raíz del proyecto conectaba a otra
-// base de datos (la de desarrollo de Prisma) en vez de crm_marketing.
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+// .env SIEMPRE el de backend/ (path absoluto). override:true fuerza el valor
+// aunque el proceso padre (Electron dev) ya haya inyectado DATABASE_URL del
+// root .env (Prisma Postgres local). Sin override, dotenv no sobreescribe vars
+// existentes y el backend queda apuntando a prisma+postgres://localhost:51213/
+// (no arranca solo), rompiendo toda la API REST.
+require('dotenv').config({ path: require('path').join(__dirname, '../.env'), override: true });
 const express = require('express');
 const http = require('http');
 const path = require('path');

@@ -45,13 +45,13 @@ const TIPIFICACIONES = [
 async function main() {
   console.log('🌱 Sembrando catálogo de tipificaciones...');
 
-  for (const tip of TIPIFICACIONES) {
-    await prisma.tipificacion.upsert({
+  await Promise.all(TIPIFICACIONES.map(tip =>
+    prisma.tipificacion.upsert({
       where: { codigo: tip.codigo },
       update: { descripcion: tip.descripcion, categoria: tip.categoria, requiereAgd: tip.requiereAgd },
       create: tip,
-    });
-  }
+    })
+  ));
 
   const total = await prisma.tipificacion.count();
   console.log(`  ✅ ${TIPIFICACIONES.length} tipificaciones sincronizadas (${total} en la base)`);

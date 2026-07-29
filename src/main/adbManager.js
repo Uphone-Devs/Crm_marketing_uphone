@@ -552,18 +552,22 @@ async function findAndTapNode(serial, matchRegex, excludeRegex = null) {
     if (!res.output) return false;
     const nodes = res.output.match(/<node[^>]*>/g);
     if (!nodes) return false;
+    let tapTarget = null;
     for (const node of nodes) {
       if (matchRegex.test(node) && !(excludeRegex && excludeRegex.test(node))) {
         const bounds = node.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
         if (bounds) {
-          const cx = Math.floor((parseInt(bounds[1]) + parseInt(bounds[3])) / 2);
-          const cy = Math.floor((parseInt(bounds[2]) + parseInt(bounds[4])) / 2);
-          await runAdbShell(['-s', serial, 'shell', 'input', 'tap', cx, cy]);
-          return true;
+          tapTarget = [
+            Math.floor((parseInt(bounds[1]) + parseInt(bounds[3])) / 2),
+            Math.floor((parseInt(bounds[2]) + parseInt(bounds[4])) / 2),
+          ];
+          break;
         }
       }
     }
-    return false;
+    if (!tapTarget) return false;
+    await runAdbShell(['-s', serial, 'shell', 'input', 'tap', tapTarget[0], tapTarget[1]]);
+    return true;
   } catch {
     return false;
   }
