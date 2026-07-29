@@ -527,7 +527,7 @@ export default function JefePanel({ usuario, onLogout }) {
     if (activePage === 'metricas') {
       cargarMetricasValidacion(metricasFiltroDesde || null, metricasFiltroCampana || null);
     }
-    if (activePage === 'monitoreo' || activePage === 'metricas' || activePage === 'actividad') {
+    if (activePage === 'monitoreo' || activePage === 'metricas' || activePage === 'actividad' || activePage === 'reportes') {
       (isRemote
         ? vmFetch(apiBase, authToken, '/campanas')
         : window.api.invoke('db:getCampanas')
