@@ -70,12 +70,18 @@ function getNaiveNowForGYE() {
   return new Date(gyeStr.replace(' ', 'T') + 'Z');
 }
 
-function calcGph(totalCount, primeraGestionTs) {
-  if (!primeraGestionTs || !totalCount) return null;
-  const naiveNow = getNaiveNowForGYE();
-  const elapsed = (naiveNow.getTime() - new Date(primeraGestionTs).getTime()) / 3600000;
-  if (elapsed < 0.1) return null; // < 6 min: insuficiente, evita 500/hr artificiales
-  return totalCount / elapsed;
+function calcGph(totalCount, primeraGestionTs, totalTiempoSeg) {
+  if (!totalCount) return null;
+  if (primeraGestionTs) {
+    // Camino preciso: horas desde primera gestión del día (VM actualizada)
+    const naiveNow = getNaiveNowForGYE();
+    const elapsed = (naiveNow.getTime() - new Date(primeraGestionTs).getTime()) / 3600000;
+    if (elapsed < 0.1) return null;
+    return totalCount / elapsed;
+  }
+  // Fallback: tiempo al aire cuando VM aún no envía primera_gestion_ts
+  if (totalTiempoSeg > 0) return totalCount / (totalTiempoSeg / 3600);
+  return null;
 }
 
 function getProyeccion(totalCount, gph) {
@@ -156,7 +162,7 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
     .sort((a, b) => b.total_count - a.total_count);
   const hayDatos = asesores.some(a => a.total_count > 0);
   const maxTotal = Math.max(1, ...asesores.map(a => a.total_count));
-  const maxGph = Math.max(1, ...asesores.map(a => calcGph(a.total_count, a.primera_gestion_ts) ?? 0));
+  const maxGph = Math.max(1, ...asesores.map(a => calcGph(a.total_count, a.primera_gestion_ts, a.total_tiempo_seg) ?? 0));
   const conectadosCount = asesores.filter(a => estadosWS && estadosWS[a.asesor_id]).length;
 
   // Totales del equipo para las cards de resumen
@@ -505,7 +511,7 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
                     );
                   })()}
                   {(() => {
-                    const gph = calcGph(a.total_count, a.primera_gestion_ts);
+                    const gph = calcGph(a.total_count, a.primera_gestion_ts, a.total_tiempo_seg);
                     const pctMax = gph != null ? Math.min(100, Math.round((gph / maxGph) * 100)) : 0;
                     const color = gph == null ? 'rgba(229,226,225,0.2)'
                       : gph >= 18 ? '#00e676'
