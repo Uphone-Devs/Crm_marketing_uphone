@@ -122,6 +122,7 @@ export default function JefePanel({ usuario, onLogout }) {
   const [showReporteModal, setShowReporteModal] = useState(false);
   const [reporteFiltros, setReporteFiltros] = useState({
     asesor_id: '',
+    campana_id: '',
     fechaInicio: todayLocalISO(),
     fechaFin: todayLocalISO(),
     formato: 'xlsx',
@@ -1433,6 +1434,25 @@ export default function JefePanel({ usuario, onLogout }) {
                 </div>
               </div>
             )}
+
+            {/* Apertura / Campaña */}
+            <div style={{ marginBottom: 24 }}>
+              <label className="reporte-form__label" style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, letterSpacing: 1.5 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>folder_open</span>
+                APERTURA (CAMPAÑA)
+              </label>
+              <select
+                className="input"
+                value={reporteFiltros.campana_id}
+                onChange={e => setReporteFiltros(p => ({ ...p, campana_id: e.target.value }))}
+                style={{ background: '#161b22', borderColor: '#30363d', color: '#f0f6fc' }}
+              >
+                <option value="">— Todas las aperturas —</option>
+                {campanasDisponibles.map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
 
             {/* Fechas */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
