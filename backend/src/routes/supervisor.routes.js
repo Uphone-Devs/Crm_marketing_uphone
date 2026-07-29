@@ -3212,17 +3212,24 @@ router.post('/marcar-compromiso-incumplido', async (req, res, next) => {
 
 // ── GET /api/reports/gestiones_equipo  &  /api/reports/gestiones ─────────────
 // Genera y descarga xlsx con CDRs del día (o rango) del equipo / asesor.
-async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titulo, empresa }) {
-  const inicio = new Date(fechaInicio + 'T00:00:00');
-  const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titulo, empresa, campanaId }) {
+  // naive-UTC: agregar .000Z para que Prisma compare contra timestamp WITHOUT TIME ZONE correcto
+  const inicio = new Date(fechaInicio + 'T00:00:00.000Z');
+  const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999Z');
   const _emp = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(empresa) ? empresa : null;
   const empresaPrisma = _emp === 'UPHONE' ? { in: ['TEC_SAS', 'SCC'] } : _emp || undefined;
+  const campId = campanaId ? parseInt(campanaId) : null;
+
+  const contactoWhere = {
+    ...(empresaPrisma ? { empresa: empresaPrisma } : {}),
+    ...(campId ? { campanaId: campId } : {}),
+  };
 
   const cdrs = await db.cdr.findMany({
     where: {
       ...(asesorId ? { usuarioId: asesorId } : {}),
       timestampInicio: { gte: inicio, lte: fin },
-      ...(empresaPrisma ? { contacto: { empresa: empresaPrisma } } : {}),
+      ...(Object.keys(contactoWhere).length ? { contacto: contactoWhere } : {}),
     },
     select: {
       id: true,
@@ -3349,15 +3356,16 @@ router.get('/reports/gestiones_equipo', requireRole('supervisor', 'jefe_area', '
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const empresa     = req.query.empresa || '';
+    const campanaId   = req.query.campana_id || req.query.campanaId || null;
     const equipoIds = (await db.usuario.findMany({
       where: { rol: 'asesor', estado: 'activo', ...(req.user.rol !== 'admin' ? { supervisorId: req.user.id } : {}) },
       select: { id: true },
     })).map(u => u.id);
-
+    const campLabel = campanaId ? ` (apertura #${campanaId})` : '';
     await _buildGestionesXlsx(res, {
       asesorId: equipoIds.length ? { in: equipoIds } : undefined,
-      fechaInicio, fechaFin, empresa,
-      titulo: `Gestiones Equipo — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
+      fechaInicio, fechaFin, empresa, campanaId,
+      titulo: `Gestiones Equipo${campLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
     });
   } catch (err) { next(err); }
 });
@@ -3368,25 +3376,31 @@ router.get('/reports/gestiones', requireRole('supervisor', 'jefe_area', 'admin')
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
     const empresa     = req.query.empresa || '';
+    const campanaId   = req.query.campana_id || req.query.campanaId || null;
     const asesor      = asesorId ? await db.usuario.findUnique({ where: { id: asesorId }, select: { nombre: true } }) : null;
+    const campLabel   = campanaId ? ` (apertura #${campanaId})` : '';
     await _buildGestionesXlsx(res, {
       asesorId: asesorId || undefined,
-      fechaInicio, fechaFin, empresa,
-      titulo: `Gestiones${asesor ? ' — ' + asesor.nombre : ''} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
+      fechaInicio, fechaFin, empresa, campanaId,
+      titulo: `Gestiones${asesor ? ' — ' + asesor.nombre : ''}${campLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`,
     });
   } catch (err) { next(err); }
 });
 
 // ── GET /api/reports/equipo & /api/reports/diario — Informe Operativo ────────
-async function _getMetricasAsesor(asesorId, inicio, fin, empresa = null) {
+async function _getMetricasAsesor(asesorId, inicio, fin, empresa = null, campanaId = null) {
   const empresaFiltro = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(empresa) ? empresa : null;
   const empresaPrisma = empresaFiltro === 'UPHONE' ? { in: ['TEC_SAS', 'SCC'] } : empresaFiltro;
-  const contactoFilter = empresaPrisma ? { empresa: empresaPrisma } : {};
+  const campId = campanaId ? parseInt(campanaId) : null;
+  const contactoFilter = {
+    ...(empresaPrisma ? { empresa: empresaPrisma } : {}),
+    ...(campId ? { campanaId: campId } : {}),
+  };
 
   const cdrWhere = {
     usuarioId: asesorId,
     timestampInicio: { gte: inicio, lte: fin },
-    ...(empresaPrisma ? { contacto: { empresa: empresaPrisma } } : {}),
+    ...(Object.keys(contactoFilter).length ? { contacto: contactoFilter } : {}),
   };
 
   const [
@@ -3419,9 +3433,15 @@ async function _getMetricasAsesor(asesorId, inicio, fin, empresa = null) {
     db.contacto.count({ where: { asignadoA: asesorId, correoStatus: 'ENVIADO', correoEnviadoFecha: { gte: fechaInicioStr, lte: fechaFinStr }, ...contactoFilter } }),
   ]);
 
-  // Cobertura: DISTINCT nro_contrato con CDR / DISTINCT nro_contrato asignado (apertura-anchored)
+  // Cobertura: DISTINCT nro_contrato con CDR / DISTINCT nro_contrato de la apertura
+  // Si hay campana_id, scoped a esa apertura. Si no, scoped a fecha_asignacion del rango.
   const empSqlCob = empresaFiltro === 'UPHONE' ? Prisma.sql`AND co.empresa IN ('TEC_SAS','SCC')`
     : empresaFiltro ? Prisma.sql`AND co.empresa = ${empresaFiltro}` : Prisma.empty;
+  const campSqlCob = campId ? Prisma.sql`AND co.campana_id = ${campId}` : Prisma.empty;
+  // Apertura scope: si hay campaña → por campaña; si no → por fecha_asignacion del rango
+  const aperturaScope = campId
+    ? Prisma.sql`AND co.campana_id = ${campId}`
+    : Prisma.sql`AND DATE(co.fecha_asignacion) BETWEEN ${fechaInicioStr} AND ${fechaFinStr}`;
   const coberturaRows = await db.$queryRaw`
     SELECT
       COUNT(DISTINCT co.nro_contrato)                                          AS total_contratos,
@@ -3432,7 +3452,7 @@ async function _getMetricasAsesor(asesorId, inicio, fin, empresa = null) {
       AND c.timestamp_inicio >= ${inicio}
       AND c.timestamp_inicio <= ${fin}
     WHERE co.asignado_a = ${asesorId}
-      AND DATE(co.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN ${fechaInicioStr} AND ${fechaFinStr}
+      ${aperturaScope}
       ${empSqlCob}
       AND co.nro_contrato IS NOT NULL
   `;
@@ -3536,8 +3556,9 @@ router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), a
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const empresa     = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : null;
-    const inicio = new Date(fechaInicio + 'T00:00:00');
-    const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+    const campanaId   = req.query.campana_id || req.query.campanaId || null;
+    const inicio = new Date(fechaInicio + 'T00:00:00.000Z');
+    const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999Z');
 
     const asesores = await db.usuario.findMany({
       where: { rol: 'asesor', estado: 'activo', ...(req.user.rol !== 'admin' ? { supervisorId: req.user.id } : {}) },
@@ -3549,17 +3570,18 @@ router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), a
     let dataEquipo;
     if (empresa) {
       dataEquipo = await Promise.all(
-        asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, empresa) }))
+        asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, empresa, campanaId) }))
       );
     } else {
       const rows = await Promise.all(asesores.flatMap(a =>
-        ['UPHONE', 'CREDI_TV'].map(async emp => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, emp) }))
+        ['UPHONE', 'CREDI_TV'].map(async emp => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, emp, campanaId) }))
       ));
       dataEquipo = rows;
     }
 
-    const empLabel = empresa ? ` — ${empresa}` : '';
-    const titulo   = `Informe Operativo Equipo${empLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
+    const empLabel  = empresa ? ` — ${empresa}` : '';
+    const campLabel = campanaId ? ` (apertura #${campanaId})` : '';
+    const titulo    = `Informe Operativo Equipo${empLabel}${campLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
     const filename = encodeURIComponent(`informe_operativo_equipo_${fechaInicio}.xlsx`);
     const wb = _buildOperativoWb(dataEquipo, titulo);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -3575,8 +3597,9 @@ router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), a
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
     const empresa     = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : null;
-    const inicio = new Date(fechaInicio + 'T00:00:00');
-    const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999');
+    const campanaId   = req.query.campana_id || req.query.campanaId || null;
+    const inicio = new Date(fechaInicio + 'T00:00:00.000Z');
+    const fin    = new Date((fechaFin || fechaInicio) + 'T23:59:59.999Z');
 
     let asesores;
     if (asesorId) {
@@ -3593,18 +3616,19 @@ router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), a
     let dataEquipo;
     if (empresa) {
       dataEquipo = await Promise.all(
-        asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, empresa) }))
+        asesores.map(async a => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, empresa, campanaId) }))
       );
     } else {
       const rows = await Promise.all(asesores.flatMap(a =>
-        ['UPHONE', 'CREDI_TV'].map(async emp => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, emp) }))
+        ['UPHONE', 'CREDI_TV'].map(async emp => ({ nombre: a.nombre, ...await _getMetricasAsesor(a.id, inicio, fin, emp, campanaId) }))
       ));
       dataEquipo = rows;
     }
 
     const nombreLabel = asesores.length === 1 ? asesores[0].nombre : 'Equipo';
     const empLabel    = empresa ? ` — ${empresa}` : '';
-    const titulo   = `Informe Operativo — ${nombreLabel}${empLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
+    const campLabel   = campanaId ? ` (apertura #${campanaId})` : '';
+    const titulo   = `Informe Operativo — ${nombreLabel}${empLabel}${campLabel} — ${fechaInicio}${fechaFin !== fechaInicio ? ' al ' + fechaFin : ''}`;
     const filename = encodeURIComponent(`informe_operativo_${nombreLabel.replace(/\s+/g, '_')}_${fechaInicio}.xlsx`);
     const wb = _buildOperativoWb(dataEquipo, titulo);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
