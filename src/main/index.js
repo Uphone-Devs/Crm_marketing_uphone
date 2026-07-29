@@ -45,8 +45,13 @@ function startBackend() {
   backendProcess = spawn('node', [backendEntry], {
     cwd: backendDir,
     env: { ...process.env },
-    stdio: 'inherit',
+    stdio: 'pipe',
+    windowsHide: true,
   });
+
+  // Redirigir stdout/stderr del backend al proceso principal para que aparezca en logs
+  backendProcess.stdout?.on('data', d => process.stdout.write(d));
+  backendProcess.stderr?.on('data', d => process.stderr.write(d));
 
   backendProcess.on('error', (err) => {
     console.error('[BACKEND] Error al iniciar proceso:', err.message);
