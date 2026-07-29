@@ -79,8 +79,8 @@ function calcGph(totalCount, primeraGestionTs, totalTiempoSeg) {
     if (elapsed < 0.1) return null;
     return totalCount / elapsed;
   }
-  // Fallback: tiempo al aire cuando VM aún no envía primera_gestion_ts
-  if (totalTiempoSeg > 0) return totalCount / (totalTiempoSeg / 3600);
+  // Sin primera_gestion_ts el tiempo al aire da tasas infladas (no refleja tiempo real).
+  // Mostrar — hasta que la VM se actualice.
   return null;
 }
 
