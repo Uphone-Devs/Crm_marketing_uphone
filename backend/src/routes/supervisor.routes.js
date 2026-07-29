@@ -481,10 +481,12 @@ async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
   const campanaId = campanaIdInput ? parseInt(campanaIdInput) : null;
   // Query A: UNA pasada sobre cdrs del día — reemplaza 12 counts + segRows + aggregate.
   // Semántica idéntica a los counts Prisma anteriores (mismos filtros, mismos nombres).
+  // Fallback 0: contactos sin metadata de mora (Credi TV, etc.) cuentan como S0
   const segCase = Prisma.raw(`COALESCE(
     CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
     CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-    CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END
+    CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END,
+    0
   )`);
   const cdrAggRows = await db.$queryRaw`
     SELECT
@@ -687,7 +689,8 @@ router.get('/metricas-asesores-bulk', async (req, res, next) => {
     const segCase = Prisma.raw(`COALESCE(
       CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
       CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
-      CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END
+      CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END,
+      0
     )`);
     const segMsg = Prisma.raw(`CASE
       WHEN COALESCE(
