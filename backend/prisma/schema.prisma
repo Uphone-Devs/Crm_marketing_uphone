@@ -128,6 +128,8 @@ model Cdr {
   usuario           Usuario         @relation(fields: [usuarioId], references: [id])
   sub_gestiones     sub_gestiones[]
 
+  @@index([contactoId], map: "idx_cdrs_contacto_id")
+  @@index([usuarioId, timestampInicio], map: "idx_cdrs_usuario_timestamp")
   @@map("cdrs")
 }
 
