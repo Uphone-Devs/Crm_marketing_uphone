@@ -56,6 +56,8 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
   // Renderizamos los charts solo cuando el contenedor tiene tamaño real (visible).
   const rootRef = useRef(null);
   const [chartsVisible, setChartsVisible] = useState(true);
+  const chartsVisibleRef = useRef(true);
+  useEffect(() => { chartsVisibleRef.current = chartsVisible; }, [chartsVisible]);
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
@@ -242,7 +244,10 @@ function AdvancedMetricsCharts({ metricas, metricasEquipo, asesores, estadosWS, 
         .catch(err => { console.error('[CONTACT_HORA]', err); });
     };
     doFetch();
-    const timer = setInterval(doFetch, 60_000);
+    const timer = setInterval(() => {
+      if (!chartsVisibleRef.current) return;
+      doFetch();
+    }, 60_000);
     return () => clearInterval(timer);
   }, [filtroDesde, filtroHasta, filtroCampana]);
 

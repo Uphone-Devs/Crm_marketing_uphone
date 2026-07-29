@@ -34,7 +34,7 @@ export default function ConnectionStatus() {
 
   useEffect(() => {
     checkDevices();
-    const interval = setInterval(checkDevices, 2000);
+    const interval = setInterval(checkDevices, 10000);
     return () => clearInterval(interval);
   }, [checkDevices]);
 

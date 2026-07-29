@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend
@@ -139,6 +139,7 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
   const [grupo,        setGrupo]        = useState('');
   const [distribuidor, setDistribuidor] = useState('');
   const [numeroCuota,  setNumeroCuota]  = useState('');
+  const [empresa,      setEmpresa]      = useState('');
   const [fechaDesde,   setFechaDesde]   = useState(todayISO);
   const [fechaHasta,   setFechaHasta]   = useState(todayISO);
 
@@ -155,6 +156,7 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
       if (grupo)       q.append('grupo',       grupo);
       if (distribuidor) q.append('distribuidor', distribuidor);
       if (numeroCuota) q.append('numeroCuota', numeroCuota);
+      if (empresa)     q.append('empresa',     empresa);
       if (fechaDesde)  q.append('fechaDesde',  fechaDesde);
       if (fechaHasta)  q.append('fechaHasta',  fechaHasta);
       const qs = q.toString() ? `?${q}` : '';
@@ -181,14 +183,24 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, token, campanaId, grupo, distribuidor, numeroCuota, fechaDesde, fechaHasta]);
+  }, [apiBase, token, campanaId, grupo, distribuidor, numeroCuota, empresa, fechaDesde, fechaHasta]);
+
+  // fetchData en ref: el interval se crea UNA vez y siempre llama la versión
+  // fresca. Antes cada cambio de filtro destruía/recreaba el interval y podía
+  // acumular fetches durante ráfagas de cambios de filtro.
+  const fetchDataRef = useRef(fetchData);
+  useEffect(() => { fetchDataRef.current = fetchData; }, [fetchData]);
 
   useEffect(() => {
     initialLoadDone.current = false;
     fetchData(true);
-    const interval = setInterval(() => fetchData(false), 30000);
-    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchData]);
+
+  useEffect(() => {
+    const interval = setInterval(() => fetchDataRef.current(false), 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Carga metas diarias por campaña (independiente del filtro)
   const fetchMetasDiarias = useCallback(async () => {
@@ -313,6 +325,21 @@ export default function DashboardDirectivo({ apiBase, token, refreshKey = 0 }) {
             style={{ background: 'transparent', border: '1px solid rgba(0,230,118,0.25)', borderRadius: 8, padding: '6px 10px', color: '#fff', fontSize: 13, colorScheme: 'dark' }} />
           <input aria-label="Fecha hasta" type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
             style={{ background: 'transparent', border: '1px solid rgba(0,230,118,0.25)', borderRadius: 8, padding: '6px 10px', color: '#fff', fontSize: 13, colorScheme: 'dark' }} />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1 }}>Dimensión:</span>
+            {[['', 'Todas'], ['UPHONE', 'Uphone'], ['CREDI_TV', 'Credi TV']].map(([val, label]) => (
+              <button key={val} type="button"
+                onClick={() => setEmpresa(val)}
+                style={{
+                  padding: '4px 10px', borderRadius: 6, border: '1px solid', cursor: 'pointer',
+                  fontSize: 11, fontWeight: 600,
+                  background: empresa === val ? (val === 'CREDI_TV' ? 'rgba(255,213,79,0.15)' : val === 'UPHONE' ? 'rgba(0,230,118,0.15)' : 'rgba(255,255,255,0.1)') : 'transparent',
+                  borderColor: empresa === val ? (val === 'CREDI_TV' ? '#ffd54f' : val === 'UPHONE' ? '#00e676' : 'rgba(255,255,255,0.4)') : 'rgba(255,255,255,0.15)',
+                  color: empresa === val ? (val === 'CREDI_TV' ? '#ffd54f' : val === 'UPHONE' ? '#00e676' : '#fff') : 'rgba(255,255,255,0.4)',
+                }}
+              >{label}</button>
+            ))}
+          </div>
           <button type="button" className="btn-secondary" onClick={fetchData}>Filtrar</button>
         </div>
       </div>
