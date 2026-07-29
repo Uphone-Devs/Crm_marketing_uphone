@@ -941,6 +941,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
         socket.send(JSON.stringify({
           tipo: 'IDENTIFICAR',
+          token: wsToken,                // body fallback: VMs sin _urlToken fix en wsServer
           rol: 'ASESOR',
           asesor_id: usuario.id,
           nombre: usuario.nombre,
@@ -1091,7 +1092,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         } catch (e) {
              // Ignorar errores de red temporales
         }
-      }, 3000); // Revisar cada 3s
+      }, 5000); // Revisar cada 5s
     }
     return () => clearInterval(pollInterval);
   }, [enLlamada, grabando]);
@@ -3858,10 +3859,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       const pendingClients = lote.clients.filter(c => c[statusKey] !== 'ENVIADO');
                                       const ids = pendingClients.map(c => c.id);
                                       if (!ids.length) return;
+                                      const idsSet = new Set(ids);
 
                                       // Actualizar círculos en cartera optimísticamente
                                       setCartera(prev => prev.map(x =>
-                                        ids.includes(x.id) ? { ...x, [statusKey]: 'ENVIADO' } : x
+                                        idsSet.has(x.id) ? { ...x, [statusKey]: 'ENVIADO' } : x
                                       ));
 
                                       // Sumar S0/S1/S2 al top bar
@@ -3889,7 +3891,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       } catch (err) {
                                         // Revertir cartera y contadores
                                         setCartera(prev => prev.map(x =>
-                                          ids.includes(x.id) ? { ...x, [statusKey]: 'ACTIVO' } : x
+                                          idsSet.has(x.id) ? { ...x, [statusKey]: 'ACTIVO' } : x
                                         ));
                                         const subDetalle = (setter) => setter(p => ({
                                           0: Math.max(0, (p[0] || 0) - detalleInc[0]),
