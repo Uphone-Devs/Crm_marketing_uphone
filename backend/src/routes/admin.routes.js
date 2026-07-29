@@ -363,4 +363,80 @@ router.put('/update-policy', authMiddleware, requireRole('admin'), async (req, r
     }
 });
 
+// ── POST /api/admin/run-migrations — TEMPORAL: aplica indexes + metricas_diarias_asesor
+// Remover después de ejecutar una vez en producción.
+router.post('/run-migrations', authMiddleware, requireRole('admin'), async (req, res) => {
+    const log = [];
+    try {
+        // Índices de performance
+        const indexes = [
+            `CREATE INDEX IF NOT EXISTS idx_cdrs_usuario_ts     ON cdrs (usuario_id, timestamp_inicio)`,
+            `CREATE INDEX IF NOT EXISTS idx_cdrs_contacto       ON cdrs (contacto_id)`,
+            `CREATE INDEX IF NOT EXISTS idx_cdrs_tipif          ON cdrs (tipificacion_id)`,
+            `CREATE INDEX IF NOT EXISTS idx_cdrs_resultado      ON cdrs (resultado)`,
+            `CREATE INDEX IF NOT EXISTS idx_ct_telefono         ON contactos (telefono)`,
+            `CREATE INDEX IF NOT EXISTS idx_ct_cedula           ON contactos (cedula)`,
+            `CREATE INDEX IF NOT EXISTS idx_ct_asignado_estado  ON contactos (asignado_a, estado_marcacion)`,
+            `CREATE INDEX IF NOT EXISTS idx_ct_wsp_fecha        ON contactos (wsp_enviado_fecha)`,
+            `CREATE INDEX IF NOT EXISTS idx_ct_rcs_fecha        ON contactos (rcs_enviado_fecha)`,
+            `CREATE INDEX IF NOT EXISTS idx_ct_correo_fecha     ON contactos (correo_enviado_fecha)`,
+            `CREATE INDEX IF NOT EXISTS idx_ev_usuario_tipo_ts  ON eventos (usuario_id, tipo, timestamp)`,
+            `CREATE INDEX IF NOT EXISTS idx_vp_validado_en      ON validacion_pagos (validado_en)`,
+            `CREATE INDEX IF NOT EXISTS idx_usuarios_rol_estado ON usuarios (rol, estado)`,
+        ];
+        for (const sql of indexes) {
+            await prisma.$executeRawUnsafe(sql);
+            log.push(`OK: ${sql.match(/idx_\w+/)?.[0] || sql.slice(0, 40)}`);
+        }
+
+        // Tabla metricas_diarias_asesor
+        await prisma.$executeRawUnsafe(`
+            CREATE TABLE IF NOT EXISTS metricas_diarias_asesor (
+                asesor_id       INTEGER          NOT NULL,
+                fecha           TEXT             NOT NULL,
+                gestiones       INTEGER          NOT NULL DEFAULT 0,
+                efectivos       INTEGER          NOT NULL DEFAULT 0,
+                neutros         INTEGER          NOT NULL DEFAULT 0,
+                no_contact      INTEGER          NOT NULL DEFAULT 0,
+                compromisos     INTEGER          NOT NULL DEFAULT 0,
+                monto_acordado  DOUBLE PRECISION NOT NULL DEFAULT 0,
+                monto_recaudado DOUBLE PRECISION NOT NULL DEFAULT 0,
+                tiempo_aire_seg INTEGER          NOT NULL DEFAULT 0,
+                actualizado_en  TIMESTAMP(3)     NOT NULL DEFAULT NOW(),
+                CONSTRAINT metricas_diarias_asesor_pkey PRIMARY KEY (asesor_id, fecha)
+            )
+        `);
+        log.push('OK: tabla metricas_diarias_asesor');
+
+        await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_mda_fecha ON metricas_diarias_asesor (fecha)`);
+        log.push('OK: idx_mda_fecha');
+
+        // Backfill histórico desde cdrs
+        const inserted = await prisma.$executeRawUnsafe(`
+            INSERT INTO metricas_diarias_asesor
+              (asesor_id, fecha, gestiones, efectivos, neutros, no_contact, compromisos, monto_acordado, tiempo_aire_seg, actualizado_en)
+            SELECT
+              cd.usuario_id,
+              (cd.timestamp_inicio)::date::text AS fecha,
+              COUNT(*) FILTER (WHERE cd.tipificacion_id IS NOT NULL)::int,
+              COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_EFECTIVO','CONTACTO EXITOSO'))::int,
+              COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_NEUTRO','CONTACTO NEUTRO'))::int,
+              COUNT(*) FILTER (WHERE t.categoria IN ('NO_CONTACTADO','NO CONTACTADO'))::int,
+              COUNT(*) FILTER (WHERE t.codigo IN ('PMP','PAGO_REAL','AB_PARC','PEND_COMP'))::int,
+              COALESCE(SUM(cd.monto_acordado), 0)::float,
+              COALESCE(SUM(cd.duracion_seg) FILTER (WHERE cd.tipificacion_id IS NOT NULL), 0)::int,
+              NOW()
+            FROM cdrs cd
+            LEFT JOIN tipificaciones t ON t.id = cd.tipificacion_id
+            GROUP BY cd.usuario_id, (cd.timestamp_inicio)::date
+            ON CONFLICT (asesor_id, fecha) DO NOTHING
+        `);
+        log.push(`OK: backfill ${inserted} filas insertadas`);
+
+        res.json({ ok: true, log });
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message, log });
+    }
+});
+
 module.exports = router;
