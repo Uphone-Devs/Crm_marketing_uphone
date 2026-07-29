@@ -161,9 +161,27 @@ export default function SupervisorPanel({ usuario, onLogout }) {
   const cargarMetricasBulk = useCallback(async () => {
     try {
       if (isRemote) {
-        const { asesores: a, metricas: m } = await vmFetch(apiBase, authToken, '/metricas-asesores-bulk');
-        if (Array.isArray(a)) setAsesores(a);
-        if (m && typeof m === 'object') setMetricas(m);
+        const res = await fetch(`${apiBase}/metricas-asesores-bulk`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        });
+        handleAuthStatus(res.status, vmUnauthorizedHandler);
+        if (res.ok) {
+          const { asesores: a, metricas: m } = await res.json();
+          if (Array.isArray(a)) setAsesores(a);
+          if (m && typeof m === 'object') setMetricas(m);
+        } else if (res.status === 404) {
+          const data = await vmFetch(apiBase, authToken, '/asesores');
+          if (Array.isArray(data)) setAsesores(data);
+          const metricasArray = await Promise.all(
+            data.map(a => vmFetch(apiBase, authToken, `/metricas/${a.id}`).catch(() => ({})))
+          );
+          const mets = {};
+          data.forEach((a, i) => { mets[a.id] = metricasArray[i]; });
+          setMetricas(mets);
+        } else {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || `HTTP ${res.status}`);
+        }
       } else {
         const data = await window.api.invoke('db:getAsesores');
         setAsesores(data);
@@ -251,10 +269,11 @@ export default function SupervisorPanel({ usuario, onLogout }) {
         setWsStatus('CONECTADO');
         socket.send(JSON.stringify({
           tipo: 'IDENTIFICAR',
+          token: wsToken,                        // body fallback: VMs sin _urlToken fix
           rol: 'SUPERVISOR',
           nombre: usuario?.nombre || 'Jefe de Area',
-          supervisor_id: usuario?.id,            // Bug 4: grupo del supervisor
-          es_admin: usuario?.rol === 'admin',    // admin ve todos los grupos
+          supervisor_id: usuario?.id,
+          es_admin: usuario?.rol === 'admin',
         }));
         agregarEvento('CONEXION', 'Conectado al servidor de monitoreo');
 

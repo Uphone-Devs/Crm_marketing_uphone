@@ -83,6 +83,7 @@ export default function JefePanel({ usuario, onLogout }) {
   const [actividadRefresh, setActividadRefresh] = useState(0);
   const [compromisoRefresh, setCompromisoRefresh] = useState(0);
   const [carterasRefresh, setCarterasRefresh] = useState(0);
+  const [mensajesRefresh, setMensajesRefresh] = useState(0);
   const [asesoresAtrasados, setAsesoresAtrasados] = useState({}); // asesor_id → { nombre, gestiones, meta, deficit, ts }
   const [asesores, setAsesores] = useState([]);
   const [estadosWS, setEstadosWS] = useState({});
@@ -162,14 +163,35 @@ export default function JefePanel({ usuario, onLogout }) {
 
   const wsRef = useRef(null);
   const wsPingRef = useRef(null); // keep-alive para Cloudflare tunnel
+  const tipifDebounceRef = useRef(null); // coalescer ráfagas de TIPIFICACION_REALIZADA
 
   // ── Data loading ──
   const cargarMetricasBulk = useCallback(async () => {
     try {
       if (isRemote) {
-        const { asesores: a, metricas: m } = await vmFetch(apiBase, authToken, '/metricas-asesores-bulk');
-        if (Array.isArray(a)) setAsesores(a);
-        if (m && typeof m === 'object') setMetricas(m);
+        // Intenta endpoint bulk (optimizado). Fallback a N calls si VM no actualizada (404).
+        const res = await fetch(`${apiBase}/metricas-asesores-bulk`, {
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        });
+        handleAuthStatus(res.status, vmUnauthorizedHandler);
+        if (res.ok) {
+          const { asesores: a, metricas: m } = await res.json();
+          if (Array.isArray(a)) setAsesores(a);
+          if (m && typeof m === 'object') setMetricas(m);
+        } else if (res.status === 404) {
+          // VM no tiene el endpoint aún — fallback individual hasta que se despliegue
+          const data = await vmFetch(apiBase, authToken, '/asesores');
+          if (Array.isArray(data)) setAsesores(data);
+          const metricasArray = await Promise.all(
+            data.map(a => vmFetch(apiBase, authToken, `/metricas/${a.id}`).catch(() => ({})))
+          );
+          const mets = {};
+          data.forEach((a, i) => { mets[a.id] = metricasArray[i]; });
+          setMetricas(mets);
+        } else {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || `HTTP ${res.status}`);
+        }
       } else {
         const data = await window.api.invoke('db:getAsesores');
         setAsesores(data);
@@ -257,10 +279,11 @@ export default function JefePanel({ usuario, onLogout }) {
         setWsStatus('CONECTADO');
         socket.send(JSON.stringify({
           tipo: 'IDENTIFICAR',
+          token: wsToken,                        // body fallback: VMs sin _urlToken fix
           rol: 'SUPERVISOR',
           nombre: usuario?.nombre || 'Jefe de Area',
-          supervisor_id: usuario?.id,            // Bug 4: grupo del supervisor
-          es_admin: usuario?.rol === 'admin',    // admin ve todos los grupos
+          supervisor_id: usuario?.id,
+          es_admin: usuario?.rol === 'admin',
         }));
         agregarEvento('CONEXION', 'Conectado al servidor de monitoreo');
 
@@ -303,11 +326,17 @@ export default function JefePanel({ usuario, onLogout }) {
         if (msg.tipo === 'TIPIFICACION_REALIZADA') {
           agregarEvento('LLAMADA_TIPIFICADA', `${msg.nombre} tipificó contacto como: ${msg.tipificacion}`);
           showToast(`Nueva tipificación de ${msg.nombre}`, 'info');
+          // Señales con debounce interno propio (ActividadGestores 2s, CarterasEquipo 1.5s)
           setActividadRefresh(p => p + 1);
           setCarterasRefresh(p => p + 1);
-          setDashDirectivoRefresh(p => p + 1);
-          cargarMetricasBulk();
-          cargarMetricasEquipo();
+          // Coalescer ráfagas: N tipificaciones en 2s = 1 solo refetch de métricas
+          // (antes: 2 fetches + refetch de dashboard POR CADA tipificación del equipo)
+          clearTimeout(tipifDebounceRef.current);
+          tipifDebounceRef.current = setTimeout(() => {
+            setDashDirectivoRefresh(p => p + 1);
+            cargarMetricasBulk();
+            cargarMetricasEquipo();
+          }, 2000);
         }
         if (msg.tipo === 'RITMO_BAJO') {
           const nombre = msg.nombre || `Asesor ${msg.asesor_id}`;
@@ -368,12 +397,16 @@ export default function JefePanel({ usuario, onLogout }) {
         }
         if (msg.tipo === 'PAGO_VALIDADO') {
           cargarMetricasBulk();
+          cargarMetricasValidacion();
           setDashDirectivoRefresh(p => p + 1);
           setCompromisoRefresh(p => p + 1);
           setCarterasRefresh(p => p + 1);
         }
         if (msg.tipo === 'META_ACTUALIZADA') {
           setDashDirectivoRefresh(p => p + 1);
+        }
+        if (msg.tipo === 'NUEVO_MENSAJE_BROADCAST' || msg.tipo === 'MENSAJE_BROADCAST') {
+          setMensajesRefresh(p => p + 1);
         }
       };
 
@@ -464,6 +497,7 @@ export default function JefePanel({ usuario, onLogout }) {
 
     return () => {
       clearInterval(pollInterval);
+      clearTimeout(tipifDebounceRef.current);
       wsRef.current?.close();
     };
   }, [cargarMetricasBulk, cargarMetricasEquipo, cargarMetricasValidacion, cargarMetricasEquipoFiltradas, conectarWS]);
@@ -1850,7 +1884,7 @@ export default function JefePanel({ usuario, onLogout }) {
             }} />
           )}
           {activePage === 'reportes' && renderTabReportes()}
-          {activePage === 'mensajes_broadcast' && <SupervisorMensajes usuario={usuario} />}
+          {activePage === 'mensajes_broadcast' && <SupervisorMensajes usuario={usuario} apiBase={apiBase} authToken={authToken} refreshSignal={mensajesRefresh} />}
           {activePage === 'mensajes' && <MessagesConfig />}
           {activePage === 'indicadores' && (
             <SupervisorIndicadores callApi={(ch, ...args) => window.api.invoke(ch, ...args)} />
