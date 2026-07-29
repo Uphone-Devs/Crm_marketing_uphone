@@ -1845,7 +1845,21 @@ export default function JefePanel({ usuario, onLogout }) {
           {activePage === 'carteras' && (
             <CarterasEquipo refreshSignal={carterasRefresh} callApi={async (ch, ...args) => {
               if (!isRemote) return window.api.invoke(ch, ...args);
-              if (ch === 'db:getCarteraEquipo') return vmFetch(apiBase, authToken, '/cartera-equipo');
+              if (ch === 'db:getCarteraEquipo') {
+                const [opts = {}] = args;
+                const qs = new URLSearchParams();
+                if (opts.fechaDesde) qs.set('fecha_desde', opts.fechaDesde);
+                if (opts.fechaHasta) qs.set('fecha_hasta', opts.fechaHasta);
+                if (opts.asesorId)   qs.set('asesor_id', opts.asesorId);
+                return vmFetch(apiBase, authToken, `/cartera-equipo?${qs}`);
+              }
+              if (ch === 'db:getCarteraEquipoResumen') {
+                const [opts = {}] = args;
+                const qs = new URLSearchParams();
+                if (opts.fechaDesde) qs.set('fecha_desde', opts.fechaDesde);
+                if (opts.fechaHasta) qs.set('fecha_hasta', opts.fechaHasta);
+                return vmFetch(apiBase, authToken, `/cartera-equipo/resumen?${qs}`);
+              }
               if (ch === 'cartera:reordenar') {
                 const [asesorId, contactoIdsEnOrden] = args;
                 return vmFetch(apiBase, authToken, '/cartera/reordenar', { method: 'POST', body: JSON.stringify({ asesorId, contactoIdsEnOrden }) });

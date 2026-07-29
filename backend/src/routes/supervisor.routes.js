@@ -829,11 +829,27 @@ router.post('/config', requireRole('jefe_area', 'admin'), async (req, res, next)
   } catch (err) { next(err); }
 });
 
-// ── GET /api/cartera-equipo — Cartera asignada del equipo completo ───────────
-// Devuelve array PLANO con asesor_nombre por fila (mismo formato que local SQLite).
+// ── GET /api/cartera-equipo — Detalle de cartera de UN asesor (carga lazy) ───
+// Perf 2026-07-29: antes traía TODA la cartera del equipo de una sola vez, con
+// un JOIN a cdrs + GROUP BY que multiplicaba filas por contacto (fan-out) —
+// causó el incidente de la VM al 100% CPU (queries de 1h+). Ahora requiere
+// asesor_id (el módulo abre con el resumen — ver /cartera-equipo/resumen — y
+// pide el detalle recién al expandir un asesor). gestiones_count/ultima_tip
+// van por subquery escalar / join al MAX(id), sin fan-out ni GROUP BY.
 router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const rows = await db.$queryRaw`
+    const parts = [];
+    const reFecha = /^\d{4}-\d{2}-\d{2}$/;
+    if (reFecha.test(req.query.fecha_desde || '')) parts.push(Prisma.sql`AND ct.fecha_asignacion::date >= ${req.query.fecha_desde}::date`);
+    if (reFecha.test(req.query.fecha_hasta || '')) parts.push(Prisma.sql`AND ct.fecha_asignacion::date <= ${req.query.fecha_hasta}::date`);
+    if (req.query.asesor_id) {
+      const aId = parseInt(req.query.asesor_id);
+      if (!Number.isFinite(aId) || aId <= 0) return res.status(400).json({ error: 'asesor_id inválido' });
+      parts.push(Prisma.sql`AND ct.asignado_a = ${aId}`);
+    }
+    const filtro = parts.length ? Prisma.join(parts, ' ') : Prisma.sql``;
+
+    const rows = await db.$queryRaw(Prisma.sql`
       SELECT
         ct.id,
         ct.cedula,
@@ -856,23 +872,15 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
         u.nombre                 AS asesor_nombre,
         cmp.nombre               AS campana_nombre,
         cmp.fecha_inicio         AS campana_fecha,
-        COUNT(cdr.id)::int       AS gestiones_count,
-        (SELECT t.descripcion
-         FROM cdrs c2
-         LEFT JOIN tipificaciones t ON c2.tipificacion_id = t.id
-         WHERE c2.contacto_id = ct.id
-         ORDER BY c2.id DESC LIMIT 1) AS ultima_tipificacion
+        (SELECT COUNT(*)::int FROM cdrs cg WHERE cg.contacto_id = ct.id) AS gestiones_count,
+        t.descripcion             AS ultima_tipificacion,
+        t.codigo                  AS ultima_tip_codigo
       FROM contactos ct
       LEFT JOIN usuarios u   ON ct.asignado_a = u.id
       LEFT JOIN campanas cmp ON ct.campana_id  = cmp.id
-      LEFT JOIN cdrs cdr     ON cdr.contacto_id = ct.id
-        AND (
-          (ct.fecha_asignacion::date = CURRENT_DATE AND cdr.timestamp_inicio >= CURRENT_DATE::timestamp)
-          OR
-          (ct.fecha_asignacion IS NULL OR ct.fecha_asignacion::date < CURRENT_DATE)
-        )
-      WHERE ct.asignado_a IS NOT NULL
-      GROUP BY ct.id, u.nombre, cmp.nombre, cmp.fecha_inicio
+      LEFT JOIN cdrs c2      ON c2.id = (SELECT MAX(c3.id) FROM cdrs c3 WHERE c3.contacto_id = ct.id)
+      LEFT JOIN tipificaciones t ON c2.tipificacion_id = t.id
+      WHERE ct.asignado_a IS NOT NULL ${filtro}
       ORDER BY
         u.nombre ASC NULLS LAST,
         CASE WHEN ct.orden_marcacion IS NULL THEN 1 ELSE 0 END,
@@ -886,7 +894,7 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
           ELSE 5
         END,
         ct.id ASC
-    `;
+    `);
 
     res.json(rows.map(r => ({
       ...r,
@@ -895,6 +903,38 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
       ya_pago: r.ya_pago === true || r.ya_pago === 1,
       validado_pago: r.validado_pago === true || r.validado_pago === 1 ? 1 : 0,
     })));
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/cartera-equipo/resumen — Resumen agregado por asesor ───────────
+// Perf 2026-07-29: lo que carga el módulo Carteras AL ABRIR — una fila por
+// asesor con counts por estado, sin filas de cliente ni metadata. El detalle
+// completo se pide lazy por asesor via GET /cartera-equipo?asesor_id=.
+router.get('/cartera-equipo/resumen', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const parts = [];
+    const reFecha = /^\d{4}-\d{2}-\d{2}$/;
+    if (reFecha.test(req.query.fecha_desde || '')) parts.push(Prisma.sql`AND ct.fecha_asignacion::date >= ${req.query.fecha_desde}::date`);
+    if (reFecha.test(req.query.fecha_hasta || '')) parts.push(Prisma.sql`AND ct.fecha_asignacion::date <= ${req.query.fecha_hasta}::date`);
+    const filtro = parts.length ? Prisma.join(parts, ' ') : Prisma.sql``;
+
+    const rows = await db.$queryRaw(Prisma.sql`
+      SELECT
+        ct.asignado_a AS asesor_id,
+        u.nombre      AS asesor_nombre,
+        COUNT(*)::int AS total,
+        SUM(CASE WHEN ct.estado_marcacion = 'PENDIENTE'   THEN 1 ELSE 0 END)::int AS pendientes,
+        SUM(CASE WHEN ct.estado_marcacion = 'EN_INTENTOS' THEN 1 ELSE 0 END)::int AS en_intentos,
+        SUM(CASE WHEN ct.estado_marcacion = 'AGENDADO'    THEN 1 ELSE 0 END)::int AS agendados,
+        SUM(CASE WHEN ct.estado_marcacion = 'GESTIONADO'  THEN 1 ELSE 0 END)::int AS gestionados,
+        SUM(CASE WHEN ct.estado_marcacion = 'YA_PAGO'     THEN 1 ELSE 0 END)::int AS ya_pago
+      FROM contactos ct
+      LEFT JOIN usuarios u ON ct.asignado_a = u.id
+      WHERE ct.asignado_a IS NOT NULL ${filtro}
+      GROUP BY ct.asignado_a, u.nombre
+      ORDER BY u.nombre ASC NULLS LAST
+    `);
+    res.json(rows);
   } catch (err) { next(err); }
 });
 
