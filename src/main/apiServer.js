@@ -218,7 +218,8 @@ function initApiServer(port = 3001) {
         ? getAsesores({ supervisorId: req.user.id })
         : getAsesores();
       const conectados = getConnectedAsesores().map(c => c.asesor_id);
-      const data = asesores.map(a => ({ ...a, conectado: conectados.includes(a.id) }));
+      const conectadosSet = new Set(conectados);
+      const data = asesores.map(a => ({ ...a, conectado: conectadosSet.has(a.id) }));
       res.json(data);
     } catch (err) {
       res.status(500).json({ error: err.message });
