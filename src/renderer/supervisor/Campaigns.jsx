@@ -200,6 +200,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
 
   // ── Distribution config ──
   const [nombreCampana, setNombreCampana] = useState('');
+  const [empresaCampana, setEmpresaCampana] = useState('UPHONE');
   const [campanaExistenteId, setCampanaExistenteId] = useState(null); // null = crear nueva
   // mapeo: { [gestor]: asesorId (string) | 'skip' | '' }
   const [mapeo, setMapeo]           = useState({});
@@ -515,6 +516,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
           ? await vmFetch(apiBase, authToken, '/campanas', { method: 'POST', body: JSON.stringify({
               nombre: nombreCampana.trim(),
               descripcion: `Cartera general. ${totalContactos} registros. ${gruposActivos.length} asesor(es).`,
+              empresa: empresaCampana,
             }) })
           : await window.api.invoke('db:insertCampana', {
               nombre: nombreCampana.trim(),
@@ -743,14 +745,48 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                 >Agregar a lote existente</button>
               </div>
               {!campanaExistenteId ? (
-                <input aria-label="Nombre del Lote / Campaña"
-                  type="text"
-                  className="input"
-                  placeholder="Ej: Cartera Vencida Julio 2026"
-                  value={nombreCampana}
-                  onChange={e => setNombreCampana(e.target.value)}
-                  style={{ maxWidth: 400 }}
-                />
+                <>
+                  <input aria-label="Nombre del Lote / Campaña"
+                    type="text"
+                    className="input"
+                    placeholder="Ej: Cartera Vencida Julio 2026"
+                    value={nombreCampana}
+                    onChange={e => setNombreCampana(e.target.value)}
+                    style={{ maxWidth: 400, marginBottom: 10 }}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                    <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>
+                      Dimensión
+                    </label>
+                    {['UPHONE', 'CREDI_TV'].map(dim => (
+                      <button
+                        key={dim}
+                        type="button"
+                        onClick={() => setEmpresaCampana(dim)}
+                        style={{
+                          padding: '5px 14px',
+                          borderRadius: 6,
+                          border: '1px solid',
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 700,
+                          letterSpacing: 0.5,
+                          background: empresaCampana === dim
+                            ? (dim === 'CREDI_TV' ? 'rgba(255,213,79,0.15)' : 'rgba(0,230,118,0.15)')
+                            : 'transparent',
+                          borderColor: empresaCampana === dim
+                            ? (dim === 'CREDI_TV' ? '#ffd54f' : '#00e676')
+                            : 'rgba(255,255,255,0.15)',
+                          color: empresaCampana === dim
+                            ? (dim === 'CREDI_TV' ? '#ffd54f' : '#00e676')
+                            : 'rgba(255,255,255,0.4)',
+                        }}
+                      >
+                        {dim === 'CREDI_TV' ? 'Credi TV' : 'Uphone'}
+                      </button>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <select
                   className="input"
@@ -758,9 +794,11 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                   onChange={e => setCampanaExistenteId(Number(e.target.value))}
                   style={{ maxWidth: 400 }}
                 >
-                  {[...new Map(existingCampaigns.map(c => [c.id, c])).values()].map(c => (
-                    <option key={c.id} value={c.id}>{c.nombre}</option>
-                  ))}
+                  {[...new Map(existingCampaigns.map(c => [c.id, c])).values()]
+                    .filter(c => !c.empresa || c.empresa === empresaCampana)
+                    .map(c => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
                 </select>
               )}
             </div>
@@ -1106,6 +1144,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                 <thead>
                   <tr style={{ background: 'rgba(255,255,255,0.05)', borderBottom: '2px solid rgba(255,255,255,0.1)' }}>
                     <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Nombre del Lote</th>
+                    <th style={{ padding: '12px', textAlign: 'center', border: bdr }}>Dimensión</th>
                     <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Subida</th>
                     {usuario?.id === 1 && <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Jefe de Area</th>}
                     <th style={{ padding: '12px', textAlign: 'left', border: bdr }}>Asesor</th>
@@ -1131,6 +1170,20 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
                             <>
                               <td rowSpan={span} style={{ padding: '10px 12px', border: bdr, fontWeight: 700, verticalAlign: 'middle', borderRight: '2px solid rgba(255,255,255,0.08)' }}>
                                 {grp.nombre}
+                              </td>
+                              <td rowSpan={span} style={{ padding: '10px 12px', border: bdr, textAlign: 'center', verticalAlign: 'middle' }}>
+                                {grp.empresa ? (
+                                  <span style={{
+                                    padding: '3px 8px', borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: 0.5,
+                                    background: grp.empresa === 'CREDI_TV' ? 'rgba(255,213,79,0.15)' : 'rgba(0,230,118,0.15)',
+                                    color: grp.empresa === 'CREDI_TV' ? '#ffd54f' : '#00e676',
+                                    border: `1px solid ${grp.empresa === 'CREDI_TV' ? '#ffd54f' : '#00e676'}`,
+                                  }}>
+                                    {grp.empresa === 'CREDI_TV' ? 'Credi TV' : 'Uphone'}
+                                  </span>
+                                ) : (
+                                  <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11 }}>—</span>
+                                )}
                               </td>
                               <td rowSpan={span} style={{ padding: '10px 12px', border: bdr, color: 'rgba(255,255,255,0.7)', verticalAlign: 'middle' }}>
                                 {fmtFecha(grp.fecha_inicio)}
