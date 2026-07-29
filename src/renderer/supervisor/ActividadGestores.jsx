@@ -59,6 +59,35 @@ const CANAL_APERTURA_KEY = {
   correo: 'gmail',
 };
 
+// ── Helpers GEST/HORA ────────────────────────────────────────────────────────
+// CRÍTICO: timestamp_inicio es naive-UTC (wall-clock Guayaquil, sin zona).
+// Comparar contra Date.now() (UTC real) introduce error de 5h.
+// getNaiveNowForGYE() retorna la hora actual de GYE expresada como naive-UTC,
+// manteniendo coherencia con los timestamps del backend.
+function getNaiveNowForGYE() {
+  const now = new Date();
+  const gyeStr = now.toLocaleString('sv-SE', { timeZone: 'America/Guayaquil' });
+  return new Date(gyeStr.replace(' ', 'T') + 'Z');
+}
+
+function calcGph(totalCount, primeraGestionTs) {
+  if (!primeraGestionTs || !totalCount) return null;
+  const naiveNow = getNaiveNowForGYE();
+  const elapsed = (naiveNow.getTime() - new Date(primeraGestionTs).getTime()) / 3600000;
+  if (elapsed < 0.1) return null; // < 6 min: insuficiente, evita 500/hr artificiales
+  return totalCount / elapsed;
+}
+
+function getProyeccion(totalCount, gph) {
+  if (gph == null) return null;
+  const naiveNow = getNaiveNowForGYE();
+  const ymd = naiveNow.toISOString().slice(0, 10);
+  const naiveMidnight = new Date(`${ymd}T23:59:59.999Z`);
+  const horasRestantes = (naiveMidnight.getTime() - naiveNow.getTime()) / 3600000;
+  if (horasRestantes < 0.1) return null;
+  return Math.round(totalCount + gph * horasRestantes);
+}
+
 export default function ActividadGestores({ apiBase, authToken, refreshSignal, estadosWS, metricasCanales, campanas = [] }) {
   const [fecha, setFecha] = useState(hoyStr());
   const [campanaId, setCampanaId] = useState('');
@@ -127,9 +156,7 @@ export default function ActividadGestores({ apiBase, authToken, refreshSignal, e
     .sort((a, b) => b.total_count - a.total_count);
   const hayDatos = asesores.some(a => a.total_count > 0);
   const maxTotal = Math.max(1, ...asesores.map(a => a.total_count));
-  const maxGph = Math.max(1, ...asesores.map(a =>
-    a.total_tiempo_seg > 0 ? a.total_count / (a.total_tiempo_seg / 3600) : 0
-  ));
+  const maxGph = Math.max(1, ...asesores.map(a => calcGph(a.total_count, a.primera_gestion_ts) ?? 0));
   const conectadosCount = asesores.filter(a => estadosWS && estadosWS[a.asesor_id]).length;
 
   // Totales del equipo para las cards de resumen
