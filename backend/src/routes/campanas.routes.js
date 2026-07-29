@@ -17,6 +17,7 @@ router.get('/dashboard', async (req, res, next) => {
       SELECT
         c.id,
         c.nombre,
+        c.empresa,
         c.fecha_inicio,
         u_sup.nombre AS supervisor_nombre,
         cont.asignado_a AS asesor_id,
@@ -27,7 +28,7 @@ router.get('/dashboard', async (req, res, next) => {
       LEFT JOIN contactos cont ON cont.campana_id = c.id
       LEFT JOIN usuarios u_as ON u_as.id = cont.asignado_a
       LEFT JOIN usuarios u_sup ON u_sup.id = c.supervisor_id
-      GROUP BY c.id, c.nombre, c.fecha_inicio, u_sup.nombre, cont.asignado_a, u_as.nombre
+      GROUP BY c.id, c.nombre, c.empresa, c.fecha_inicio, u_sup.nombre, cont.asignado_a, u_as.nombre
       ORDER BY c.id DESC, u_as.nombre ASC
     `;
     res.json(rows);
@@ -67,14 +68,16 @@ router.get('/', async (req, res, next) => {
 // POST /api/campanas — Crear campaña
 router.post('/', requireRole('admin', 'jefe_area'), async (req, res, next) => {
   try {
-    const { nombre, descripcion } = req.body;
+    const { nombre, descripcion, empresa } = req.body;
     if (!nombre?.trim()) return res.status(400).json({ error: 'nombre requerido.' });
+    const DIMS = ['UPHONE', 'CREDI_TV'];
     const campana = await db.campana.create({
       data: {
         nombre: nombre.trim(),
         descripcion: descripcion || null,
         supervisorId: req.user.id,
         fechaInicio: new Date(),
+        empresa: empresa && DIMS.includes(empresa) ? empresa : null,
       },
     });
     res.json({ success: true, id: campana.id, ...campana });
@@ -176,11 +179,17 @@ router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res
       ocultos = Number(r) || 0;
     }
 
+    // Leer empresa/dimensión de la campaña para heredarla a los contactos si es CREDI_TV
+    const campDim = await db.campana.findUnique({ where: { id: campanaId }, select: { empresa: true } })
+      .then(r => r?.empresa || null).catch(() => null);
+
     const now = new Date();
     const data = contactos.map(c => {
       const meta = c.metadata || {};
       const nroContrato = (meta['Nº CONTRATO'] || meta['CONTRATO'] || meta['NRO CONTRATO'] || '').trim() || null;
-      const empresa     = _normEmpresa(meta['EMPRESA'] || '');
+      // Si la campaña es CREDI_TV, todos sus contactos heredan esa empresa.
+      // Si no, se deriva del Excel (TEC_SAS o SCC por fecha de venta).
+      const empresa = campDim === 'CREDI_TV' ? 'CREDI_TV' : _normEmpresa(meta['EMPRESA'] || '');
       const claveGestion = nroContrato
         ? `${empresa}|${nroContrato}|${campanaId}`
         : null;

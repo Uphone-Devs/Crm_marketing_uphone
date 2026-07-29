@@ -29,6 +29,7 @@ model Usuario {
   validacion_sesiones  validacion_sesiones[]
 
   @@index([supervisorId], map: "idx_usuarios_supervisor_id")
+  @@index([rol, estado], map: "idx_usuarios_rol_estado")
   @@map("usuarios")
 }
 
@@ -85,6 +86,12 @@ model Contacto {
   @@index([nroContrato], map: "idx_ct_nro_contrato")
   @@index([empresa], map: "idx_ct_empresa")
   @@index([claveGestion], map: "idx_ct_clave_gestion")
+  @@index([telefono], map: "idx_ct_telefono")
+  @@index([cedula], map: "idx_ct_cedula")
+  @@index([asignadoA, estadoMarcacion], map: "idx_ct_asignado_estado")
+  @@index([wspEnviadoFecha], map: "idx_ct_wsp_fecha")
+  @@index([rcsEnviadoFecha], map: "idx_ct_rcs_fecha")
+  @@index([correoEnviadoFecha], map: "idx_ct_correo_fecha")
   @@map("contactos")
 }
 
@@ -128,6 +135,10 @@ model Cdr {
   usuario           Usuario         @relation(fields: [usuarioId], references: [id])
   sub_gestiones     sub_gestiones[]
 
+  @@index([usuarioId, timestampInicio], map: "idx_cdrs_usuario_ts")
+  @@index([contactoId], map: "idx_cdrs_contacto")
+  @@index([tipificacionId], map: "idx_cdrs_tipif")
+  @@index([resultado], map: "idx_cdrs_resultado")
   @@map("cdrs")
 }
 
@@ -155,6 +166,7 @@ model Evento {
   sesion      Sesion?    @relation(fields: [sesionId], references: [id])
   usuario     Usuario    @relation(fields: [usuarioId], references: [id])
 
+  @@index([usuarioId, tipo, timestamp], map: "idx_ev_usuario_tipo_ts")
   @@map("eventos")
 }
 
@@ -249,6 +261,7 @@ model validacion_pagos {
 
   @@index([contacto_id], map: "idx_vp_contacto")
   @@index([sesion_id], map: "idx_vp_sesion")
+  @@index([validado_en], map: "idx_vp_validado_en")
 }
 
 model validacion_sesiones {
@@ -265,6 +278,27 @@ model validacion_sesiones {
   usuarios         Usuario?           @relation(fields: [supervisor_id], references: [id], onUpdate: NoAction)
 
   @@index([creado_en(sort: Desc)], map: "idx_vs_creado_en")
+}
+
+// Agregado diario por asesor (llave asesor+día). Se incrementa al tipificar
+// (PATCH /cdrs/:id) — los dashboards leen días cerrados de aquí en vez de
+// recontar cdrs crudos. Reconstruible desde cdrs con scripts/backfill-metricas-diarias.js.
+model MetricaDiariaAsesor {
+  asesorId       Int      @map("asesor_id")
+  fecha          String
+  gestiones      Int      @default(0)
+  efectivos      Int      @default(0)
+  neutros        Int      @default(0)
+  noContact      Int      @default(0) @map("no_contact")
+  compromisos    Int      @default(0)
+  montoAcordado  Float    @default(0) @map("monto_acordado")
+  montoRecaudado Float    @default(0) @map("monto_recaudado")
+  tiempoAireSeg  Int      @default(0) @map("tiempo_aire_seg")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+
+  @@id([asesorId, fecha])
+  @@index([fecha], map: "idx_mda_fecha")
+  @@map("metricas_diarias_asesor")
 }
 
 model UpdatePolicy {
