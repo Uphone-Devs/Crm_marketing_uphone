@@ -68,6 +68,43 @@ router.patch('/:id', async (req, res, next) => {
 
     const updated = await db.cdr.update({ where: { id: parseInt(req.params.id) }, data });
     res.json(updated);
+
+    // ── Agregado diario incremental (fire-and-forget, nunca rompe la tipificación) ──
+    // Solo cuando este PATCH registró la tipificación (evita doble conteo en
+    // PATCHes posteriores del mismo cdr, p.ej. cierre con timestampFin).
+    if (data.tipificacionId != null && updated?.timestampInicio) {
+      (async () => {
+        try {
+          const t = await db.tipificacion.findUnique({
+            where: { id: data.tipificacionId },
+            select: { categoria: true, codigo: true },
+          });
+          const cat = t?.categoria || '';
+          const esEf   = ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'].includes(cat) ? 1 : 0;
+          const esNe   = ['CONTACTO_NEUTRO', 'CONTACTO NEUTRO'].includes(cat) ? 1 : 0;
+          const esNc   = ['NO_CONTACTADO', 'NO CONTACTADO'].includes(cat) ? 1 : 0;
+          const esComp = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'].includes(t?.codigo) ? 1 : 0;
+          const monto  = Number(updated.montoAcordado || 0);
+          const segAire = Number(updated.duracionSeg || 0);
+          // timestamp_inicio es naive-UTC con wall-clock Guayaquil → slice da la fecha GYE
+          const ymd = updated.timestampInicio.toISOString().slice(0, 10);
+          await db.$executeRaw`
+            INSERT INTO metricas_diarias_asesor
+              (asesor_id, fecha, gestiones, efectivos, neutros, no_contact, compromisos, monto_acordado, tiempo_aire_seg, actualizado_en)
+            VALUES (${updated.usuarioId}, ${ymd}, 1, ${esEf}, ${esNe}, ${esNc}, ${esComp}, ${monto}, ${segAire}, NOW())
+            ON CONFLICT (asesor_id, fecha) DO UPDATE SET
+              gestiones       = metricas_diarias_asesor.gestiones + 1,
+              efectivos       = metricas_diarias_asesor.efectivos + ${esEf},
+              neutros         = metricas_diarias_asesor.neutros + ${esNe},
+              no_contact      = metricas_diarias_asesor.no_contact + ${esNc},
+              compromisos     = metricas_diarias_asesor.compromisos + ${esComp},
+              monto_acordado  = metricas_diarias_asesor.monto_acordado + ${monto},
+              tiempo_aire_seg = metricas_diarias_asesor.tiempo_aire_seg + ${segAire},
+              actualizado_en  = NOW()
+          `;
+        } catch (e) { console.error('[MDA_UPSERT]', e?.message || e); }
+      })();
+    }
   } catch (err) { next(err); }
 });
 
