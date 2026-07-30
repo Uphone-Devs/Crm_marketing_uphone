@@ -868,6 +868,9 @@ function registerIpcHandlers() {
       if (cfg.vmUrl    !== undefined) setConfig('admin_vm_url',    cfg.vmUrl);
       if (cfg.vmToken  !== undefined) setConfig('admin_vm_token',  cfg.vmToken);
       if (cfg.pgString !== undefined) setConfig('admin_pg_string', cfg.pgString);
+      // Recargar ventana supervisor si está abierta para que tome el nuevo wsIp
+      const supWin = windowManager?.getSupervisorWindow?.();
+      if (supWin && !supWin.isDestroyed()) supWin.webContents.reload();
       return { success: true };
     } catch (err) { return { error: err.message }; }
   });
