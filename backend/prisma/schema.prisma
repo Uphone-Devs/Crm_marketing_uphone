@@ -42,9 +42,11 @@ model Campana {
   supervisorId Int?          @map("supervisor_id")
   estado       EstadoCampana @default(activa)
   metaDiaria   Float         @default(0) @map("meta_diaria")
+  empresa      String?
   supervisor   Usuario?      @relation("Supervisor", fields: [supervisorId], references: [id])
   contactos    Contacto[]
 
+  @@index([empresa], map: "idx_campanas_empresa")
   @@map("campanas")
 }
 
