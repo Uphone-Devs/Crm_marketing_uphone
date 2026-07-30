@@ -86,8 +86,11 @@ npm-debug.log*
 # Windows reserved device name — no existe como archivo real, git no puede indexarlo
 NUL.css
 
-# Scripts temporales de desarrollo/parche (no son parte del producto)
-scripts/
+# Scripts temporales de desarrollo/parche en la raíz (no son parte del producto).
+# Anclado a la raíz (/scripts/) para no bloquear backend/scripts/, resources/scripts/,
+# etc. — antes "scripts/" sin anclar ignoraba CUALQUIER carpeta scripts/ del repo en
+# silencio (así se perdió backend/scripts/backfill-metricas-diarias.js, ver auditoría 2026-07-29).
+/scripts/
 patch.js
 gen-hash.js
 reset-admin.js
