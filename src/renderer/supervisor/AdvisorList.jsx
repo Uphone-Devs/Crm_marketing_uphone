@@ -122,7 +122,7 @@ function AdvisorCard({ asesor, estadoWS, metricas, tiempoEnEstado, configMarcaci
   );
 }
 
-export default function AdvisorList({
+function AdvisorList({
   asesores,
   estadosWS,
   metricas,
@@ -210,3 +210,5 @@ export default function AdvisorList({
     </div>
   );
 }
+
+export default React.memo(AdvisorList);
