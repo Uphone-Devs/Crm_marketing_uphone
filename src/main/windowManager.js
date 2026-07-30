@@ -21,7 +21,9 @@ function createLoginWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: true,
+      spellcheck: false,
     },
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
     title: 'UPHONE — Inicio de Sesión',
@@ -52,7 +54,9 @@ function createSelectorWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: true,
+      spellcheck: false,
     },
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
     title: 'Terminal de Cobranza'
@@ -82,7 +86,9 @@ function createAsesorWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: true,
+      spellcheck: false,
     },
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
     title: 'Terminal de Cobranza — Asesor',
@@ -92,7 +98,6 @@ function createAsesorWindow() {
   if (process.env.NODE_ENV === 'development') {
     const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173';
     asesorWin.loadURL(`${devUrl}/asesor/index.html`);
-    asesorWin.webContents.openDevTools();
   } else {
     asesorWin.loadFile(path.join(__dirname, '..', '..', 'out', 'renderer', 'asesor', 'index.html'));
   }
@@ -118,7 +123,9 @@ function createSupervisorWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: true,
+      spellcheck: false,
     },
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
     title: 'Terminal de Cobranza — Jefe de Área',
@@ -128,7 +135,6 @@ function createSupervisorWindow() {
   if (process.env.NODE_ENV === 'development') {
     const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173';
     supervisorWin.loadURL(`${devUrl}/supervisor/index.html`);
-    supervisorWin.webContents.openDevTools();
   } else {
     supervisorWin.loadFile(path.join(__dirname, '..', '..', 'out', 'renderer', 'supervisor', 'index.html'));
   }
@@ -153,7 +159,9 @@ function createAdminWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: true,
+      spellcheck: false,
     },
     icon: path.join(__dirname, '..', '..', 'build', 'icon.ico'),
     title: 'UPHONE — Administrador del Sistema',
@@ -163,7 +171,6 @@ function createAdminWindow() {
   if (process.env.NODE_ENV === 'development') {
     const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173';
     adminWin.loadURL(`${devUrl}/admin/index.html`);
-    adminWin.webContents.openDevTools();
   } else {
     adminWin.loadFile(path.join(__dirname, '..', '..', 'out', 'renderer', 'admin', 'index.html'));
   }

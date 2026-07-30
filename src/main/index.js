@@ -42,7 +42,7 @@ function startBackend() {
   const backendDir   = path.join(__dirname, '../../backend');
   const backendEntry = path.join(backendDir, 'src/index.js');
 
-  backendProcess = spawn('node', [backendEntry], {
+  backendProcess = spawn('node', ['--max-old-space-size=512', backendEntry], {
     cwd: backendDir,
     env: { ...process.env },
     stdio: 'pipe',
