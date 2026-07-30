@@ -1024,7 +1024,31 @@ router.post('/config', requireRole('jefe_area', 'admin'), async (req, res, next)
 // Devuelve array PLANO con asesor_nombre por fila (mismo formato que local SQLite).
 router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
+    // Scoped a los asesores del equipo del supervisor
+    const whereU = { rol: 'asesor', estado: 'activo' };
+    if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
+    const asesorRows = await db.usuario.findMany({ where: whereU, select: { id: true } });
+    const asesorIds = asesorRows.map(a => a.id);
+    if (!asesorIds.length) return res.json([]);
+
+    // CTE con DISTINCT ON reemplaza la subquery correlated por contacto (128K→1 query)
     const rows = await db.$queryRaw`
+      WITH ultima_gestion AS (
+        SELECT DISTINCT ON (c.contacto_id)
+          c.contacto_id,
+          t.descripcion AS ultima_tipificacion
+        FROM cdrs c
+        LEFT JOIN tipificaciones t ON t.id = c.tipificacion_id
+        WHERE c.usuario_id = ANY(${asesorIds})
+        ORDER BY c.contacto_id, c.id DESC
+      ),
+      gestiones_hoy AS (
+        SELECT c.contacto_id, COUNT(*)::int AS gcount
+        FROM cdrs c
+        WHERE c.usuario_id = ANY(${asesorIds})
+          AND c.timestamp_inicio::date = CURRENT_DATE
+        GROUP BY c.contacto_id
+      )
       SELECT
         ct.id,
         ct.cedula,
@@ -1047,23 +1071,14 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
         u.nombre                 AS asesor_nombre,
         cmp.nombre               AS campana_nombre,
         cmp.fecha_inicio         AS campana_fecha,
-        COUNT(cdr.id)::int       AS gestiones_count,
-        (SELECT t.descripcion
-         FROM cdrs c2
-         LEFT JOIN tipificaciones t ON c2.tipificacion_id = t.id
-         WHERE c2.contacto_id = ct.id
-         ORDER BY c2.id DESC LIMIT 1) AS ultima_tipificacion
+        COALESCE(gh.gcount, 0)::int AS gestiones_count,
+        ug.ultima_tipificacion
       FROM contactos ct
-      LEFT JOIN usuarios u   ON ct.asignado_a = u.id
-      LEFT JOIN campanas cmp ON ct.campana_id  = cmp.id
-      LEFT JOIN cdrs cdr     ON cdr.contacto_id = ct.id
-        AND (
-          (ct.fecha_asignacion::date = CURRENT_DATE AND cdr.timestamp_inicio >= CURRENT_DATE::timestamp)
-          OR
-          (ct.fecha_asignacion IS NULL OR ct.fecha_asignacion::date < CURRENT_DATE)
-        )
-      WHERE ct.asignado_a IS NOT NULL
-      GROUP BY ct.id, u.nombre, cmp.nombre, cmp.fecha_inicio
+      LEFT JOIN usuarios u        ON ct.asignado_a = u.id
+      LEFT JOIN campanas cmp      ON ct.campana_id  = cmp.id
+      LEFT JOIN ultima_gestion ug ON ug.contacto_id = ct.id
+      LEFT JOIN gestiones_hoy gh  ON gh.contacto_id = ct.id
+      WHERE ct.asignado_a = ANY(${asesorIds})
       ORDER BY
         u.nombre ASC NULLS LAST,
         CASE WHEN ct.orden_marcacion IS NULL THEN 1 ELSE 0 END,
