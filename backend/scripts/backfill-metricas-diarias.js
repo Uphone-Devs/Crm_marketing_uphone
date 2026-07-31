@@ -7,11 +7,22 @@
  * (que lee "dias cerrados" de esta tabla) muestra $0 en los ultimos 6 dias
  * hasta que se acumulen datos nuevos.
  *
- * Replica EXACTAMENTE la misma logica de categorizacion que el upsert en vivo
- * (mismos codigos/categorias de tipificacion, mismos campos), agregada sobre
- * TODO el historico de una sola vez. Idempotente: ON CONFLICT sobrescribe con
- * el valor recalculado (no suma sobre lo existente), asi que se puede correr
- * mas de una vez sin duplicar.
+ * Usa los MISMOS codigos/categorias de tipificacion que el upsert en vivo
+ * (efectivo/neutro/no_contact/compromisos), pero la semantica de conteo NO es
+ * identica en un caso borde: este backfill agrega el ESTADO ACTUAL de cada
+ * cdr (1 fila por cdr con tipificacion_id no nulo, sin importar cuantas veces
+ * se re-tipifico), mientras que el upsert en vivo suma +1 cada vez que un
+ * PATCH incluye tipificacionId — si un cdr se re-tipifica (correccion), el
+ * upsert en vivo lo cuenta de nuevo y este backfill no. Mismo motivo para
+ * tiempo_aire_seg: el backfill suma el duracion_seg FINAL de cada cdr; el
+ * upsert en vivo suma el valor que tenia en el momento exacto de ESE PATCH
+ * (puede quedar desactualizado si duracion_seg se corrige despues sin volver
+ * a mandar tipificacionId). En ambos casos el backfill refleja el estado
+ * real actual de cdrs — es mas confiable como punto de partida, pero no va a
+ * coincidir centavo a centavo con lo que el incremental hubiera acumulado si
+ * hubo correcciones historicas. Agregado sobre TODO el historico de una sola
+ * vez. Idempotente: ON CONFLICT sobrescribe con el valor recalculado (no suma
+ * sobre lo existente), asi que se puede correr mas de una vez sin duplicar.
  *
  * Uso: node backend/scripts/backfill-metricas-diarias.js
  */
