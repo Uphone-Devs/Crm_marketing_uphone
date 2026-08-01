@@ -306,7 +306,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraFiltro, setCarteraFiltro] = useState('');
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
   const [moraFiltro, setMoraFiltro] = useState('todos'); // todos | alto | medio | bajo — solo cartera asesor
-  const [grupoFiltro, setGrupoFiltro] = useState('todos');
+  const [grupoFiltroSet, setGrupoFiltroSet] = useState(new Set()); // vacío = todos
+  const [grupoDropOpen, setGrupoDropOpen] = useState(false);
+  const grupoDropRef = useRef(null);
   const [vistaYaPago, setVistaYaPago] = useState(false); // true = apartado "Ya pagó" (declarados + validados)
   const [confirmYaPago, setConfirmYaPago] = useState(null); // contacto pendiente de confirmar "ya pagó" (Modal propio — window.confirm congela el renderer en Electron/Windows)
   const [carteraDesde, setCarteraDesde] = useState('');
@@ -1249,6 +1251,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
       if (typeof offPmp === 'function') offPmp();
     };
   }, [handleAvisoLocal, handleEjecutarLocal, cargarContactoAgendado]);
+
+  // Cerrar dropdown grupo al hacer click fuera
+  useEffect(() => {
+    if (!grupoDropOpen) return;
+    const handler = (e) => { if (grupoDropRef.current && !grupoDropRef.current.contains(e.target)) setGrupoDropOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [grupoDropOpen]);
 
   // Mantener refs de callbacks volátiles para que conectarWS no se recree con cada render
   handleDialRef.current = handleDial;
@@ -2962,9 +2972,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     }}
                   />
                 </div>
-                {(carteraFiltro || carteraEstado !== 'TODOS' || carteraDesde || carteraHasta || grupoFiltro !== 'todos') && (
+                {(carteraFiltro || carteraEstado !== 'TODOS' || carteraDesde || carteraHasta || grupoFiltroSet.size > 0) && (
                   <button type="button"
-                    onClick={() => { setCarteraFiltro(''); setCarteraEstado('TODOS'); setCarteraDesde(''); setCarteraHasta(''); setGrupoFiltro('todos'); }}
+                    onClick={() => { setCarteraFiltro(''); setCarteraEstado('TODOS'); setCarteraDesde(''); setCarteraHasta(''); setGrupoFiltroSet(new Set()); }}
                     style={{
                       padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
                       border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
@@ -3061,11 +3071,11 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     }
                   }
 
-                  if (grupoFiltro !== 'todos') {
+                  if (grupoFiltroSet.size > 0) {
                     let meta = {};
                     try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
                     const g = meta['GRUPO'] || c.producto || null;
-                    if (g !== grupoFiltro) return false;
+                    if (!grupoFiltroSet.has(g)) return false;
                   }
 
                   if (carteraDesde || carteraHasta) {
@@ -3230,26 +3240,68 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Estado</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'left' }}>Cliente</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Empresa</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center', position: 'relative' }}>
                             <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                               <span>Grupo</span>
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: grupoFiltro !== 'todos' ? 'rgba(206,147,216,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${grupoFiltro !== 'todos' ? 'rgba(206,147,216,0.5)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 20, padding: '1px 6px 1px 7px' }}>
-                                <span className="material-symbols-outlined" style={{ fontSize: 12, color: grupoFiltro !== 'todos' ? '#ce93d8' : 'rgba(255,255,255,0.45)' }}>filter_alt</span>
-                                <select
-                                  aria-label="Filtrar por grupo"
-                                  title="Filtrar por grupo"
-                                  value={grupoFiltro}
-                                  onChange={(e) => setGrupoFiltro(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
+                              <div ref={grupoDropRef} style={{ position: 'relative' }}>
+                                <button type="button"
+                                  onClick={(e) => { e.stopPropagation(); setGrupoDropOpen(v => !v); }}
                                   style={{
-                                    background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer',
-                                    color: grupoFiltro !== 'todos' ? '#ce93d8' : 'rgba(255,255,255,0.7)',
-                                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', appearance: 'none', paddingRight: 2,
+                                    display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer',
+                                    background: grupoFiltroSet.size > 0 ? 'rgba(206,147,216,0.15)' : 'rgba(255,255,255,0.05)',
+                                    border: `1px solid ${grupoFiltroSet.size > 0 ? 'rgba(206,147,216,0.5)' : 'rgba(255,255,255,0.12)'}`,
+                                    borderRadius: 20, padding: '1px 8px', font: 'inherit',
+                                    color: grupoFiltroSet.size > 0 ? '#ce93d8' : 'rgba(255,255,255,0.7)',
+                                    fontSize: 10, fontWeight: 700,
                                   }}
                                 >
-                                  <option value="todos" style={{ background: '#1e1e1e' }}>Todos</option>
-                                  {gruposUnicos.map(g => <option key={g} value={g} style={{ background: '#1e1e1e' }}>{g}</option>)}
-                                </select>
+                                  <span className="material-symbols-outlined" style={{ fontSize: 12, color: grupoFiltroSet.size > 0 ? '#ce93d8' : 'rgba(255,255,255,0.45)' }}>filter_alt</span>
+                                  {grupoFiltroSet.size > 0 ? `${grupoFiltroSet.size} sel.` : 'TODOS'}
+                                </button>
+                                {grupoDropOpen && (
+                                  <div
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+                                      marginTop: 4, zIndex: 999,
+                                      background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.12)',
+                                      borderRadius: 10, padding: '6px 4px', minWidth: 160,
+                                      boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                                    }}
+                                  >
+                                    {/* Seleccionar todo */}
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', borderRadius: 6, borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 4 }}>
+                                      <input type="checkbox"
+                                        checked={grupoFiltroSet.size === 0}
+                                        onChange={() => setGrupoFiltroSet(new Set())}
+                                        style={{ accentColor: '#ce93d8', width: 13, height: 13 }}
+                                      />
+                                      <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.7)' }}>Todos</span>
+                                    </label>
+                                    {/* Un checkbox por grupo */}
+                                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                                      {gruposUnicos.map(g => (
+                                        <label key={g} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', cursor: 'pointer', borderRadius: 6 }}
+                                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                        >
+                                          <input type="checkbox"
+                                            checked={grupoFiltroSet.has(g)}
+                                            onChange={() => {
+                                              setGrupoFiltroSet(prev => {
+                                                const next = new Set(prev);
+                                                next.has(g) ? next.delete(g) : next.add(g);
+                                                return next;
+                                              });
+                                            }}
+                                            style={{ accentColor: '#ce93d8', width: 13, height: 13 }}
+                                          />
+                                          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', whiteSpace: 'nowrap' }}>{g}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </th>
