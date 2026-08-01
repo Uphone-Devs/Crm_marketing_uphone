@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { showToast } from '../shared/Toast';
 
 function buildApiBase() {
@@ -143,6 +143,26 @@ export default function MessagesConfig() {
   const [mensajes,  setMensajes]  = useState([]);
   const [asunto,    setAsunto]    = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
+  const textareaRef = useRef(null);
+
+  const VARIABLES = [
+    { key: '{nombre}',   label: 'Nombre' },
+    { key: '{deuda}',    label: 'Deuda' },
+    { key: '{dias}',     label: 'Días mora' },
+    { key: '{telefono}', label: 'Teléfono' },
+    { key: '{cedula}',   label: 'Cédula' },
+  ];
+
+  const insertarVariable = (v) => {
+    const el = textareaRef.current;
+    if (!el) { setMensaje(p => p + v); return; }
+    const start = el.selectionStart; const end = el.selectionEnd;
+    const next = mensaje.slice(0, start) + v + mensaje.slice(end);
+    setMensaje(next);
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + v.length, start + v.length); });
+  };
+
+  const canalConImagen = canal === 'CORREO' || canal === 'RCS';
 
   const cargarMensajes = useCallback(async () => {
     try {
@@ -201,7 +221,7 @@ export default function MessagesConfig() {
             segmento_destino: segmento,
             canal,
             asunto:          canal === 'CORREO' ? asunto.trim() || null : null,
-            imagen_url:      canal === 'CORREO' ? imagenUrl.trim() || null : null,
+            imagen_url:      (canal === 'CORREO' || canal === 'RCS') ? imagenUrl.trim() || null : null,
           }),
         });
       } else {
@@ -346,10 +366,11 @@ export default function MessagesConfig() {
 
 
         <textarea
+          ref={textareaRef}
           value={mensaje}
           onChange={e => setMensaje(e.target.value)}
           rows={4}
-          placeholder={`Escribe el mensaje para ${canalMeta.label} · ${segmentoMeta.label}…\nVariables: {nombre} {deuda} {dias} {telefono} {cedula}`}
+          placeholder={`Escribe el mensaje para ${canalMeta.label} · ${segmentoMeta.label}…`}
           style={{
             width: '100%', boxSizing: 'border-box',
             background: 'rgba(0,0,0,0.3)',
@@ -358,16 +379,35 @@ export default function MessagesConfig() {
             color: 'rgba(255,255,255,0.9)', fontSize: 13.5, lineHeight: 1.7,
             fontFamily: 'inherit', resize: 'vertical', minHeight: 110,
             transition: 'border-color 0.2s',
-            marginBottom: 16,
+            marginBottom: 8,
           }}
           onFocus={e => { e.target.style.borderColor = canalMeta.color + '80'; }}
           onBlur={e => { e.target.style.borderColor = mensaje.trim() ? canalMeta.color + '60' : 'rgba(255,255,255,0.08)'; }}
         />
 
-        {/* Imagen — solo CORREO, después del mensaje */}
-        {canal === 'CORREO' && (
+        {/* Variables clickeables */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', alignSelf: 'center', marginRight: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Variables</span>
+          {VARIABLES.map(v => (
+            <button key={v.key} type="button" onClick={() => insertarVariable(v.key)}
+              title={`Insertar ${v.key}`}
+              style={{
+                fontSize: 11, padding: '2px 9px', borderRadius: 20, cursor: 'pointer',
+                border: `1px solid ${canalMeta.color}44`,
+                background: `${canalMeta.color}0e`,
+                color: canalMeta.color, font: 'inherit', fontWeight: 600,
+                transition: 'background 0.12s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = `${canalMeta.color}20`; }}
+              onMouseLeave={e => { e.currentTarget.style.background = `${canalMeta.color}0e`; }}
+            >{v.key}</button>
+          ))}
+        </div>
+
+        {/* Imagen — CORREO y RCS, después del mensaje */}
+        {canalConImagen && (
           <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Imagen del correo (opcional)</p>
+            <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Imagen ({canalMeta.label}) (opcional)</p>
             {imagenUrl ? (
               <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1.5px solid #f48fb150' }}>
                 <img src={imagenUrl} alt="preview" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block', background: 'rgba(0,0,0,0.3)' }} />
