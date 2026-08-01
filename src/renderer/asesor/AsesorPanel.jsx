@@ -1758,9 +1758,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
       activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === canal)   ||
       activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === 'TODOS');
     if (!match) return { mensaje: '', asunto: '', imagenUrl: '' };
+    let metaC = {};
+    try { metaC = typeof contacto.metadata === 'string' ? JSON.parse(contacto.metadata || '{}') : (contacto.metadata || {}); } catch (_) {}
+    const valorMora = metaC['VALOR EN MORA'] ?? contacto.monto_deuda ?? '';
+    const deudaStr = valorMora !== '' ? `$${Number(valorMora).toFixed(2)}` : '';
     const interp = (str) => (str || '')
       .replace(/\{nombre\}/gi,   contacto.nombre_deudor || '')
-      .replace(/\{deuda\}/gi,    contacto.monto_deuda   || '')
+      .replace(/\{deuda\}/gi,    deudaStr)
       .replace(/\{cedula\}/gi,   contacto.cedula         || '')
       .replace(/\{dias\}/gi,     String(dias))
       .replace(/\{telefono\}/gi, contacto.telefono       || '');
