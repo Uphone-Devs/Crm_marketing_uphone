@@ -3616,8 +3616,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                             const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                                             const htmlBody = [
                                               `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">`,
-                                              mensaje ? `<p style="white-space:pre-wrap;margin:0 0 20px">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
-                                              imagenUrl ? `<div style="text-align:center;margin-top:16px"><img src="${imagenUrl}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
+                                              imagenUrl ? `<div style="text-align:center;margin-bottom:20px"><img src="${imagenUrl}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
+                                              mensaje ? `<p style="white-space:pre-wrap;margin:0">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
                                               `</div>`,
                                             ].join('');
                                             // Copiar HTML al portapapeles — al pegar en Gmail el cuerpo + imagen se pre-cargan
