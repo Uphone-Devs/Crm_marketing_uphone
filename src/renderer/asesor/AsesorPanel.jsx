@@ -3620,17 +3620,29 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                               mensaje ? `<p style="white-space:pre-wrap;margin:0">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
                                               `</div>`,
                                             ].join('');
-                                            // Copiar HTML al portapapeles — al pegar en Gmail el cuerpo + imagen se pre-cargan
-                                            await navigator.clipboard.write([
-                                              new ClipboardItem({
-                                                'text/html': new Blob([htmlBody], { type: 'text/html' }),
-                                                'text/plain': new Blob([mensaje || ''], { type: 'text/plain' }),
-                                              }),
-                                            ]).catch(() => {});
+                                            // Copiar HTML al portapapeles — fallback a texto plano si falla (imagen base64 demasiado grande)
+                                            let clipboardOk = false;
+                                            try {
+                                              await navigator.clipboard.write([
+                                                new ClipboardItem({
+                                                  'text/html':  new Blob([htmlBody],       { type: 'text/html' }),
+                                                  'text/plain': new Blob([mensaje || ''],  { type: 'text/plain' }),
+                                                }),
+                                              ]);
+                                              clipboardOk = true;
+                                            } catch (_) {
+                                              // HTML write falló (imagen base64 demasiado grande) — usar solo texto
+                                              try { await navigator.clipboard.writeText(mensaje || ''); clipboardOk = true; } catch (_2) {}
+                                            }
                                             // Gmail: to + su pre-cargados via URL; body se pega con Ctrl+V
                                             const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}${asunto ? '&su=' + encodeURIComponent(asunto) : ''}`;
                                             await callApi('shell:openExternal', gmailUrl);
-                                            showToast('Gmail abierto — presiona Ctrl+V en el cuerpo para pegar mensaje' + (imagenUrl ? ' e imagen' : ''), 'info');
+                                            showToast(
+                                              clipboardOk
+                                                ? 'Gmail abierto — presiona Ctrl+V en el cuerpo para pegar' + (imagenUrl ? ' (imagen incluida)' : '')
+                                                : 'Gmail abierto — escribe el mensaje manualmente (imagen muy grande para portapapeles)',
+                                              'info'
+                                            );
                                           } catch (err) {
                                             showToast('Error abriendo Gmail: ' + (err.message || err), 'error');
                                             return;
