@@ -819,7 +819,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                               </div>
                             ) : (
                               <>
-                                {CODIGOS_CONFIRMABLES.has(r.tipificacion_codigo) && !esPagado && !esAbono && pagoFormId !== r.cdr_id && (
+                                {CODIGOS_CONFIRMABLES.has(r.tipificacion_codigo) && !esPagado && pagoFormId !== r.cdr_id && (
                                   <button type="button"
                                     className="btn btn-sm"
                                     style={{
@@ -833,7 +833,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     Pago Realizado
                                   </button>
                                 )}
-                                {CODIGOS_REAGENDABLES.has(r.tipificacion_codigo) && !esPagado && !esAbono && reagendaFormId !== r.cdr_id && (
+                                {CODIGOS_REAGENDABLES.has(r.tipificacion_codigo) && !esPagado && reagendaFormId !== r.cdr_id && (
                                   <button type="button"
                                     className="btn btn-sm"
                                     style={{
@@ -847,7 +847,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                                     Reagendar
                                   </button>
                                 )}
-                                {CODIGOS_INCUMPLIBLES.has(r.tipificacion_codigo) && !esPagado && !esAbono && (
+                                {CODIGOS_INCUMPLIBLES.has(r.tipificacion_codigo) && !esPagado && (
                                   <button type="button"
                                     className="btn btn-sm"
                                     disabled={incumpGuardandoId === r.cdr_id}
