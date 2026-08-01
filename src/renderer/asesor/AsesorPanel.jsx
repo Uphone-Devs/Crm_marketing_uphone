@@ -307,6 +307,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
   const [moraFiltro, setMoraFiltro] = useState('todos'); // todos | alto | medio | bajo — solo cartera asesor
   const [grupoFiltroSet, setGrupoFiltroSet] = useState(new Set()); // vacío = todos
+  const [usarTelefono2, setUsarTelefono2] = useState(false);
   const [grupoDropOpen, setGrupoDropOpen] = useState(false);
   const grupoDropRef = useRef(null);
   const [vistaYaPago, setVistaYaPago] = useState(false); // true = apartado "Ya pagó" (declarados + validados)
@@ -3083,6 +3084,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     if (!grupoFiltroSet.has(g)) return false;
                   }
 
+                  if (usarTelefono2) {
+                    let meta = {};
+                    try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                    if (!meta['TELEFONO 2']) return false;
+                  }
+
                   if (carteraDesde || carteraHasta) {
                     const f = extraerFechaIso(c.fecha_asignacion);
                     if (carteraDesde && (!f || f < carteraDesde)) return false;
@@ -3311,7 +3318,22 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             </div>
                           </th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Cédula</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Teléfono</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                              <span>Teléfono</span>
+                              <button type="button"
+                                onClick={() => setUsarTelefono2(v => !v)}
+                                title={usarTelefono2 ? 'Usando Teléfono 2 — click para volver a Tel 1' : 'Usar Teléfono 2 (solo muestra contactos con Tel 2)'}
+                                style={{
+                                  fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, cursor: 'pointer',
+                                  border: `1px solid ${usarTelefono2 ? 'rgba(100,181,246,0.6)' : 'rgba(255,255,255,0.12)'}`,
+                                  background: usarTelefono2 ? 'rgba(100,181,246,0.15)' : 'rgba(255,255,255,0.04)',
+                                  color: usarTelefono2 ? '#64b5f6' : 'rgba(255,255,255,0.4)',
+                                  font: 'inherit', letterSpacing: '0.04em',
+                                }}
+                              >{usarTelefono2 ? 'TEL 2 ✓' : 'TEL 2'}</button>
+                            </div>
+                          </th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>
                             <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
                               <span>Mora</span>
@@ -3397,6 +3419,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
                           const mora = meta['VALOR EN MORA'] || c.monto_deuda;
                           const diasMora = meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '';
+                          const tel2 = meta['TELEFONO 2'] || '';
+                          const telActivo = usarTelefono2 && tel2 ? tel2 : c.telefono;
+                          // Cuando usarTelefono2 activo, pasar teléfono 2 a ADB buttons
+                          const cTel = usarTelefono2 && tel2 ? { ...c, telefono: tel2 } : c;
                           const yaGestionado = c.estado_marcacion === 'GESTIONADO' || (c.estado_marcacion === 'YA_PAGO' && c.validado_pago === 1);
                           const turno = turnoMap.get(c.id);
                           const esSiguiente = turno === 1;
@@ -3540,7 +3566,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 })()}
                               </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}><span className="text-mono">{c.cedula || '—'}</span></td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}><span className="text-mono">{c.telefono || '—'}</span></td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
+                                <span className="text-mono" style={{ color: usarTelefono2 && tel2 ? '#64b5f6' : 'inherit' }}>{telActivo || '—'}</span>
+                                {usarTelefono2 && tel2 && c.telefono && (
+                                  <div style={{ fontSize: 9, opacity: 0.35, marginTop: 1 }}>{c.telefono}</div>
+                                )}
+                              </td>
                               <td style={{ padding: '8px 10px', textAlign: 'right', verticalAlign: 'middle', fontWeight: 700, color: 'var(--color-danger)' }}>
                                 {mora ? `$${Number(mora).toFixed(2)}` : '—'}
                               </td>
@@ -3836,7 +3867,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         type="button"
                                         title={isWsp0 ? `WhatsApp a ${c.telefono} — Celular 1` : `Marcar ${c.telefono} — Celular 1`}
                                         disabled={modoRevision}
-                                        onClick={(e) => { e.stopPropagation(); if (!modoRevision) handleAdbMarcar(c, idx0); }}
+                                        onClick={(e) => { e.stopPropagation(); if (!modoRevision) handleAdbMarcar(cTel, idx0); }}
                                         style={{
                                           width: 32, height: 32, borderRadius: 8,
                                           border: isWsp0 ? '1px solid rgba(171,71,188,0.35)' : '1px solid rgba(100,181,246,0.35)',
@@ -3872,7 +3903,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         type="button"
                                         title={isWsp1 ? `WhatsApp a ${c.telefono} — Celular 2` : `Marcar ${c.telefono} — Celular 2`}
                                         disabled={modoRevision}
-                                        onClick={(e) => { e.stopPropagation(); if (!modoRevision) handleAdbMarcar(c, idx1); }}
+                                        onClick={(e) => { e.stopPropagation(); if (!modoRevision) handleAdbMarcar(cTel, idx1); }}
                                         style={{
                                           width: 32, height: 32, borderRadius: 8,
                                           border: isWsp1 ? '1px solid rgba(171,71,188,0.35)' : '1px solid rgba(100,181,246,0.35)',
