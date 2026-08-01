@@ -3216,6 +3216,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Estado</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'left' }}>Cliente</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Empresa</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Grupo</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Cédula</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Teléfono</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>
@@ -3421,13 +3422,27 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                   const emp = empresaDeMeta(meta);
                                   if (!emp) return <span style={{ opacity: 0.3, fontSize: 12 }}>—</span>;
                                   const esTec = emp.toUpperCase().includes('TEC') || emp.toUpperCase().includes('SAS');
+                                  const empCorto = esTec ? 'SAS' : 'SCC';
                                   return (
-                                    <span style={{
+                                    <span title={emp} style={{
                                       fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
                                       background: esTec ? 'rgba(126,184,255,0.12)' : 'rgba(0,230,118,0.1)',
                                       color: esTec ? '#7eb8ff' : '#00e676',
                                       border: `1px solid ${esTec ? 'rgba(126,184,255,0.35)' : 'rgba(0,230,118,0.3)'}`,
-                                    }}>{emp}</span>
+                                    }}>{empCorto}</span>
+                                  );
+                                })()}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', verticalAlign: 'middle' }}>
+                                {(() => {
+                                  const grupo = meta['GRUPO'] || c.producto || null;
+                                  if (!grupo) return <span style={{ opacity: 0.25, fontSize: 12 }}>—</span>;
+                                  return (
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 20, whiteSpace: 'nowrap',
+                                      background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)',
+                                      border: '1px solid rgba(255,255,255,0.1)',
+                                    }}>{grupo}</span>
                                   );
                                 })()}
                               </td>
