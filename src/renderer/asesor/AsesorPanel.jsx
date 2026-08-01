@@ -1747,27 +1747,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [campana?.id]);
 
-  function getMensajeParaContacto(contacto, diasMoraVal) {
+  function getMensajeParaContacto(contacto, diasMoraVal, canal = 'TODOS') {
     const dias = parseInt(diasMoraVal, 10) || 0;
-    let segmento;
-    if (dias === 0)      segmento = 'TRAMO_0';
-    else if (dias === 1) segmento = 'TRAMO_1';
-    else                 segmento = 'TRAMO_2';
-    console.log('[Mensajes] total:', mensajesBroadcast.length, '| segmento:', segmento, '| dias:', dias);
-    console.log('[Mensajes] lista:', mensajesBroadcast.map(m => `${m.segmento_destino}(activo=${m.activo})`).join(', '));
+    const segmento = dias === 0 ? 'TRAMO_0' : dias === 1 ? 'TRAMO_1' : 'TRAMO_2';
     if (!mensajesBroadcast.length) return '';
-    // Tolerante: activo puede ser 1 (SQLite int) o true (Postgres bool)
     const activos = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
-    const match = activos.find(m => m.segmento_destino === segmento)
-               || activos.find(m => m.segmento_destino === 'TODOS');
-    console.log('[Mensajes] activos:', activos.length, '| match:', match?.segmento_destino || 'NINGUNO');
-    if (!match) { console.warn('[Mensajes] Sin mensaje activo para segmento:', segmento); return ''; }
+    const match =
+      activos.find(m => m.segmento_destino === segmento  && m.canal === canal)   ||
+      activos.find(m => m.segmento_destino === segmento  && m.canal === 'TODOS') ||
+      activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === canal)   ||
+      activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === 'TODOS');
+    if (!match) return '';
     return match.mensaje
-      .replace(/\{nombre\}/gi, contacto.nombre_deudor || '')
-      .replace(/\{deuda\}/gi, contacto.monto_deuda || '')
-      .replace(/\{cedula\}/gi, contacto.cedula || '')
-      .replace(/\{dias\}/gi, String(dias))
-      .replace(/\{telefono\}/gi, contacto.telefono || '');
+      .replace(/\{nombre\}/gi,   contacto.nombre_deudor || '')
+      .replace(/\{deuda\}/gi,    contacto.monto_deuda   || '')
+      .replace(/\{cedula\}/gi,   contacto.cedula         || '')
+      .replace(/\{dias\}/gi,     String(dias))
+      .replace(/\{telefono\}/gi, contacto.telefono       || '');
   }
 
   async function handleConnectUSB() {
@@ -3605,7 +3601,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                           if (clean.startsWith('0')) clean = clean.slice(1);
                                           return `${codigoPais}${clean}`;
                                         };
-                                        const mensaje = getMensajeParaContacto(c, diasMoraVal);
+                                        const canalKey = canal === 'wsp' ? 'WSP' : canal === 'rcs' ? 'RCS' : canal === 'correo' ? 'CORREO' : 'TODOS';
+                                        const mensaje = getMensajeParaContacto(c, diasMoraVal, canalKey);
                                         if (canal === 'correo') {
                                           const email = meta['CORREO CLIENTE'] || meta['CORREO'] || meta['EMAIL'] || '';
                                           if (!email) { showToast('Sin correo registrado para este cliente', 'warning'); return; }
