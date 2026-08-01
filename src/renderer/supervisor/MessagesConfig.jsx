@@ -265,8 +265,9 @@ export default function MessagesConfig() {
   );
 
   const aplicarFiltros = (lista) => lista.filter(m => {
-    if (filtroCanal    && m.canal            !== filtroCanal)    return false;
-    if (filtroSegmento && m.segmento_destino !== filtroSegmento) return false;
+    // canal='TODOS' aparece en cualquier filtro de canal (mensajes globales)
+    if (filtroCanal && m.canal !== filtroCanal && m.canal !== 'TODOS') return false;
+    if (filtroSegmento && m.segmento_destino !== filtroSegmento && m.segmento_destino !== 'TODOS') return false;
     if (filtroFecha) {
       const fechaMsg = String(m.creado_en).slice(0, 10);
       if (fechaMsg !== filtroFecha) return false;
@@ -482,17 +483,17 @@ export default function MessagesConfig() {
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginRight: 4 }}>Historial</span>
           {[
             <select key="canal" value={filtroCanal} onChange={e => setFiltroCanal(e.target.value)}
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 8px', color: filtroCanal ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer' }}>
+              style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroCanal ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
               <option value="">Canal</option>
-              {CANALES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+              {CANALES.map(c => <option key={c.id} value={c.id} style={{ background: '#1a1f2b' }}>{c.label}</option>)}
             </select>,
             <select key="seg" value={filtroSegmento} onChange={e => setFiltroSegmento(e.target.value)}
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 8px', color: filtroSegmento ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', fontSize: 12, cursor: 'pointer' }}>
+              style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroSegmento ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
               <option value="">Segmento</option>
-              {SEGMENTOS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {SEGMENTOS.map(s => <option key={s.id} value={s.id} style={{ background: '#1a1f2b' }}>{s.label}</option>)}
             </select>,
             <input key="fecha" type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)}
-              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '4px 8px', color: filtroFecha ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.3)', fontSize: 12, colorScheme: 'dark' }} />,
+              style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroFecha ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, colorScheme: 'dark' }} />,
           ]}
           {(filtroCanal || filtroSegmento || filtroFecha) && (
             <button type="button" onClick={() => { setFiltroCanal(''); setFiltroSegmento(''); setFiltroFecha(''); }}
