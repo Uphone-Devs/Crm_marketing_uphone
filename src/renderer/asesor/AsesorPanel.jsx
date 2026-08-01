@@ -2730,36 +2730,53 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const total = cartera.length;
                 const gestionados = cnt('GESTIONADO');
                 const pendientes = cnt('PENDIENTE');
-                const enIntentos = cnt('EN_INTENTOS');
-                const agendados = cnt('AGENDADO');
-                const yaPago = cnt('YA_PAGO');
+                const yaPagoCount = cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1).length;
+                const validados = cartera.filter(c => c.validado_pago === 1);
+                const recaudado = montoRecaudadoDB > 0
+                  ? montoRecaudadoDB
+                  : validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
+                const StatItem = ({ label, value, color, onClick, active, icon }) => (
+                  <button
+                    type="button"
+                    onClick={onClick}
+                    title={label}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                      padding: '5px 12px', borderRadius: 8, gap: 1,
+                      background: active ? `${color}14` : 'transparent',
+                      border: `1px solid ${active ? color + '55' : 'transparent'}`,
+                      borderLeft: `2px solid ${active ? color : color + '55'}`,
+                      cursor: onClick ? 'pointer' : 'default',
+                      font: 'inherit', color: 'inherit', transition: 'all 0.15s', textAlign: 'left',
+                      minWidth: 0,
+                    }}
+                    onMouseEnter={onClick ? e => { e.currentTarget.style.background = `${color}0e`; e.currentTarget.style.borderColor = color + '66'; e.currentTarget.style.borderLeftColor = color; } : undefined}
+                    onMouseLeave={onClick ? e => { e.currentTarget.style.background = active ? `${color}14` : 'transparent'; e.currentTarget.style.borderColor = active ? color + '55' : 'transparent'; e.currentTarget.style.borderLeftColor = active ? color : color + '55'; } : undefined}
+                  >
+                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', opacity: 0.45, textTransform: 'uppercase' }}>{label}</span>
+                    <span style={{ fontSize: 16, fontWeight: 900, color, lineHeight: 1.1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {value}
+                      {onClick && <span className="material-symbols-outlined" style={{ fontSize: 12, opacity: 0.6 }}>{active ? 'expand_less' : 'chevron_right'}</span>}
+                    </span>
+                  </button>
+                );
                 return (
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
-                    <Kpi label="Total" value={total} color="var(--color-primary)" />
-                    <Kpi label="Pendientes" value={pendientes} color="#ffb74d" />
-                    <Kpi label="En intentos" value={enIntentos} color="#fbc02d" />
-                    <Kpi label="Agendados" value={agendados} color="#64b5f6" />
-                    <Kpi label="Gestionados" value={gestionados} color="var(--color-primary)" />
-                    <Kpi label="Ya pagó" value={cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1).length} color="#ce93d8"
-                      onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago}
-                      title="Ver clientes que declararon pago (pendientes de comprobación) y los ya validados" />
-                    {(() => {
-                      const validados = cartera.filter(c => c.validado_pago === 1);
-                      if (!validados.length) return null;
-                      // Fuente real: monto_pagado de validacion_pagos (montoRecaudadoDB del backend).
-                      // Fallback a suma de monto_deuda si aún no se cargó la métrica.
-                      const recaudado = montoRecaudadoDB > 0
-                        ? montoRecaudadoDB
-                        : validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
-                      return (
-                        <Kpi
-                          label="Recaudado"
-                          value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-                          color="#00e676"
-                          title={`Monto validado por supervisor`}
-                        />
-                      );
-                    })()}
+                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 2, marginBottom: 6,
+                    background: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: '2px',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                  }}>
+                    <StatItem label="Total" value={total} color="#00e676" />
+                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                    <StatItem label="Pendientes" value={pendientes} color="#ffb74d" />
+                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                    <StatItem label="Gestionados" value={gestionados} color="#00e676" />
+                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                    <StatItem label="Ya pagó" value={yaPagoCount} color="#ce93d8"
+                      onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago} />
+                    {validados.length > 0 && <>
+                      <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
+                      <StatItem label="Recaudado" value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="#00e676" />
+                    </>}
                   </div>
                 );
               })()}
