@@ -141,12 +141,14 @@ function MensajeCard({ m, onDesactivar }) {
 }
 
 export default function MessagesConfig() {
-  const [loading,  setLoading]  = useState(true);
-  const [sending,  setSending]  = useState(false);
-  const [mensaje,  setMensaje]  = useState('');
-  const [canal,    setCanal]    = useState('WSP');
-  const [segmento, setSegmento] = useState('TRAMO_0');
-  const [mensajes, setMensajes] = useState([]);
+  const [loading,   setLoading]   = useState(true);
+  const [sending,   setSending]   = useState(false);
+  const [mensaje,   setMensaje]   = useState('');
+  const [canal,     setCanal]     = useState('WSP');
+  const [segmento,  setSegmento]  = useState('TRAMO_0');
+  const [mensajes,  setMensajes]  = useState([]);
+  const [asunto,    setAsunto]    = useState('');
+  const [imagenUrl, setImagenUrl] = useState('');
 
   const cargarMensajes = useCallback(async () => {
     try {
@@ -186,6 +188,8 @@ export default function MessagesConfig() {
       m.segmento_destino === segmento
     );
     setMensaje(activo ? activo.mensaje : '');
+    setAsunto(activo?.asunto || '');
+    setImagenUrl(activo?.imagen_url || '');
   }, [canal, segmento, mensajes]);
 
   async function handleEnviar() {
@@ -198,7 +202,13 @@ export default function MessagesConfig() {
         await fetch(`${apiBase}/mensajes-broadcast`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmento, canal }),
+          body: JSON.stringify({
+            mensaje:         mensaje.trim(),
+            segmento_destino: segmento,
+            canal,
+            asunto:          canal === 'CORREO' ? asunto.trim() || null : null,
+            imagen_url:      canal === 'CORREO' ? imagenUrl.trim() || null : null,
+          }),
         });
       } else {
         const user = JSON.parse(localStorage.getItem('uphone_user') || '{}');
@@ -229,14 +239,29 @@ export default function MessagesConfig() {
     }
   }
 
-  const canalMeta   = CANALES.find(c => c.id === canal) || CANALES[0];
+  const [filtroCanal,    setFiltroCanal]    = useState('');
+  const [filtroSegmento, setFiltroSegmento] = useState('');
+  const [filtroFecha,    setFiltroFecha]    = useState('');
+
+  const canalMeta    = CANALES.find(c => c.id === canal)    || CANALES[0];
   const segmentoMeta = SEGMENTOS.find(s => s.id === segmento) || SEGMENTOS[0];
   const activoActual = mensajes.find(m =>
     (m.activo === 1 || m.activo === true) &&
     m.canal === canal && m.segmento_destino === segmento
   );
-  const activos     = mensajes.filter(m => m.activo !== 0);
-  const inactivos   = mensajes.filter(m => m.activo === 0);
+
+  const aplicarFiltros = (lista) => lista.filter(m => {
+    if (filtroCanal    && m.canal            !== filtroCanal)    return false;
+    if (filtroSegmento && m.segmento_destino !== filtroSegmento) return false;
+    if (filtroFecha) {
+      const fechaMsg = String(m.creado_en).slice(0, 10);
+      if (fechaMsg !== filtroFecha) return false;
+    }
+    return true;
+  });
+
+  const activos   = aplicarFiltros(mensajes.filter(m => m.activo !== 0));
+  const inactivos = aplicarFiltros(mensajes.filter(m => m.activo === 0));
 
   if (loading) {
     return (
@@ -330,6 +355,61 @@ export default function MessagesConfig() {
         <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
           3 · Mensaje
         </p>
+
+        {/* Campos extra solo para CORREO */}
+        {canal === 'CORREO' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Asunto</p>
+              <input
+                type="text"
+                value={asunto}
+                onChange={e => setAsunto(e.target.value)}
+                placeholder="Asunto del correo…"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: 'rgba(0,0,0,0.3)',
+                  border: `1.5px solid ${asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: 10, padding: '10px 14px',
+                  color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'inherit',
+                  transition: 'border-color 0.2s',
+                }}
+                onFocus={e => { e.target.style.borderColor = '#f48fb180'; }}
+                onBlur={e => { e.target.style.borderColor = asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'; }}
+              />
+            </div>
+            <div>
+              <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>URL de imagen (opcional)</p>
+              <input
+                type="url"
+                value={imagenUrl}
+                onChange={e => setImagenUrl(e.target.value)}
+                placeholder="https://…/imagen.jpg"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: 'rgba(0,0,0,0.3)',
+                  border: `1.5px solid ${imagenUrl.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: 10, padding: '10px 14px',
+                  color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'inherit',
+                  transition: 'border-color 0.2s',
+                }}
+                onFocus={e => { e.target.style.borderColor = '#f48fb180'; }}
+                onBlur={e => { e.target.style.borderColor = imagenUrl.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'; }}
+              />
+              {imagenUrl.trim() && (
+                <div style={{ marginTop: 8, borderRadius: 8, overflow: 'hidden', maxHeight: 120, border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <img
+                    src={imagenUrl}
+                    alt="preview"
+                    style={{ width: '100%', objectFit: 'cover', maxHeight: 120, display: 'block' }}
+                    onError={e => { e.target.style.display = 'none'; }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <textarea
           value={mensaje}
           onChange={e => setMensaje(e.target.value)}
@@ -369,36 +449,111 @@ export default function MessagesConfig() {
         </div>
       </div>
 
-      {/* Mensajes Activos */}
-      {activos.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 800, letterSpacing: 1, color: '#00e676', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>notifications_active</span>
-            Mensajes Activos ({activos.length})
-          </p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {activos.map(m => <MensajeCard key={m.id} m={m} onDesactivar={handleDesactivar} />)}
-          </div>
-        </div>
-      )}
+      {/* ── Historial ─────────────────────────────────────────────────────── */}
+      <div>
+        {/* Filtros */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+          marginBottom: 16, padding: '12px 16px',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12,
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, opacity: 0.4 }}>filter_list</span>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.8, opacity: 0.35, textTransform: 'uppercase' }}>Filtrar historial</span>
 
-      {/* Historial inactivos (colapsable) */}
-      {inactivos.length > 0 && (
-        <details style={{ marginTop: 8 }}>
-          <summary style={{
-            cursor: 'pointer', fontSize: 11, fontWeight: 800, letterSpacing: 1,
-            color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase',
-            listStyle: 'none', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12,
-            userSelect: 'none',
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
-            Historial ({inactivos.length})
-          </summary>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
-            {inactivos.map(m => <MensajeCard key={m.id} m={m} />)}
+          {/* Canal */}
+          <select
+            value={filtroCanal}
+            onChange={e => setFiltroCanal(e.target.value)}
+            style={{
+              background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8, padding: '5px 10px', color: filtroCanal ? '#fff' : 'rgba(255,255,255,0.4)',
+              fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            <option value="">Todos los canales</option>
+            {CANALES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+
+          {/* Segmento */}
+          <select
+            value={filtroSegmento}
+            onChange={e => setFiltroSegmento(e.target.value)}
+            style={{
+              background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8, padding: '5px 10px', color: filtroSegmento ? '#fff' : 'rgba(255,255,255,0.4)',
+              fontSize: 12, cursor: 'pointer',
+            }}
+          >
+            <option value="">Todos los segmentos</option>
+            {SEGMENTOS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+
+          {/* Fecha */}
+          <input
+            type="date"
+            value={filtroFecha}
+            onChange={e => setFiltroFecha(e.target.value)}
+            style={{
+              background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8, padding: '5px 10px',
+              color: filtroFecha ? '#fff' : 'rgba(255,255,255,0.4)',
+              fontSize: 12, colorScheme: 'dark',
+            }}
+          />
+
+          {(filtroCanal || filtroSegmento || filtroFecha) && (
+            <button type="button"
+              onClick={() => { setFiltroCanal(''); setFiltroSegmento(''); setFiltroFecha(''); }}
+              style={{
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8, padding: '5px 10px', color: 'rgba(255,255,255,0.5)',
+                fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span>
+              Limpiar
+            </button>
+          )}
+        </div>
+
+        {/* Activos */}
+        {activos.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 800, letterSpacing: 1, color: '#00e676', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>notifications_active</span>
+              Activos ({activos.length})
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {activos.map(m => <MensajeCard key={m.id} m={m} onDesactivar={handleDesactivar} />)}
+            </div>
           </div>
-        </details>
-      )}
+        )}
+
+        {activos.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '20px 0', opacity: 0.3, fontSize: 13 }}>
+            Sin mensajes activos para los filtros seleccionados
+          </div>
+        )}
+
+        {/* Historial inactivos */}
+        {inactivos.length > 0 && (
+          <details>
+            <summary style={{
+              cursor: 'pointer', fontSize: 11, fontWeight: 800, letterSpacing: 1,
+              color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase',
+              listStyle: 'none', display: 'flex', alignItems: 'center', gap: 6,
+              padding: '10px 0', userSelect: 'none',
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>history</span>
+              Historial inactivos ({inactivos.length})
+            </summary>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+              {inactivos.map(m => <MensajeCard key={m.id} m={m} />)}
+            </div>
+          </details>
+        )}
+      </div>
 
     </div>
   );

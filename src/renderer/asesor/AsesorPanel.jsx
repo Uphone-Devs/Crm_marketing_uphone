@@ -1750,20 +1750,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
   function getMensajeParaContacto(contacto, diasMoraVal, canal = 'TODOS') {
     const dias = parseInt(diasMoraVal, 10) || 0;
     const segmento = dias === 0 ? 'TRAMO_0' : dias === 1 ? 'TRAMO_1' : 'TRAMO_2';
-    if (!mensajesBroadcast.length) return '';
+    if (!mensajesBroadcast.length) return { mensaje: '', asunto: '', imagenUrl: '' };
     const activos = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
     const match =
       activos.find(m => m.segmento_destino === segmento  && m.canal === canal)   ||
       activos.find(m => m.segmento_destino === segmento  && m.canal === 'TODOS') ||
       activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === canal)   ||
       activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === 'TODOS');
-    if (!match) return '';
-    return match.mensaje
+    if (!match) return { mensaje: '', asunto: '', imagenUrl: '' };
+    const interp = (str) => (str || '')
       .replace(/\{nombre\}/gi,   contacto.nombre_deudor || '')
       .replace(/\{deuda\}/gi,    contacto.monto_deuda   || '')
       .replace(/\{cedula\}/gi,   contacto.cedula         || '')
       .replace(/\{dias\}/gi,     String(dias))
       .replace(/\{telefono\}/gi, contacto.telefono       || '');
+    return {
+      mensaje:   interp(match.mensaje),
+      asunto:    interp(match.asunto    || ''),
+      imagenUrl: match.imagen_url || '',
+    };
   }
 
   async function handleConnectUSB() {
@@ -3602,12 +3607,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                           return `${codigoPais}${clean}`;
                                         };
                                         const canalKey = canal === 'wsp' ? 'WSP' : canal === 'rcs' ? 'RCS' : canal === 'correo' ? 'CORREO' : 'TODOS';
-                                        const mensaje = getMensajeParaContacto(c, diasMoraVal, canalKey);
+                                        const { mensaje, asunto, imagenUrl } = getMensajeParaContacto(c, diasMoraVal, canalKey);
                                         if (canal === 'correo') {
                                           const email = meta['CORREO CLIENTE'] || meta['CORREO'] || meta['EMAIL'] || '';
                                           if (!email) { showToast('Sin correo registrado para este cliente', 'warning'); return; }
                                           try {
-                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(email)}${mensaje ? '&body=' + encodeURIComponent(mensaje) : ''}`;
+                                            let body = mensaje;
+                                            if (imagenUrl) body = (body ? body + '\n\n' : '') + imagenUrl;
+                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(email)}${asunto ? '&su=' + encodeURIComponent(asunto) : ''}${body ? '&body=' + encodeURIComponent(body) : ''}`;
                                             await callApi('shell:openExternal', gmailUrl);
                                             showToast('Gmail abierto con mensaje', 'success');
                                           } catch (err) {

@@ -2390,6 +2390,8 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
       mensaje:           m.mensaje,
       segmento_destino:  m.segmentoDestino,
       canal:             m.canal,
+      asunto:            m.asunto ?? null,
+      imagen_url:        m.imagenUrl ?? null,
       activo:            m.activo ? 1 : 0,
       supervisor_nombre: m.supervisor?.nombre ?? null,
       creado_en:         m.creadoEn,
@@ -2400,12 +2402,19 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
 
 router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const { mensaje, segmento_destino = 'TODOS', canal = 'TODOS' } = req.body;
+    const { mensaje, segmento_destino = 'TODOS', canal = 'TODOS', asunto, imagen_url } = req.body;
     if (!mensaje?.trim()) return res.status(400).json({ error: 'Mensaje requerido' });
     const canalesValidos = ['TODOS', 'WSP', 'RCS', 'CORREO', 'COMPROMISOS'];
     if (!canalesValidos.includes(canal)) return res.status(400).json({ error: 'Canal inválido' });
     const m = await db.mensajeBroadcast.create({
-      data: { supervisorId: req.user.id, mensaje: mensaje.trim(), segmentoDestino: segmento_destino, canal },
+      data: {
+        supervisorId:    req.user.id,
+        mensaje:         mensaje.trim(),
+        segmentoDestino: segmento_destino,
+        canal,
+        asunto:          asunto?.trim() || null,
+        imagenUrl:       imagen_url?.trim() || null,
+      },
       include: { supervisor: { select: { nombre: true } } },
     });
     const payload = {
@@ -2413,6 +2422,8 @@ router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req
       mensaje:           m.mensaje,
       segmento_destino:  m.segmentoDestino,
       canal:             m.canal,
+      asunto:            m.asunto ?? null,
+      imagen_url:        m.imagenUrl ?? null,
       activo:            1,
       supervisor_nombre: m.supervisor?.nombre ?? null,
       creado_en:         m.creadoEn,
