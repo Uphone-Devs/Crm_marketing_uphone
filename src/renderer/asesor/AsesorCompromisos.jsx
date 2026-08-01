@@ -549,7 +549,6 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                           )}
                         </div>
                         <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: color.bg, color: color.fg }}>
                             {TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc}
                           </span>
@@ -572,7 +571,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                               background: r.dias_mora === 0 ? 'rgba(0,230,118,0.12)' : r.dias_mora === 1 ? 'rgba(255,202,40,0.15)' : 'rgba(255,152,0,0.15)',
                               color:      r.dias_mora === 0 ? '#00e676'              : r.dias_mora === 1 ? '#ffca28'              : '#ff9800',
                             }}>{r.dias_mora}</span>
-                          : <span style={{ opacity: 0.3 }}>—</span>}
+                          : <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>—</span>}
                       </td>
                       {/* Hora comprometida */}
                       <td style={td}>
