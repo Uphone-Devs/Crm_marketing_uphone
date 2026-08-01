@@ -2708,41 +2708,55 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const recaudado = montoRecaudadoDB > 0
                   ? montoRecaudadoDB
                   : validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
-                const StatItem = ({ label, value, color, onClick, active }) => (
-                  <button type="button" onClick={onClick} title={label}
-                    style={{
-                      display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                      padding: '3px 10px', borderRadius: 6, gap: 0,
-                      background: active ? `${color}14` : 'transparent',
-                      border: `1px solid ${active ? color + '44' : 'transparent'}`,
-                      borderLeft: `2px solid ${active ? color : color + '44'}`,
-                      cursor: onClick ? 'pointer' : 'default',
-                      font: 'inherit', color: 'inherit', transition: 'all 0.15s', textAlign: 'left',
-                    }}
-                    onMouseEnter={onClick ? e => { e.currentTarget.style.background = `${color}0e`; e.currentTarget.style.borderLeftColor = color; } : undefined}
-                    onMouseLeave={onClick ? e => { e.currentTarget.style.background = active ? `${color}14` : 'transparent'; e.currentTarget.style.borderLeftColor = active ? color : color + '44'; } : undefined}
-                  >
-                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', opacity: 0.4, textTransform: 'uppercase' }}>{label}</span>
-                    <span style={{ fontSize: 14, fontWeight: 900, color, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 3 }}>
-                      {value}
-                      {onClick && <span className="material-symbols-outlined" style={{ fontSize: 11, opacity: 0.55 }}>{active ? 'expand_less' : 'chevron_right'}</span>}
-                    </span>
-                  </button>
-                );
-                const Sep = () => <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', alignSelf: 'stretch', margin: '2px 0' }} />;
+                const StatItem = ({ label, value, color, onClick, active }) => {
+                  const isBtn = !!onClick;
+                  return (
+                    <button type="button" onClick={onClick} title={label}
+                      style={{
+                        display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
+                        padding: '4px 14px', gap: 1, borderRadius: 8,
+                        background: active ? `${color}12` : 'transparent',
+                        border: 'none', outline: 'none',
+                        cursor: isBtn ? 'pointer' : 'default',
+                        font: 'inherit', color: 'inherit',
+                        transition: 'background 0.15s',
+                        textAlign: 'left', flexShrink: 0,
+                      }}
+                      onMouseEnter={isBtn ? e => { e.currentTarget.style.background = `${color}10`; } : undefined}
+                      onMouseLeave={isBtn ? e => { e.currentTarget.style.background = active ? `${color}12` : 'transparent'; } : undefined}
+                    >
+                      {/* Label con dot de color */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{
+                          width: 4, height: 4, borderRadius: '50%', flexShrink: 0,
+                          background: color, opacity: active ? 1 : 0.55,
+                          boxShadow: active ? `0 0 4px ${color}` : 'none',
+                        }} />
+                        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>{label}</span>
+                        {isBtn && <span className="material-symbols-outlined" style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginLeft: 1 }}>{active ? 'expand_less' : 'expand_more'}</span>}
+                      </div>
+                      {/* Valor */}
+                      <span style={{ fontSize: 15, fontWeight: 800, color: active ? color : `${color}dd`, lineHeight: 1.15, letterSpacing: '-0.01em' }}>
+                        {value}
+                      </span>
+                    </button>
+                  );
+                };
+                const Sep = () => <div style={{ width: 1, background: 'rgba(255,255,255,0.06)', alignSelf: 'stretch', margin: '3px 0', flexShrink: 0 }} />;
                 return (
                   <div style={{ marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-                      <h3 className="widget-title" style={{ marginRight: 10, flexShrink: 0 }}>Cartera Asignada</h3>
+                      <h3 className="widget-title" style={{ marginRight: 14, flexShrink: 0 }}>Cartera Asignada</h3>
                       {/* ── KPIs inline ── */}
                       <div style={{
                         display: 'flex', alignItems: 'stretch', flex: 1,
-                        background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '2px',
-                        border: '1px solid rgba(255,255,255,0.05)',
+                        borderRadius: 10, overflow: 'hidden',
+                        background: 'rgba(255,255,255,0.025)',
+                        border: '1px solid rgba(255,255,255,0.06)',
                       }}>
                         <StatItem label="Total" value={total} color="#00e676" />
                         <Sep /><StatItem label="Pendientes" value={pendientes} color="#ffb74d" />
-                        <Sep /><StatItem label="Gestionados" value={gestionados} color="#00e676" />
+                        <Sep /><StatItem label="Gestionados" value={gestionados} color="#4caf50" />
                         <Sep /><StatItem label="Ya pagó" value={yaPagoCount} color="#ce93d8"
                           onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago} />
                         {validados.length > 0 && <><Sep /><StatItem label="Recaudado"
