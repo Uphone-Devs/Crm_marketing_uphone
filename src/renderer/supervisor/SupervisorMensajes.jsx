@@ -11,6 +11,13 @@ const SEGMENTOS_BASE = [
   { id: 'PLAZO',      label: 'Plazo · +2 días' },
 ];
 
+const CANALES = [
+  { id: 'TODOS',  label: 'Todos los canales', icon: 'all_inclusive', color: 'var(--color-primary)' },
+  { id: 'WSP',    label: 'WhatsApp',           icon: 'chat',          color: '#25D366' },
+  { id: 'RCS',    label: 'RCS',                icon: 'sms',           color: '#64b5f6' },
+  { id: 'CORREO', label: 'Correo',             icon: 'email',         color: '#f48fb1' },
+];
+
 function CollapsibleSection({ sec, renderMensajeCard }) {
   const [open, setOpen] = React.useState(sec.key === 'activos');
   return (
@@ -101,6 +108,7 @@ async function apiFetch(apiBase, token, path, options = {}) {
 export default function SupervisorMensajes({ usuario, apiBase, authToken, refreshSignal }) {
   const [mensaje, setMensaje] = useState('');
   const [segmentoDestino, setSegmentoDestino] = useState('TODOS');
+  const [canalDestino, setCanalDestino] = useState('TODOS');
   const [historial, setHistorial] = useState([]);
   const [enviando, setEnviando] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -199,7 +207,7 @@ export default function SupervisorMensajes({ usuario, apiBase, authToken, refres
       if (apiBase) {
         await apiFetch(apiBase, authToken, '/mensajes-broadcast', {
           method: 'POST',
-          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmentoDestino }),
+          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmentoDestino, canal: canalDestino }),
         });
         showToast('Mensaje enviado y actualizado para los asesores', 'success');
         setMensaje('');
@@ -271,6 +279,19 @@ export default function SupervisorMensajes({ usuario, apiBase, authToken, refres
           <span style={{ fontSize: 12, background: 'rgba(0, 229, 255, 0.1)', color: 'var(--color-primary)', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
             {segmentos.find(s => s.id === msg.segmento_destino)?.label || msg.segmento_destino}
           </span>
+          {(() => {
+            const c = CANALES.find(x => x.id === msg.canal) || CANALES[0];
+            return (
+              <span style={{
+                fontSize: 12, background: `${c.color}18`, color: c.color,
+                padding: '2px 8px', borderRadius: 4, fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{c.icon}</span>
+                {c.label}
+              </span>
+            );
+          })()}
           {!isActive && <span style={{ fontSize: 12, background: '#333', padding: '2px 6px', borderRadius: 4 }}>Desactivado</span>}
         </div>
         <span style={{ fontSize: 12, opacity: 0.5 }}>{new Date(String(msg.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}</span>
@@ -421,6 +442,38 @@ export default function SupervisorMensajes({ usuario, apiBase, authToken, refres
                 </label>
               );
             })}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label className="text-label-sm" style={{ display: 'block', marginBottom: 8, opacity: 0.6 }}>
+            CANAL
+          </label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {CANALES.map(c => (
+              <label
+                key={c.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: canalDestino === c.id ? `${c.color}18` : 'rgba(255,255,255,0.05)',
+                  border: `1px solid ${canalDestino === c.id ? c.color : 'transparent'}`,
+                  padding: '8px 12px', borderRadius: 8, cursor: 'pointer', fontSize: 13,
+                }}
+              >
+                <input
+                  type="radio"
+                  name="canal"
+                  value={c.id}
+                  checked={canalDestino === c.id}
+                  onChange={() => setCanalDestino(c.id)}
+                  style={{ accentColor: c.color }}
+                />
+                <span className="material-symbols-outlined" style={{ fontSize: 15, color: c.color }}>
+                  {c.icon}
+                </span>
+                {c.label}
+              </label>
+            ))}
           </div>
         </div>
 
