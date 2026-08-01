@@ -418,8 +418,8 @@ export default function MessagesConfig() {
               </div>
             ) : (
               <label style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                padding: '24px 16px', borderRadius: 10, cursor: 'pointer',
+                display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10,
+                padding: '8px 14px', borderRadius: 8, cursor: 'pointer',
                 border: '1.5px dashed rgba(244,143,177,0.35)', background: 'rgba(244,143,177,0.04)',
                 transition: 'border-color 0.2s, background 0.2s',
               }}
@@ -436,9 +436,8 @@ export default function MessagesConfig() {
                   reader.readAsDataURL(file);
                 }}
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#f48fb1', opacity: 0.6 }}>add_photo_alternate</span>
-                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Arrastra una imagen o haz clic para seleccionar</span>
-                <span style={{ fontSize: 11, opacity: 0.3 }}>JPG, PNG, GIF, WebP</span>
+                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#f48fb1', opacity: 0.7, flexShrink: 0 }}>add_photo_alternate</span>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Arrastra o haz clic · <span style={{ opacity: 0.5 }}>JPG PNG GIF WebP</span></span>
                 <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
                   const file = e.target.files[0]; if (!file) return;
                   const reader = new FileReader();
