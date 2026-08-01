@@ -306,6 +306,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [carteraFiltro, setCarteraFiltro] = useState('');
   const [carteraEstado, setCarteraEstado] = useState('TODOS');
   const [moraFiltro, setMoraFiltro] = useState('todos'); // todos | alto | medio | bajo — solo cartera asesor
+  const [grupoFiltro, setGrupoFiltro] = useState('todos');
   const [vistaYaPago, setVistaYaPago] = useState(false); // true = apartado "Ya pagó" (declarados + validados)
   const [confirmYaPago, setConfirmYaPago] = useState(null); // contacto pendiente de confirmar "ya pagó" (Modal propio — window.confirm congela el renderer en Electron/Windows)
   const [carteraDesde, setCarteraDesde] = useState('');
@@ -2961,9 +2962,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     }}
                   />
                 </div>
-                {(carteraFiltro || carteraEstado !== 'TODOS' || carteraDesde || carteraHasta) && (
+                {(carteraFiltro || carteraEstado !== 'TODOS' || carteraDesde || carteraHasta || grupoFiltro !== 'todos') && (
                   <button type="button"
-                    onClick={() => { setCarteraFiltro(''); setCarteraEstado('TODOS'); setCarteraDesde(''); setCarteraHasta(''); }}
+                    onClick={() => { setCarteraFiltro(''); setCarteraEstado('TODOS'); setCarteraDesde(''); setCarteraHasta(''); setGrupoFiltro('todos'); }}
                     style={{
                       padding: '5px 10px', fontSize: 12, background: 'rgba(255,80,80,0.1)',
                       border: '1px solid rgba(255,80,80,0.25)', color: '#ff8080',
@@ -3040,9 +3041,15 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const ESTADO_STYLE_YA_PAGO_DECL = { bg: 'rgba(255,193,7,0.15)', fg: '#ffd54f', label: 'Ya pagó (s/validar)' };
                 const txt = carteraFiltro.trim().toLowerCase();
                 const extraerFechaIso = (raw) => (raw && typeof raw === 'string' && raw.length >= 10) ? raw.slice(0, 10) : '';
+                // Grupos únicos para el dropdown
+                const gruposUnicos = [...new Set(cartera.map(c => {
+                  let m = {}; try { m = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                  return m['GRUPO'] || c.producto || null;
+                }).filter(Boolean))].sort();
+
                 const filtrados = cartera.filter(c => {
                   if (carteraEstado !== 'TODOS' && c.estado_marcacion !== carteraEstado) return false;
-                  
+
                   if (carteraFiltroDias !== 'general') {
                     if (carteraFiltroDias === 'gestionados') {
                       if (c.estado_marcacion !== 'GESTIONADO') return false;
@@ -3052,6 +3059,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       const dias = String(meta['DIAS IMPAGO'] || meta['DIAS EN MORA'] || meta['DIAS EN INPAGO'] || meta['DIAS MORA'] || '0');
                       if (dias !== carteraFiltroDias) return false;
                     }
+                  }
+
+                  if (grupoFiltro !== 'todos') {
+                    let meta = {};
+                    try { meta = typeof c.metadata === 'string' ? JSON.parse(c.metadata || '{}') : (c.metadata || {}); } catch (_) {}
+                    const g = meta['GRUPO'] || c.producto || null;
+                    if (g !== grupoFiltro) return false;
                   }
 
                   if (carteraDesde || carteraHasta) {
@@ -3216,7 +3230,29 @@ export default function AsesorPanel({ usuario, onLogout }) {
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Estado</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'left' }}>Cliente</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Empresa</th>
-                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Grupo</th>
+                          <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                              <span>Grupo</span>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: grupoFiltro !== 'todos' ? 'rgba(206,147,216,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${grupoFiltro !== 'todos' ? 'rgba(206,147,216,0.5)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 20, padding: '1px 6px 1px 7px' }}>
+                                <span className="material-symbols-outlined" style={{ fontSize: 12, color: grupoFiltro !== 'todos' ? '#ce93d8' : 'rgba(255,255,255,0.45)' }}>filter_alt</span>
+                                <select
+                                  aria-label="Filtrar por grupo"
+                                  title="Filtrar por grupo"
+                                  value={grupoFiltro}
+                                  onChange={(e) => setGrupoFiltro(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  style={{
+                                    background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer',
+                                    color: grupoFiltro !== 'todos' ? '#ce93d8' : 'rgba(255,255,255,0.7)',
+                                    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', appearance: 'none', paddingRight: 2,
+                                  }}
+                                >
+                                  <option value="todos" style={{ background: '#1e1e1e' }}>Todos</option>
+                                  {gruposUnicos.map(g => <option key={g} value={g} style={{ background: '#1e1e1e' }}>{g}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                          </th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Cédula</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'center' }}>Teléfono</th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>
