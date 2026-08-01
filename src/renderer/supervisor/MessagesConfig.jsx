@@ -356,92 +356,29 @@ export default function MessagesConfig() {
           3 · Mensaje
         </p>
 
-        {/* Campos extra solo para CORREO */}
+        {/* Asunto — solo CORREO */}
         {canal === 'CORREO' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-            <div>
-              <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Asunto</p>
-              <input
-                type="text"
-                value={asunto}
-                onChange={e => setAsunto(e.target.value)}
-                placeholder="Asunto del correo…"
-                style={{
-                  width: '100%', boxSizing: 'border-box',
-                  background: 'rgba(0,0,0,0.3)',
-                  border: `1.5px solid ${asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'}`,
-                  borderRadius: 10, padding: '10px 14px',
-                  color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'inherit',
-                  transition: 'border-color 0.2s',
-                }}
-                onFocus={e => { e.target.style.borderColor = '#f48fb180'; }}
-                onBlur={e => { e.target.style.borderColor = asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'; }}
-              />
-            </div>
-            <div>
-              <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Imagen del correo (opcional)</p>
-              {imagenUrl ? (
-                <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1.5px solid #f48fb150' }}>
-                  <img
-                    src={imagenUrl}
-                    alt="preview"
-                    style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block', background: 'rgba(0,0,0,0.3)' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setImagenUrl('')}
-                    style={{
-                      position: 'absolute', top: 8, right: 8,
-                      background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.2)',
-                      borderRadius: 20, padding: '4px 10px', color: '#fff',
-                      fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                    }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
-                    Quitar
-                  </button>
-                </div>
-              ) : (
-                <label style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                  padding: '24px 16px', borderRadius: 10, cursor: 'pointer',
-                  border: '1.5px dashed rgba(244,143,177,0.35)',
-                  background: 'rgba(244,143,177,0.04)',
-                  transition: 'border-color 0.2s, background 0.2s',
-                }}
-                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#f48fb1'; e.currentTarget.style.background = 'rgba(244,143,177,0.1)'; }}
-                  onDragLeave={e => { e.currentTarget.style.borderColor = 'rgba(244,143,177,0.35)'; e.currentTarget.style.background = 'rgba(244,143,177,0.04)'; }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    e.currentTarget.style.borderColor = 'rgba(244,143,177,0.35)';
-                    e.currentTarget.style.background = 'rgba(244,143,177,0.04)';
-                    const file = e.dataTransfer.files[0];
-                    if (!file || !file.type.startsWith('image/')) return;
-                    const reader = new FileReader();
-                    reader.onload = ev => setImagenUrl(ev.target.result);
-                    reader.readAsDataURL(file);
-                  }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#f48fb1', opacity: 0.6 }}>add_photo_alternate</span>
-                  <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Arrastra una imagen o haz clic para seleccionar</span>
-                  <span style={{ fontSize: 11, opacity: 0.3 }}>JPG, PNG, GIF, WebP</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: 'none' }}
-                    onChange={e => {
-                      const file = e.target.files[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = ev => setImagenUrl(ev.target.result);
-                      reader.readAsDataURL(file);
-                    }}
-                  />
-                </label>
-              )}
-            </div>
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Asunto</p>
+            <input
+              type="text"
+              value={asunto}
+              onChange={e => setAsunto(e.target.value)}
+              placeholder="Asunto del correo…"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: 'rgba(0,0,0,0.3)',
+                border: `1.5px solid ${asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: 10, padding: '10px 14px',
+                color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'inherit',
+                transition: 'border-color 0.2s',
+              }}
+              onFocus={e => { e.target.style.borderColor = '#f48fb180'; }}
+              onBlur={e => { e.target.style.borderColor = asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'; }}
+            />
           </div>
         )}
+
 
         <textarea
           value={mensaje}
@@ -461,6 +398,57 @@ export default function MessagesConfig() {
           onFocus={e => { e.target.style.borderColor = canalMeta.color + '80'; }}
           onBlur={e => { e.target.style.borderColor = mensaje.trim() ? canalMeta.color + '60' : 'rgba(255,255,255,0.08)'; }}
         />
+
+        {/* Imagen — solo CORREO, después del mensaje */}
+        {canal === 'CORREO' && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Imagen del correo (opcional)</p>
+            {imagenUrl ? (
+              <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1.5px solid #f48fb150' }}>
+                <img src={imagenUrl} alt="preview" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block', background: 'rgba(0,0,0,0.3)' }} />
+                <button type="button" onClick={() => setImagenUrl('')} style={{
+                  position: 'absolute', top: 8, right: 8,
+                  background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.2)',
+                  borderRadius: 20, padding: '4px 10px', color: '#fff',
+                  fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                  Quitar
+                </button>
+              </div>
+            ) : (
+              <label style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                padding: '24px 16px', borderRadius: 10, cursor: 'pointer',
+                border: '1.5px dashed rgba(244,143,177,0.35)', background: 'rgba(244,143,177,0.04)',
+                transition: 'border-color 0.2s, background 0.2s',
+              }}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#f48fb1'; e.currentTarget.style.background = 'rgba(244,143,177,0.1)'; }}
+                onDragLeave={e => { e.currentTarget.style.borderColor = 'rgba(244,143,177,0.35)'; e.currentTarget.style.background = 'rgba(244,143,177,0.04)'; }}
+                onDrop={e => {
+                  e.preventDefault();
+                  e.currentTarget.style.borderColor = 'rgba(244,143,177,0.35)';
+                  e.currentTarget.style.background = 'rgba(244,143,177,0.04)';
+                  const file = e.dataTransfer.files[0];
+                  if (!file || !file.type.startsWith('image/')) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => setImagenUrl(ev.target.result);
+                  reader.readAsDataURL(file);
+                }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 32, color: '#f48fb1', opacity: 0.6 }}>add_photo_alternate</span>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>Arrastra una imagen o haz clic para seleccionar</span>
+                <span style={{ fontSize: 11, opacity: 0.3 }}>JPG, PNG, GIF, WebP</span>
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                  const file = e.target.files[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => setImagenUrl(ev.target.result);
+                  reader.readAsDataURL(file);
+                }} />
+              </label>
+            )}
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button type="button" onClick={handleEnviar} disabled={sending || !mensaje.trim()} style={{
