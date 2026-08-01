@@ -483,6 +483,52 @@ export default function MessagesConfig() {
               : <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>send</span> Enviar a Gestores</>
             }
           </button>
+
+          {/* Historial / Inactivos — debajo del botón enviar */}
+          <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 16 }}>
+            {/* Filtros inline */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginRight: 4 }}>Historial</span>
+              {[
+                <select key="canal" value={filtroCanal} onChange={e => setFiltroCanal(e.target.value)}
+                  style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroCanal ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
+                  <option value="">Canal</option>
+                  {CANALES.map(c => <option key={c.id} value={c.id} style={{ background: '#1a1f2b' }}>{c.label}</option>)}
+                </select>,
+                <select key="seg" value={filtroSegmento} onChange={e => setFiltroSegmento(e.target.value)}
+                  style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroSegmento ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
+                  <option value="">Segmento</option>
+                  {SEGMENTOS.map(s => <option key={s.id} value={s.id} style={{ background: '#1a1f2b' }}>{s.label}</option>)}
+                </select>,
+                <input key="fecha" type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)}
+                  style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroFecha ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, colorScheme: 'dark' }} />,
+              ]}
+              {(filtroCanal || filtroSegmento || filtroFecha) && (
+                <button type="button" onClick={() => { setFiltroCanal(''); setFiltroSegmento(''); setFiltroFecha(''); }}
+                  style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, padding: '4px 6px', font: 'inherit' }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span>limpiar
+                </button>
+              )}
+            </div>
+
+            {/* Historial inactivos */}
+            {inactivos.length > 0 && (
+              <details>
+                <summary style={{
+                  cursor: 'pointer', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+                  color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase',
+                  listStyle: 'none', display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '8px 0', userSelect: 'none',
+                }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
+                  Inactivos · {inactivos.length}
+                </summary>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
+                  {inactivos.map(m => <MensajeCard key={m.id} m={m} />)}
+                </div>
+              </details>
+            )}
+          </div>
         </div>
 
         {/* Columna derecha: preview + estado */}
@@ -532,58 +578,6 @@ export default function MessagesConfig() {
             }
           </div>
         </div>
-      </div>
-
-      {/* Historial / Inactivos separados */}
-      <div>
-        {/* Filtros inline */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginRight: 4 }}>Historial</span>
-
-      {/* Historial inactivos */}
-      <div>
-        {/* Filtros inline */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginRight: 4 }}>Historial</span>
-          {[
-            <select key="canal" value={filtroCanal} onChange={e => setFiltroCanal(e.target.value)}
-              style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroCanal ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
-              <option value="">Canal</option>
-              {CANALES.map(c => <option key={c.id} value={c.id} style={{ background: '#1a1f2b' }}>{c.label}</option>)}
-            </select>,
-            <select key="seg" value={filtroSegmento} onChange={e => setFiltroSegmento(e.target.value)}
-              style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroSegmento ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
-              <option value="">Segmento</option>
-              {SEGMENTOS.map(s => <option key={s.id} value={s.id} style={{ background: '#1a1f2b' }}>{s.label}</option>)}
-            </select>,
-            <input key="fecha" type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)}
-              style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroFecha ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, colorScheme: 'dark' }} />,
-          ]}
-          {(filtroCanal || filtroSegmento || filtroFecha) && (
-            <button type="button" onClick={() => { setFiltroCanal(''); setFiltroSegmento(''); setFiltroFecha(''); }}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, padding: '4px 6px', font: 'inherit' }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span>limpiar
-            </button>
-          )}
-        </div>
-
-        {/* Historial inactivos */}
-        {inactivos.length > 0 && (
-          <details>
-            <summary style={{
-              cursor: 'pointer', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-              color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase',
-              listStyle: 'none', display: 'flex', alignItems: 'center', gap: 5,
-              padding: '8px 0', userSelect: 'none',
-            }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>history</span>
-              Inactivos · {inactivos.length}
-            </summary>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-              {inactivos.map(m => <MensajeCard key={m.id} m={m} />)}
-            </div>
-          </details>
-        )}
       </div>
 
     </div>
