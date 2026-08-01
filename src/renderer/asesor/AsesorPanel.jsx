@@ -3635,8 +3635,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                             }
                                             const htmlBody = [
                                               `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">`,
-                                              imgSrc ? `<div style="text-align:center;margin-bottom:20px"><img src="${imgSrc}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
-                                              mensaje ? `<p style="white-space:pre-wrap;margin:0">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
+                                              mensaje ? `<p style="white-space:pre-wrap;margin:0 0 20px">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
+                                              imgSrc ? `<div style="text-align:center"><img src="${imgSrc}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
                                               `</div>`,
                                             ].join('');
                                             // Copiar HTML al portapapeles — fallback a texto plano si falla (imagen base64 demasiado grande)
