@@ -1414,6 +1414,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // históricos completos de la campaña seleccionada — nunca se resetean por día ni
   // se pierden. Se refresca al cambiar de campaña, al trabajar (gestionTick) y cada 30s.
   const campVista = revisionCampanaId || campana?.id || null;
+  const modoRevision = !!(revisionCampanaId && revisionCampanaId !== (campana?.id || null));
   const [gestionTick, setGestionTick] = useState(0);
   useEffect(() => {
     if (!campVista || !usuario?.id) { setCampStats(null); return; }
@@ -1597,13 +1598,15 @@ export default function AsesorPanel({ usuario, onLogout }) {
     setCarteraLoading(true);
     carteraLastLoadRef.current = Date.now();
     try {
-      const data = await callApi('db:getCarteraAsesor', usuario.id, campana?.id);
+      const data = await callApi('db:getCarteraAsesor', usuario.id, campVista);
       const arr = Array.isArray(data) ? data : [];
       setCartera(arr);
       // Inicializar selects con tipificaciones existentes en DB
       const initSel = {};
       arr.forEach(c => { if (c.ultima_tip_codigo && TIP_CODE_TO_VAL[c.ultima_tip_codigo]) initSel[c.id] = TIP_CODE_TO_VAL[c.ultima_tip_codigo]; });
       setTipifSelects(initSel);
+      // En modo revisión solo mostramos la cartera — no sobreescribir contadores de canal de la apertura activa
+      if (modoRevision) return;
       // Sincronizar métricas canal con estado real de cartera (círculos verdes = ENVIADO hoy)
       const rcs = { 0: 0, 1: 0, 2: 0 };
       const wsp = { 0: 0, 1: 0, 2: 0 };
@@ -1661,7 +1664,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     } finally {
       setCarteraLoading(false);
     }
-  }, [usuario?.id, campana?.id, callApi]);
+  }, [usuario?.id, campVista, modoRevision, callApi]);
 
   // Cargar cartera al montar para inicializar métricas S0/S1/S2 desde el primer momento
   useEffect(() => {
@@ -3059,7 +3062,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   ].filter(Boolean).join(' ').toLowerCase();
                   return hay.includes(txt);
                 });
-                if (cartera.length === 0) {
+                if (cartera.length === 0 && !modoRevision) {
                   return (
                     <div style={{ padding: '40px 0', textAlign: 'center', opacity: 0.4 }}>
                       <span className="material-symbols-outlined" style={{ fontSize: 36 }}>folder_off</span>
@@ -3067,6 +3070,31 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     </div>
                   );
                 }
+                const bannerRevision = modoRevision ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 16px', marginBottom: 12, borderRadius: 8,
+                    background: 'rgba(255,179,0,0.10)', border: '1px solid rgba(255,179,0,0.35)',
+                  }}>
+                    <span style={{ fontSize: 13, color: '#ffb300', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>info</span>
+                      Revisando apertura: <b>{campStats?.campanaNombre || '...'}</b> — solo lectura
+                    </span>
+                    <button type="button"
+                      onClick={() => setRevisionCampanaId(null)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px',
+                        borderRadius: 6, border: '1px solid rgba(255,179,0,0.5)',
+                        background: 'rgba(255,179,0,0.15)', color: '#ffb300',
+                        fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                      }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>undo</span>
+                      Volver a mi cartera
+                    </button>
+                  </div>
+                ) : null;
+
                 // #5 — Apartado "Pendiente de comprobación": ya_pago declarado por el asesor,
                 // aún sin validación bancaria del supervisor. Fuera de la cola activa.
                 // "Ya pagó" = declarado por asesor (ya_pago) o validado por supervisor (validado_pago).
@@ -3172,6 +3200,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 }
                 return (
                  <>
+                  {bannerRevision}
                   <div style={{ borderRadius: 8, border: '1px solid rgba(255,255,255,0.07)', overflow: 'clip' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
@@ -3419,7 +3448,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 const esGestionado = c.estado_marcacion === 'GESTIONADO' || c.estado_marcacion === 'YA_PAGO';
                                 // En vuelta 2+ (gestiones_count >= 2 acumulado) se permite reenviar aunque ya esté ENVIADO
                                 const enVuelta2Plus = (c.gestiones_count || 0) >= 2;
-                                const bloqueado = enviado && esGestionado && !enVuelta2Plus;
+                                const bloqueado = modoRevision || (enviado && esGestionado && !enVuelta2Plus);
                                 const canalColor = canal === 'wsp' ? '#25D366' : canal === 'correo' ? '#f48fb1' : '#64b5f6';
                                 const canalIcon  = canal === 'wsp' ? 'chat' : canal === 'correo' ? 'mail' : 'sms';
                                 const canalLabel = canal === 'wsp' ? 'WhatsApp' : canal === 'correo' ? 'Gmail' : 'Google Messages';
@@ -3568,12 +3597,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                         handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true, _nuevaGestion: true });
                                       }
                                     }}
+                                    disabled={modoRevision}
                                     style={{
                                       width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 6,
                                       background: tipifSelects[c.id] ? 'rgba(0,230,118,0.12)' : 'rgba(255,255,255,0.06)',
                                       border: tipifSelects[c.id] ? '1px solid rgba(0,230,118,0.4)' : '1px solid rgba(255,255,255,0.14)',
                                       color: tipifSelects[c.id] ? '#00e676' : 'rgba(255,255,255,0.75)',
-                                      cursor: 'pointer', outline: 'none', appearance: 'none', textAlign: 'center', fontWeight: tipifSelects[c.id] ? 700 : 400,
+                                      cursor: modoRevision ? 'not-allowed' : 'pointer', outline: 'none', appearance: 'none', textAlign: 'center', fontWeight: tipifSelects[c.id] ? 700 : 400,
+                                      opacity: modoRevision ? 0.4 : 1,
                                     }}
                                   >
                                     <option value="" disabled style={{ background: '#1e1e1e' }}>
@@ -3599,7 +3630,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       <option key={o.value} value={o.value} style={{ background: '#1e1e1e' }}>{o.label}</option>
                                     ))}
                                   </select>
-                                  {!tipifSelects[c.id] && (
+                                  {!tipifSelects[c.id] && !modoRevision && (
                                     <button type="button"
                                       onClick={() => { setContactoActual(c); setCdrId(null); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true); }}
                                       style={{
@@ -3614,13 +3645,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     </button>
                                   )}
                                   <button type="button"
-                                    onClick={() => setConfirmYaPago(c)}
+                                    disabled={modoRevision}
+                                    onClick={() => { if (!modoRevision) setConfirmYaPago(c); }}
                                     title="Cliente declara que ya pagó — pasa a Pendiente de comprobación (validación bancaria del supervisor)"
                                     style={{
                                       alignSelf: 'center', padding: '1px 4px', fontSize: 9, fontWeight: 600,
                                       background: 'transparent', border: 'none',
-                                      color: 'rgba(255,213,79,0.7)', cursor: 'pointer', letterSpacing: '0.02em',
-                                      display: 'inline-flex', alignItems: 'center', gap: 3, opacity: 0.85,
+                                      color: 'rgba(255,213,79,0.7)', cursor: modoRevision ? 'not-allowed' : 'pointer', letterSpacing: '0.02em',
+                                      display: 'inline-flex', alignItems: 'center', gap: 3, opacity: modoRevision ? 0.3 : 0.85,
                                     }}
                                     onMouseEnter={e => { e.currentTarget.style.color = '#ffd54f'; e.currentTarget.style.opacity = 1; }}
                                     onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,213,79,0.7)'; e.currentTarget.style.opacity = 0.85; }}
@@ -3640,7 +3672,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       <button
                                         type="button"
                                         title={isWsp0 ? `WhatsApp a ${c.telefono} — Celular 1` : `Marcar ${c.telefono} — Celular 1`}
-                                        onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, idx0); }}
+                                        disabled={modoRevision}
+                                        onClick={(e) => { e.stopPropagation(); if (!modoRevision) handleAdbMarcar(c, idx0); }}
                                         style={{
                                           width: 32, height: 32, borderRadius: 8,
                                           border: isWsp0 ? '1px solid rgba(171,71,188,0.35)' : '1px solid rgba(100,181,246,0.35)',
@@ -3675,7 +3708,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       <button
                                         type="button"
                                         title={isWsp1 ? `WhatsApp a ${c.telefono} — Celular 2` : `Marcar ${c.telefono} — Celular 2`}
-                                        onClick={(e) => { e.stopPropagation(); handleAdbMarcar(c, idx1); }}
+                                        disabled={modoRevision}
+                                        onClick={(e) => { e.stopPropagation(); if (!modoRevision) handleAdbMarcar(c, idx1); }}
                                         style={{
                                           width: 32, height: 32, borderRadius: 8,
                                           border: isWsp1 ? '1px solid rgba(171,71,188,0.35)' : '1px solid rgba(100,181,246,0.35)',
