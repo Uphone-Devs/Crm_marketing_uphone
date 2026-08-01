@@ -2824,9 +2824,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   { key: '1',       label: '1 día',    sub: 'mora leve',       icon: 'schedule',            t: seg['1'].t, g: seg['1'].g, p: seg['1'].p, g2: seg['1'].g2, g3: seg['1'].g3, g4: seg['1'].g4, color: '#ffca28' },
                   { key: '2',       label: '2 días',   sub: 'mora',            icon: 'warning',             t: seg['2'].t, g: seg['2'].g, p: seg['2'].p, g2: seg['2'].g2, g3: seg['2'].g3, g4: seg['2'].g4, color: '#ff9800' },
                 ];
+                const Sep4 = () => <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', alignSelf: 'stretch', margin: '3px 0', flexShrink: 0 }} />;
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 8 }}>
-                    {cards.map(c => {
+                  <div style={{
+                    display: 'flex', alignItems: 'stretch', marginBottom: 8,
+                    background: 'rgba(255,255,255,0.025)', borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden',
+                  }}>
+                    {cards.map((c, ci) => {
                       const active = carteraFiltroDias === c.key;
                       const pct = c.t > 0 ? Math.round((c.g / c.t) * 100) : 0;
                       const falta = Math.max(0, c.t - c.g);
@@ -2838,60 +2843,48 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       const vueltaGn    = [c.g, c.g2, c.g3, c.g4, c.g4][vueltaN - 1];
                       const vueltaPct   = c.t > 0 ? Math.round((vueltaGn / c.t) * 100) : 0;
                       const vueltaColor = [c.color, '#64b5f6', '#ce93d8', '#ffd54f', '#ffd54f'][vueltaN - 1];
-                      const vueltaSub   = vueltaN === 1 ? c.sub : `✓ Vuelta ${Math.min(vueltaN - 1, 4)} completa`;
-                      const vueltaLabel = vueltaN > 1 ? `vuelta ${Math.min(vueltaN, 4)}` : 'contactados';
                       const displayPct  = vueltaN === 1 ? pct : vueltaPct;
                       const vueltaBadge = vueltaN > 1 ? `V${Math.min(vueltaN, 4)}` : null;
+                      const title = `${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%${v1done ? ` · Vuelta ${Math.min(vueltaN, 4)}: ${vueltaGn}/${c.t} (${vueltaPct}%)` : ''}`;
                       return (
-                        <button type="button" key={c.key}
-                          onClick={() => setCarteraFiltroDias(c.key)}
-                          title={`${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%${v1done ? ` · Vuelta ${Math.min(vueltaN, 4)}: ${vueltaGn}/${c.t} (${vueltaPct}%)` : ''}`}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = vueltaColor + '66'; e.currentTarget.style.background = active ? `${vueltaColor}18` : 'rgba(255,255,255,0.05)'; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = active ? vueltaColor + '55' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.background = active ? `${vueltaColor}12` : 'rgba(255,255,255,0.03)'; }}
-                          style={{
-                            textAlign: 'left', cursor: 'pointer', padding: '11px 14px', borderRadius: 12,
-                            background: active ? `${vueltaColor}12` : 'rgba(255,255,255,0.03)',
-                            border: `1px solid ${active ? vueltaColor + '55' : 'rgba(255,255,255,0.07)'}`,
-                            boxShadow: active ? `0 0 0 1px ${vueltaColor}22 inset` : 'none',
-                            transition: 'background 0.15s, border-color 0.15s',
-                          }}
-                        >
-                          {/* Fila 1: icono + label + % badge */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                            <span className="material-symbols-outlined" style={{ fontSize: 15, color: vueltaColor, opacity: active ? 1 : 0.65, flexShrink: 0 }}>{c.icon}</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: active ? vueltaColor : 'rgba(255,255,255,0.7)', flex: 1, lineHeight: 1 }}>{c.label}</span>
-                            <span style={{
-                              fontSize: 12, fontWeight: 900, color: vueltaColor,
-                              background: `${vueltaColor}1e`, padding: '2px 8px', borderRadius: 20, flexShrink: 0,
-                              letterSpacing: '-0.01em',
-                            }}>{displayPct}%</span>
-                          </div>
-                          {/* Fila 2: número + /total + badge vuelta */}
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 7 }}>
-                            <span style={{ fontSize: 22, fontWeight: 900, color: vueltaColor, lineHeight: 1, letterSpacing: '-0.02em' }}>{vueltaGn}</span>
-                            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.28)', fontWeight: 500 }}>/ {c.t}</span>
-                            {vueltaBadge && (
-                              <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 800, color: vueltaColor, opacity: 0.7, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{vueltaBadge}</span>
-                            )}
-                          </div>
-                          {/* Barra progreso */}
-                          <div style={{ height: 3, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: c.p > 0 ? 7 : 0 }}>
-                            <div style={{
-                              width: `${displayPct}%`, height: '100%', borderRadius: 99,
-                              background: vueltaColor,
-                              opacity: active ? 1 : 0.7,
-                              transition: 'width 0.4s ease',
-                            }} />
-                          </div>
-                          {/* Pagados */}
-                          {c.p > 0 && (
+                        <React.Fragment key={c.key}>
+                          {ci > 0 && <Sep4 />}
+                          <button type="button"
+                            onClick={() => setCarteraFiltroDias(c.key)}
+                            title={title}
+                            onMouseEnter={e => { e.currentTarget.style.background = active ? `${vueltaColor}18` : 'rgba(255,255,255,0.04)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = active ? `${vueltaColor}12` : 'transparent'; }}
+                            style={{
+                              flex: 1, textAlign: 'left', cursor: 'pointer',
+                              padding: '7px 14px', border: 'none', outline: 'none',
+                              background: active ? `${vueltaColor}12` : 'transparent',
+                              borderBottom: active ? `2px solid ${vueltaColor}` : '2px solid transparent',
+                              font: 'inherit', color: 'inherit',
+                              transition: 'background 0.15s, border-color 0.15s',
+                              display: 'flex', flexDirection: 'column', gap: 3,
+                            }}
+                          >
+                            {/* Fila 1: icono + label + % */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ce93d8', flexShrink: 0 }} />
-                              <span style={{ fontSize: 11, fontWeight: 700, color: '#ce93d8' }}>{c.p}</span>
-                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.28)' }}>pagaron</span>
+                              <span className="material-symbols-outlined" style={{ fontSize: 13, color: vueltaColor, opacity: active ? 1 : 0.55 }}>{c.icon}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: active ? vueltaColor : 'rgba(255,255,255,0.6)', flex: 1 }}>{c.label}</span>
+                              <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7 }}>{displayPct}%</span>
                             </div>
-                          )}
-                        </button>
+                            {/* Fila 2: número + /total + vuelta */}
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                              <span style={{ fontSize: 18, fontWeight: 900, color: vueltaColor, letterSpacing: '-0.02em', lineHeight: 1 }}>{vueltaGn}</span>
+                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>/{c.t}</span>
+                              {vueltaBadge && <span style={{ fontSize: 8, fontWeight: 800, color: vueltaColor, opacity: 0.6, marginLeft: 2 }}>{vueltaBadge}</span>}
+                              {c.p > 0 && <span style={{ marginLeft: 'auto', fontSize: 9, color: '#ce93d8', display: 'flex', alignItems: 'center', gap: 2 }}>
+                                <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#ce93d8', flexShrink: 0 }} />{c.p}
+                              </span>}
+                            </div>
+                            {/* Barra */}
+                            <div style={{ height: 2, borderRadius: 99, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                              <div style={{ width: `${displayPct}%`, height: '100%', background: vueltaColor, opacity: active ? 0.9 : 0.5, borderRadius: 99, transition: 'width 0.4s' }} />
+                            </div>
+                          </button>
+                        </React.Fragment>
                       );
                     })}
                   </div>
