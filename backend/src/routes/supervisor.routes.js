@@ -2386,12 +2386,13 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
       include: { supervisor: { select: { nombre: true } } },
     });
     res.json(rows.map(m => ({
-      id:               m.id,
-      mensaje:          m.mensaje,
-      segmento_destino: m.segmentoDestino,
-      activo:           m.activo ? 1 : 0,
+      id:                m.id,
+      mensaje:           m.mensaje,
+      segmento_destino:  m.segmentoDestino,
+      canal:             m.canal,
+      activo:            m.activo ? 1 : 0,
       supervisor_nombre: m.supervisor?.nombre ?? null,
-      creado_en:        m.creadoEn,
+      creado_en:         m.creadoEn,
       pagos_posteriores: 0,
     })));
   } catch (err) { next(err); }
@@ -2399,19 +2400,22 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
 
 router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const { mensaje, segmento_destino = 'TODOS' } = req.body;
+    const { mensaje, segmento_destino = 'TODOS', canal = 'TODOS' } = req.body;
     if (!mensaje?.trim()) return res.status(400).json({ error: 'Mensaje requerido' });
+    const canalesValidos = ['TODOS', 'WSP', 'RCS', 'CORREO'];
+    if (!canalesValidos.includes(canal)) return res.status(400).json({ error: 'Canal inválido' });
     const m = await db.mensajeBroadcast.create({
-      data: { supervisorId: req.user.id, mensaje: mensaje.trim(), segmentoDestino: segmento_destino },
+      data: { supervisorId: req.user.id, mensaje: mensaje.trim(), segmentoDestino: segmento_destino, canal },
       include: { supervisor: { select: { nombre: true } } },
     });
     const payload = {
-      id:               m.id,
-      mensaje:          m.mensaje,
-      segmento_destino: m.segmentoDestino,
-      activo:           1,
+      id:                m.id,
+      mensaje:           m.mensaje,
+      segmento_destino:  m.segmentoDestino,
+      canal:             m.canal,
+      activo:            1,
       supervisor_nombre: m.supervisor?.nombre ?? null,
-      creado_en:        m.creadoEn,
+      creado_en:         m.creadoEn,
       pagos_posteriores: 0,
     };
     broadcastToAll({ tipo: 'NUEVO_MENSAJE_BROADCAST', mensaje: payload });
