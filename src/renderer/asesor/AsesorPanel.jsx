@@ -3653,15 +3653,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                               // HTML write falló (imagen base64 demasiado grande) — usar solo texto
                                               try { await navigator.clipboard.writeText(mensaje || ''); clipboardOk = true; } catch (_2) {}
                                             }
-                                            // Gmail: to + su + body precargados via URL (texto automático)
-                                            // Imagen va en clipboard — Ctrl+V al final si se necesita
-                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}${asunto ? '&su=' + encodeURIComponent(asunto) : ''}${mensaje ? '&body=' + encodeURIComponent(mensaje) : ''}`;
+                                            // Gmail: to + su via URL; body + imagen via Ctrl+V (clipboard)
+                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}${asunto ? '&su=' + encodeURIComponent(asunto) : ''}`;
                                             await callApi('shell:openExternal', gmailUrl);
                                             showToast(
-                                              imgSrc && clipboardOk
-                                                ? 'Gmail abierto — mensaje precargado. Ctrl+V para añadir la imagen al final'
-                                                : 'Gmail abierto — mensaje precargado',
-                                              'success'
+                                              clipboardOk
+                                                ? 'Gmail abierto — presiona Ctrl+V en el cuerpo para pegar mensaje' + (imgSrc ? ' e imagen' : '')
+                                                : 'Gmail abierto — escribe el mensaje manualmente',
+                                              'info'
                                             );
                                           } catch (err) {
                                             showToast('Error abriendo Gmail: ' + (err.message || err), 'error');
