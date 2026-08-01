@@ -22,47 +22,41 @@ const SEGMENTOS = [
 
 function CanalTab({ c, active, onClick }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <button type="button" onClick={onClick}
       style={{
-        flex: 1,
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-        padding: '14px 8px',
-        borderRadius: 12,
-        border: `1.5px solid ${active ? c.color : 'rgba(255,255,255,0.07)'}`,
-        background: active ? `${c.color}18` : 'rgba(255,255,255,0.02)',
+        display: 'flex', alignItems: 'center', gap: 7,
+        padding: '7px 16px', borderRadius: 8,
+        border: 'none', outline: 'none',
+        background: active ? `${c.color}14` : 'transparent',
         color: active ? c.color : 'rgba(255,255,255,0.35)',
-        cursor: 'pointer',
-        transition: 'all 0.18s ease',
-        boxShadow: active ? `0 0 18px ${c.color}25` : 'none',
+        cursor: 'pointer', font: 'inherit',
+        borderBottom: `2px solid ${active ? c.color : 'transparent'}`,
+        transition: 'all 0.15s',
       }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.35)'; }}
     >
-      <span className="material-symbols-outlined" style={{ fontSize: 22 }}>{c.icon}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.3 }}>{c.label}</span>
+      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{c.icon}</span>
+      <span style={{ fontSize: 13, fontWeight: active ? 700 : 400 }}>{c.label}</span>
     </button>
   );
 }
 
 function SegmentoChip({ s, active, onClick }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <button type="button" onClick={onClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '7px 16px', borderRadius: 22,
-        border: `1.5px solid ${active ? s.color : 'rgba(255,255,255,0.09)'}`,
-        background: active ? `${s.color}18` : 'transparent',
-        color: active ? s.color : 'rgba(255,255,255,0.45)',
-        fontSize: 12.5, fontWeight: active ? 700 : 400,
-        cursor: 'pointer',
-        transition: 'all 0.18s ease',
-        boxShadow: active ? `0 0 10px ${s.color}25` : 'none',
+        display: 'flex', alignItems: 'center', gap: 5,
+        padding: '4px 12px', borderRadius: 20,
+        border: `1px solid ${active ? s.color + '66' : 'rgba(255,255,255,0.08)'}`,
+        background: active ? `${s.color}10` : 'transparent',
+        color: active ? s.color : 'rgba(255,255,255,0.4)',
+        fontSize: 12, fontWeight: active ? 700 : 400,
+        cursor: 'pointer', font: 'inherit', transition: 'all 0.15s',
       }}
     >
-      <span style={{ fontWeight: 800 }}>{s.label}</span>
-      <span style={{ opacity: 0.55, fontSize: 11 }}>· {s.sub}</span>
+      {s.label}
+      <span style={{ opacity: 0.45, fontSize: 10 }}>{s.sub}</span>
     </button>
   );
 }
@@ -272,89 +266,60 @@ export default function MessagesConfig() {
   }
 
   return (
-    <div style={{ padding: '28px 28px 48px', maxWidth: 860, margin: '0 auto' }}>
+    <div style={{ padding: '24px 24px 48px', maxWidth: 820, margin: '0 auto' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 28 }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: 12, flexShrink: 0,
-          background: 'linear-gradient(135deg,#00e676,#00bfa5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 4px 16px rgba(0,230,118,0.3)',
-        }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 22, color: '#000' }}>campaign</span>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 22 }}>
         <div>
-          <h3 style={{ margin: '0 0 4px', fontSize: 20, fontWeight: 800, letterSpacing: -0.3, color: '#fff' }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.9)', letterSpacing: -0.2 }}>
             Mensajes para Gestores
           </h3>
-          <p style={{ margin: 0, fontSize: 12.5, opacity: 0.4, lineHeight: 1.5 }}>
-            Define el mensaje de cada canal y tramo. Los gestores lo verán al hacer clic en los botones de mensajería.
+          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>
+            Configura el mensaje por canal y tramo de deuda
           </p>
         </div>
         <button type="button" onClick={cargarMensajes}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: 6 }}
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', padding: 4 }}
           title="Recargar"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
         </button>
       </div>
 
       {/* Compositor */}
       <div style={{
-        background: 'rgba(255,255,255,0.025)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        borderRadius: 18, padding: 24, marginBottom: 28,
-        boxShadow: '0 4px 40px rgba(0,0,0,0.25)',
+        background: 'rgba(255,255,255,0.02)',
+        border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 14, marginBottom: 24,
       }}>
-
-        {/* Step 1 — Canal */}
-        <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
-          1 · Canal de envío
-        </p>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 22 }}>
+        {/* Canal tabs */}
+        <div style={{
+          display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '0 8px',
+        }}>
           {CANALES.map(c => (
             <CanalTab key={c.id} c={c} active={canal === c.id} onClick={() => setCanal(c.id)} />
           ))}
         </div>
 
-        {/* Step 2 — Segmento */}
-        <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
-          2 · Segmento de deuda
-        </p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 22 }}>
-          {SEGMENTOS.map(s => (
-            <SegmentoChip key={s.id} s={s} active={segmento === s.id} onClick={() => setSegmento(s.id)} />
-          ))}
-        </div>
+        <div style={{ padding: '16px 20px' }}>
+          {/* Segmento */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', flexShrink: 0 }}>Segmento</span>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {SEGMENTOS.map(s => (
+                <SegmentoChip key={s.id} s={s} active={segmento === s.id} onClick={() => setSegmento(s.id)} />
+              ))}
+            </div>
+            {activoActual && (
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#00e676', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600, flexShrink: 0 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check_circle</span>activo
+              </span>
+            )}
+          </div>
 
-        {/* Divider con contexto */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14,
-          padding: '8px 12px', borderRadius: 8,
-          background: `${canalMeta.color}0d`,
-          border: `1px solid ${canalMeta.color}20`,
-        }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 15, color: canalMeta.color }}>{canalMeta.icon}</span>
-          <span style={{ fontSize: 12, color: canalMeta.color, fontWeight: 700 }}>{canalMeta.label}</span>
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>·</span>
-          <span style={{ fontSize: 12, color: segmentoMeta.color, fontWeight: 700 }}>{segmentoMeta.label}</span>
-          <span style={{ fontSize: 11, opacity: 0.35 }}>({segmentoMeta.sub})</span>
-          {activoActual && (
-            <span style={{
-              marginLeft: 'auto', fontSize: 11, color: '#00e676',
-              display: 'flex', alignItems: 'center', gap: 4, fontWeight: 700,
-            }}>
-              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check_circle</span>
-              Activo
-            </span>
-          )}
-        </div>
-
-        {/* Step 3 — Mensaje */}
-        <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 800, letterSpacing: 1.2, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' }}>
-          3 · Mensaje
-        </p>
+          {/* Step 3 label */}
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', marginBottom: 10 }}>Mensaje</div>
 
         {/* Asunto — solo CORREO */}
         {canal === 'CORREO' && (
@@ -467,7 +432,8 @@ export default function MessagesConfig() {
             }
           </button>
         </div>
-      </div>
+        </div>{/* end padding div */}
+      </div>{/* end compositor */}
 
       {/* ── Historial ─────────────────────────────────────────────────────── */}
       <div>
