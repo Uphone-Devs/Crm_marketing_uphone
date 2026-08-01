@@ -3612,23 +3612,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                           const email = meta['CORREO CLIENTE'] || meta['CORREO'] || meta['EMAIL'] || '';
                                           if (!email) { showToast('Sin correo registrado para este cliente', 'warning'); return; }
                                           try {
-                                            // Construir HTML rico para pegar en Gmail (soporta imágenes embebidas)
+                                            // Construir HTML rico con imagen base64 embebida (funciona offline)
+                                            const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                                             const htmlBody = [
-                                              `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#222">`,
-                                              mensaje ? `<p style="white-space:pre-wrap;margin:0 0 16px">${mensaje.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>')}</p>` : '',
-                                              imagenUrl ? `<div style="text-align:center;margin-top:20px"><img src="${imagenUrl}" alt="imagen" style="max-width:600px;width:100%;display:block;margin:0 auto"></div>` : '',
+                                              `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">`,
+                                              mensaje ? `<p style="white-space:pre-wrap;margin:0 0 20px">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
+                                              imagenUrl ? `<div style="text-align:center;margin-top:16px"><img src="${imagenUrl}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
                                               `</div>`,
                                             ].join('');
-                                            // Copiar HTML al portapapeles — Gmail renderiza imágenes al pegar
-                                            try {
-                                              await navigator.clipboard.write([
-                                                new ClipboardItem({ 'text/html': new Blob([htmlBody], { type: 'text/html' }) }),
-                                              ]);
-                                            } catch (_) { /* portapapeles no disponible, continúa */ }
-                                            // Abrir Gmail compose con destinatario y asunto; body vacío para que el asesor pegue
-                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}${asunto ? '&su=' + encodeURIComponent(asunto) : ''}${!imagenUrl && mensaje ? '&body=' + encodeURIComponent(mensaje) : ''}`;
+                                            // Copiar HTML al portapapeles — al pegar en Gmail el cuerpo + imagen se pre-cargan
+                                            await navigator.clipboard.write([
+                                              new ClipboardItem({
+                                                'text/html': new Blob([htmlBody], { type: 'text/html' }),
+                                                'text/plain': new Blob([mensaje || ''], { type: 'text/plain' }),
+                                              }),
+                                            ]).catch(() => {});
+                                            // Gmail: to + su pre-cargados via URL; body se pega con Ctrl+V
+                                            const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}${asunto ? '&su=' + encodeURIComponent(asunto) : ''}`;
                                             await callApi('shell:openExternal', gmailUrl);
-                                            showToast(imagenUrl ? 'Gmail abierto — presiona Ctrl+V para pegar el correo con imagen' : 'Gmail abierto con mensaje', imagenUrl ? 'info' : 'success');
+                                            showToast('Gmail abierto — presiona Ctrl+V en el cuerpo para pegar mensaje' + (imagenUrl ? ' e imagen' : ''), 'info');
                                           } catch (err) {
                                             showToast('Error abriendo Gmail: ' + (err.message || err), 'error');
                                             return;
