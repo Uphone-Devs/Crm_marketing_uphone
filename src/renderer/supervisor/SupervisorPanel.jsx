@@ -354,8 +354,11 @@ export default function SupervisorPanel({ usuario, onLogout }) {
       socket.onclose = (e) => {
         setWsStatus('DESCONECTADO');
         clearInterval(wsPingRef.current);
+        if (e.code === 1008) {
+          window.api?.invoke('app:logout').catch(() => {});
+          return;
+        }
         console.warn(`[WS] Conexión cerrada: ${targetIp}. Reintentando en 5s...`, e.reason);
-        // Solo reintentar si el socket cerrado es el actual
         if (wsRef.current === socket) {
           setTimeout(conectarWS, 5000);
         }

@@ -943,27 +943,54 @@ router.get('/metricas-equipo', async (req, res, next) => {
     const asesores = await db.usuario.findMany({ where: whereU, select: { id: true, nombre: true } });
     const asesorIds = asesores.map(a => a.id);
 
-    const cdrWhere = { usuarioId: { in: asesorIds }, timestampInicio: { gte: inicio, lte: fin } };
-    const [cdrs, cdrsConTipif, gestionados, pagados, efectivos, neutros, noContact, aggRecaudado, compromisos, aggMoraBase] = await Promise.all([
-      db.cdr.count({ where: cdrWhere }),
-      db.cdr.count({ where: { ...cdrWhere, tipificacionId: { not: null } } }),
-      db.contacto.count({ where: { asignadoA: { in: asesorIds }, estadoMarcacion: 'GESTIONADO' } }),
-      db.contacto.count({ where: { asignadoA: { in: asesorIds }, yaPago: true } }),
-      db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'] } } } }),
-      db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['CONTACTO_NEUTRO', 'CONTACTO NEUTRO'] } } } }),
-      db.cdr.count({ where: { ...cdrWhere, tipificacion: { categoria: { in: ['NO_CONTACTADO', 'NO CONTACTADO'] } } } }),
-      db.cdr.aggregate({ _sum: { montoAcordado: true }, where: { ...cdrWhere, resultado: { in: ['PAGO_REAL', 'COMP_CUM'] } } }).catch(() => ({ _sum: { montoAcordado: 0 } })),
-      db.cdr.count({ where: { ...cdrWhere, tipificacion: { codigo: { in: ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'] } } } }),
-      db.contacto.aggregate({ _sum: { montoDeuda: true }, where: { asignadoA: { in: asesorIds } } }).catch(() => ({ _sum: { montoDeuda: 0 } })),
+    // 10 queries paralelas + 1 groupBy → 2 queries SQL con agregación condicional
+    const [[cdrAgg], [ctAgg]] = await Promise.all([
+      asesorIds.length > 0 ? db.$queryRaw`
+        SELECT
+          COUNT(*)::int                                                              AS total,
+          COUNT(cd.tipificacion_id)::int                                             AS con_tipif,
+          COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_EFECTIVO','CONTACTO EXITOSO'))::int AS efectivos,
+          COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_NEUTRO','CONTACTO NEUTRO'))::int    AS neutros,
+          COUNT(*) FILTER (WHERE t.categoria IN ('NO_CONTACTADO','NO CONTACTADO'))::int        AS no_contact,
+          COUNT(*) FILTER (WHERE cd.resultado IN ('PAGO_REAL','COMP_CUM'))::int                AS pagos_resultado,
+          COALESCE(SUM(cd.monto_acordado) FILTER (WHERE cd.resultado IN ('PAGO_REAL','COMP_CUM')), 0)::float AS monto_recaudado,
+          COUNT(*) FILTER (WHERE t.codigo IN ('PMP','PAGO_REAL','AB_PARC','PEND_COMP'))::int   AS compromisos
+        FROM cdrs cd
+        LEFT JOIN tipificaciones t ON t.id = cd.tipificacion_id
+        WHERE cd.usuario_id = ANY(${asesorIds}::int[])
+          AND cd.timestamp_inicio >= ${inicio}
+          AND cd.timestamp_inicio <= ${fin}
+      ` : [{ total:0, con_tipif:0, efectivos:0, neutros:0, no_contact:0, pagos_resultado:0, monto_recaudado:0, compromisos:0 }],
+      asesorIds.length > 0 ? db.$queryRaw`
+        SELECT
+          COUNT(*) FILTER (WHERE estado_marcacion = 'GESTIONADO')::int AS gestionados,
+          COUNT(*) FILTER (WHERE ya_pago = true)::int                  AS pagados,
+          COALESCE(SUM(monto_deuda), 0)::float                         AS mora_base
+        FROM contactos
+        WHERE asignado_a = ANY(${asesorIds}::int[])
+      ` : [{ gestionados:0, pagados:0, mora_base:0 }],
     ]);
 
-    const cdrsByAsesor = await db.cdr.groupBy({
-      by: ['usuarioId'],
-      where: { usuarioId: { in: asesorIds }, timestampInicio: { gte: inicio, lte: fin } },
-      _count: { _all: true },
-    });
-    const marcByU = Object.fromEntries(cdrsByAsesor.map(r => [r.usuarioId, r._count._all]));
+    // marcaciones por asesor (para la tabla del panel)
+    const cdrsByAsesor = asesorIds.length > 0 ? await db.$queryRaw`
+      SELECT usuario_id, COUNT(*)::int AS total
+      FROM cdrs
+      WHERE usuario_id = ANY(${asesorIds}::int[])
+        AND timestamp_inicio >= ${inicio}
+        AND timestamp_inicio <= ${fin}
+      GROUP BY usuario_id
+    ` : [];
+    const marcByU = Object.fromEntries(cdrsByAsesor.map(r => [Number(r.usuario_id), Number(r.total)]));
     const porAsesor = asesores.map(a => ({ asesor_id: a.id, nombre: a.nombre, marcaciones: marcByU[a.id] || 0 }));
+
+    const cdrs        = Number(cdrAgg.total);
+    const cdrsConTipif = Number(cdrAgg.con_tipif);
+    const efectivos   = Number(cdrAgg.efectivos);
+    const neutros     = Number(cdrAgg.neutros);
+    const noContact   = Number(cdrAgg.no_contact);
+    const compromisos = Number(cdrAgg.compromisos);
+    const gestionados = Number(ctAgg.gestionados);
+    const pagados     = Number(ctAgg.pagados);
 
     const connStats = getConnectedStats();
     // Filtrar solo asesores bajo este supervisor si no es admin
@@ -974,15 +1001,14 @@ router.get('/metricas-equipo', async (req, res, next) => {
 
     res.json({
       total_marcaciones: cdrs, gestionados, pagados, asesores: porAsesor,
-      // Totales que consume AdvancedMetricsCharts (Contactabilidad / Proyecciones)
       marcacionesTotales:      cdrs,
       cdrsTotalEquipo:         cdrsConTipif,
       contactosEfectivosTotal: efectivos,
       cdrsNeutrosTotal:        neutros,
       cdrsNoContactadosTotal:  noContact,
-      montoRecaudadoTotal:     Number(aggRecaudado._sum.montoAcordado || 0),
+      montoRecaudadoTotal:     Number(cdrAgg.monto_recaudado || 0),
       totalCompromisosEquipo:  compromisos,
-      moraBaseTotal:           Number(aggMoraBase._sum.montoDeuda || 0),
+      moraBaseTotal:           Number(ctAgg.mora_base || 0),
       totalConectados:         connAsesores.length,
     });
   } catch (err) { next(err); }
@@ -2165,43 +2191,71 @@ router.get('/jefe/top-asesores', async (req, res, next) => {
       : Prisma.sql``;
     const C_DIAS = `COALESCE(NULLIF(c.metadata->>'DIAS IMPAGO',''),NULLIF(c.metadata->>'DIAS EN MORA',''),NULLIF(c.metadata->>'DIAS MORA',''))`;
 
-    const result = await Promise.all(asesores.map(async (a) => {
-      const [total_gestiones, segRows] = await Promise.all([
-        db.cdr.count({ where: { usuarioId: a.id, ...cdrContacto, ...cdrFechaWhere } }),
-        db.$queryRaw(Prisma.sql`
+    // 1 CTE query sustituye N×2 queries paralelas (N = asesores count)
+    const asesorIds = asesores.map(a => a.id);
+    const cteRows = asesorIds.length > 0 ? await db.$queryRaw(Prisma.sql`
+      WITH
+        total_gest AS (
+          SELECT cd.usuario_id, COUNT(*)::int AS total
+          FROM cdrs cd
+          JOIN contactos c ON c.id = cd.contacto_id
+          WHERE cd.usuario_id = ANY(${asesorIds}::int[])
+            ${fechaRaw}
+            ${cdrRawWhere}
+          GROUP BY cd.usuario_id
+        ),
+        seg_counts AS (
           SELECT
+            cd.usuario_id,
             CAST(${Prisma.raw(C_DIAS)} AS INTEGER) AS segmento,
             COUNT(*)::int AS gestiones,
-            COUNT(CASE WHEN t.codigo = 'PMP'    THEN 1 END)::int AS promesas,
-            COUNT(CASE WHEN cd.resultado = 'CUMPL'   THEN 1 END)::int AS cumplidas,
-            COUNT(CASE WHEN cd.resultado = 'INCUMP'  THEN 1 END)::int AS vencidas
+            COUNT(*) FILTER (WHERE t.codigo = 'PMP')::int AS promesas,
+            COUNT(*) FILTER (WHERE cd.resultado = 'CUMPL')::int AS cumplidas,
+            COUNT(*) FILTER (WHERE cd.resultado = 'INCUMP')::int AS vencidas
           FROM cdrs cd
           JOIN contactos c ON cd.contacto_id = c.id
           LEFT JOIN tipificaciones t ON cd.tipificacion_id = t.id
-          WHERE cd.usuario_id = ${a.id}
-          AND ${Prisma.raw(C_DIAS)} ~ '^[0-2]$'
-          ${fechaRaw}
-          ${cdrRawWhere}
-          GROUP BY segmento ORDER BY segmento
-        `),
-      ]);
+          WHERE cd.usuario_id = ANY(${asesorIds}::int[])
+            AND ${Prisma.raw(C_DIAS)} ~ '^[0-2]$'
+            ${fechaRaw}
+            ${cdrRawWhere}
+          GROUP BY cd.usuario_id, segmento
+        )
+      SELECT
+        sc.usuario_id,
+        sc.segmento,
+        sc.gestiones,
+        sc.promesas,
+        sc.cumplidas,
+        sc.vencidas,
+        COALESCE(tg.total, 0) AS total_gestiones
+      FROM seg_counts sc
+      LEFT JOIN total_gest tg ON tg.usuario_id = sc.usuario_id
+    `) : [];
 
-      const segmentos = {
+    // Pivot por asesor en JS
+    const byAsesor = new Map(asesores.map(a => [a.id, {
+      asesor: a.nombre,
+      total_gestiones: 0,
+      segmentos: {
         '0': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
         '1': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
         '2': { gestiones: 0, promesas: 0, cumplidas: 0, vencidas: 0 },
-      };
-      for (const r of segRows) {
-        const s = String(r.segmento);
-        if (segmentos[s]) {
-          segmentos[s].gestiones = Number(r.gestiones);
-          segmentos[s].promesas  = Number(r.promesas);
-          segmentos[s].cumplidas = Number(r.cumplidas);
-          segmentos[s].vencidas  = Number(r.vencidas);
-        }
+      },
+    }]));
+    for (const r of cteRows) {
+      const entry = byAsesor.get(Number(r.usuario_id));
+      if (!entry) continue;
+      entry.total_gestiones = Number(r.total_gestiones);
+      const s = String(r.segmento);
+      if (entry.segmentos[s]) {
+        entry.segmentos[s].gestiones = Number(r.gestiones);
+        entry.segmentos[s].promesas  = Number(r.promesas);
+        entry.segmentos[s].cumplidas = Number(r.cumplidas);
+        entry.segmentos[s].vencidas  = Number(r.vencidas);
       }
-      return { asesor: a.nombre, total_gestiones, segmentos };
-    }));
+    }
+    const result = [...byAsesor.values()];
 
     result.sort((a, b) => b.total_gestiones - a.total_gestiones);
     res.json(result.slice(0, limit));
@@ -2301,15 +2355,22 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
       for (const r of aggRows) if (byDay[r.fecha] !== undefined) byDay[r.fecha] = Number(r.total) || 0;
       byDay[hoyYmd] = Number(hoyRows[0]?.total) || 0;
     } else {
-      // Con filtros (empresa/campaña/etc.) el agregado no aplica — cálculo live
+      // Con filtros (empresa/campaña/etc.) — GROUP BY DATE en SQL, sin traer filas crudas
       const hace7 = new Date(`${dias[0]}T00:00:00.000Z`);
-      const cdrs = await db.cdr.findMany({
-        where: { timestampInicio: { gte: hace7 }, montoAcordado: { not: null }, contacto: cWhere },
-        select: { timestampInicio: true, montoAcordado: true },
-      });
-      for (const c of cdrs) {
-        const key = c.timestampInicio.toISOString().slice(0, 10);
-        if (byDay[key] !== undefined) byDay[key] += parseFloat(c.montoAcordado ?? 0);
+      const ctFrag = buildCdrContactoRawWhere(cWhere);
+      const rows = await db.$queryRaw(Prisma.sql`
+        SELECT
+          DATE(cd.timestamp_inicio)::text AS fecha,
+          COALESCE(SUM(cd.monto_acordado), 0)::float AS valor_cobrado
+        FROM cdrs cd
+        JOIN contactos c ON c.id = cd.contacto_id
+        WHERE cd.timestamp_inicio >= ${hace7}
+          AND cd.monto_acordado IS NOT NULL
+          ${ctFrag}
+        GROUP BY DATE(cd.timestamp_inicio)
+      `);
+      for (const r of rows) {
+        if (byDay[r.fecha] !== undefined) byDay[r.fecha] = Number(r.valor_cobrado);
       }
     }
 
@@ -2501,16 +2562,22 @@ router.get('/cartera', async (req, res, next) => {
       ],
     });
 
-    // Última tipificación por contacto (CDR más reciente con tipificacion_id)
+    // Última tipificación por contacto — DISTINCT ON evita cargar todos los CDRs
     const contactoIds = contactos.map(c => c.id);
-    const latestTipCdrs = contactoIds.length > 0 ? await db.cdr.findMany({
-      where: { contactoId: { in: contactoIds }, tipificacionId: { not: null } },
-      select: { contactoId: true, tipificacion: { select: { codigo: true, descripcion: true } } },
-      orderBy: { id: 'desc' },
-    }) : [];
+    const latestTipRows = contactoIds.length > 0 ? await db.$queryRaw`
+      SELECT DISTINCT ON (cd.contacto_id)
+        cd.contacto_id AS "contactoId",
+        t.codigo,
+        t.descripcion
+      FROM cdrs cd
+      JOIN tipificaciones t ON t.id = cd.tipificacion_id
+      WHERE cd.contacto_id = ANY(${contactoIds}::int[])
+        AND cd.tipificacion_id IS NOT NULL
+      ORDER BY cd.contacto_id, cd.id DESC
+    ` : [];
     const tipMap = new Map();
-    for (const cdr of latestTipCdrs) {
-      if (!tipMap.has(cdr.contactoId)) tipMap.set(cdr.contactoId, cdr.tipificacion);
+    for (const r of latestTipRows) {
+      tipMap.set(Number(r.contactoId), { codigo: r.codigo, descripcion: r.descripcion });
     }
 
     // gestiones_count: cartera nueva (asignada hoy) → solo CDRs hoy; cartera anterior → histórico

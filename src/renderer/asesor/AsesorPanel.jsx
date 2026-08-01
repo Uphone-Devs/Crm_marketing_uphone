@@ -1034,11 +1034,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (e) => {
         wsStatusRef.current = 'DESCONECTADO';
         clearInterval(wsPingRef.current);
+        if (e.code === 1008) {
+          window.api?.invoke('app:logout').catch(() => {});
+          return;
+        }
         if (wsRef.current === socket) {
-          // Reintento amortiguado para evitar martilleo
           setTimeout(conectarWS, 5000);
         }
       };
