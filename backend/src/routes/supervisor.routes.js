@@ -1402,6 +1402,21 @@ router.post('/validacion/confirmar', requireRole('jefe_area', 'admin'), async (r
       `;
     }
 
+    // Abonos parciales: reducir monto_deuda al saldo restante (valor_en_mora - monto_pagado)
+    if (abonos.length) {
+      await Promise.all(
+        matchesSel
+          .filter(m => m.estadoPago === 'ABONO_PARCIAL')
+          .map(m => {
+            const saldo = Math.max(0, parseFloat(m.valorEnMora || 0) - parseFloat(m.montoPagado || 0));
+            return db.contacto.update({
+              where: { id: m.contactoId },
+              data: { montoDeuda: parseFloat(saldo.toFixed(2)) },
+            });
+          })
+      );
+    }
+
     // Notificar asesores en tiempo real
     broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: excluir, abonoIds: abonos });
 
