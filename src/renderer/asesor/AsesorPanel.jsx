@@ -2698,33 +2698,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
           ) : activePage === 'cartera' ? (
             <div className="widget-card" style={{ width: '100%', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 100px)', overflow: 'hidden' }}>
               <div style={{ flexShrink: 0, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 4 }}>
-              <div className="widget-header" style={{ marginBottom: 6 }}>
-                <div>
-                  <h3 className="widget-title">Cartera Asignada</h3>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="text-label-sm" style={{ color: 'var(--color-primary)' }}>
-                    {cartera.length} clientes
-                  </span>
-                  <button type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={cargarCartera}
-                    disabled={carteraLoading}
-                    title="Actualizar orden de marcación"
-                    style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}
-                  >
-                    <span
-                      className="material-symbols-outlined"
-                      style={{ fontSize: 16, animation: carteraLoading ? 'spin 0.8s linear infinite' : 'none' }}
-                    >
-                      refresh
-                    </span>
-                    {carteraLoading ? 'Actualizando…' : 'Actualizar'}
-                  </button>
-                </div>
-              </div>
-
-              {/* ── Resumen rápido ── */}
               {(() => {
                 const cnt = (estado) => cartera.filter(c => c.estado_marcacion === estado).length;
                 const total = cartera.length;
@@ -2735,48 +2708,62 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const recaudado = montoRecaudadoDB > 0
                   ? montoRecaudadoDB
                   : validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
-                const StatItem = ({ label, value, color, onClick, active, icon }) => (
-                  <button
-                    type="button"
-                    onClick={onClick}
-                    title={label}
+                const StatItem = ({ label, value, color, onClick, active }) => (
+                  <button type="button" onClick={onClick} title={label}
                     style={{
                       display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
-                      padding: '5px 12px', borderRadius: 8, gap: 1,
+                      padding: '3px 10px', borderRadius: 6, gap: 0,
                       background: active ? `${color}14` : 'transparent',
-                      border: `1px solid ${active ? color + '55' : 'transparent'}`,
-                      borderLeft: `2px solid ${active ? color : color + '55'}`,
+                      border: `1px solid ${active ? color + '44' : 'transparent'}`,
+                      borderLeft: `2px solid ${active ? color : color + '44'}`,
                       cursor: onClick ? 'pointer' : 'default',
                       font: 'inherit', color: 'inherit', transition: 'all 0.15s', textAlign: 'left',
-                      minWidth: 0,
                     }}
-                    onMouseEnter={onClick ? e => { e.currentTarget.style.background = `${color}0e`; e.currentTarget.style.borderColor = color + '66'; e.currentTarget.style.borderLeftColor = color; } : undefined}
-                    onMouseLeave={onClick ? e => { e.currentTarget.style.background = active ? `${color}14` : 'transparent'; e.currentTarget.style.borderColor = active ? color + '55' : 'transparent'; e.currentTarget.style.borderLeftColor = active ? color : color + '55'; } : undefined}
+                    onMouseEnter={onClick ? e => { e.currentTarget.style.background = `${color}0e`; e.currentTarget.style.borderLeftColor = color; } : undefined}
+                    onMouseLeave={onClick ? e => { e.currentTarget.style.background = active ? `${color}14` : 'transparent'; e.currentTarget.style.borderLeftColor = active ? color : color + '44'; } : undefined}
                   >
-                    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', opacity: 0.45, textTransform: 'uppercase' }}>{label}</span>
-                    <span style={{ fontSize: 16, fontWeight: 900, color, lineHeight: 1.1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', opacity: 0.4, textTransform: 'uppercase' }}>{label}</span>
+                    <span style={{ fontSize: 14, fontWeight: 900, color, lineHeight: 1.2, display: 'flex', alignItems: 'center', gap: 3 }}>
                       {value}
-                      {onClick && <span className="material-symbols-outlined" style={{ fontSize: 12, opacity: 0.6 }}>{active ? 'expand_less' : 'chevron_right'}</span>}
+                      {onClick && <span className="material-symbols-outlined" style={{ fontSize: 11, opacity: 0.55 }}>{active ? 'expand_less' : 'chevron_right'}</span>}
                     </span>
                   </button>
                 );
+                const Sep = () => <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', alignSelf: 'stretch', margin: '2px 0' }} />;
                 return (
-                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 2, marginBottom: 6,
-                    background: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: '2px',
-                    border: '1px solid rgba(255,255,255,0.05)',
-                  }}>
-                    <StatItem label="Total" value={total} color="#00e676" />
-                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                    <StatItem label="Pendientes" value={pendientes} color="#ffb74d" />
-                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                    <StatItem label="Gestionados" value={gestionados} color="#00e676" />
-                    <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                    <StatItem label="Ya pagó" value={yaPagoCount} color="#ce93d8"
-                      onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago} />
-                    {validados.length > 0 && <>
-                      <div style={{ width: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-                      <StatItem label="Recaudado" value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="#00e676" />
-                    </>}
+                  <div style={{ marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                      <h3 className="widget-title" style={{ marginRight: 10, flexShrink: 0 }}>Cartera Asignada</h3>
+                      {/* ── KPIs inline ── */}
+                      <div style={{
+                        display: 'flex', alignItems: 'stretch', flex: 1,
+                        background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: '2px',
+                        border: '1px solid rgba(255,255,255,0.05)',
+                      }}>
+                        <StatItem label="Total" value={total} color="#00e676" />
+                        <Sep /><StatItem label="Pendientes" value={pendientes} color="#ffb74d" />
+                        <Sep /><StatItem label="Gestionados" value={gestionados} color="#00e676" />
+                        <Sep /><StatItem label="Ya pagó" value={yaPagoCount} color="#ce93d8"
+                          onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago} />
+                        {validados.length > 0 && <><Sep /><StatItem label="Recaudado"
+                          value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                          color="#00e676" /></>}
+                      </div>
+                      {/* ── Botón actualizar ── */}
+                      <button type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={cargarCartera}
+                        disabled={carteraLoading}
+                        title="Actualizar orden de marcación"
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, marginLeft: 10, flexShrink: 0 }}
+                      >
+                        <span className="material-symbols-outlined"
+                          style={{ fontSize: 16, animation: carteraLoading ? 'spin 0.8s linear infinite' : 'none' }}>
+                          refresh
+                        </span>
+                        {carteraLoading ? 'Actualizando…' : 'Actualizar'}
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
