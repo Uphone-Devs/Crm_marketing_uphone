@@ -24,20 +24,19 @@ function CanalTab({ c, active, onClick }) {
   return (
     <button type="button" onClick={onClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 7,
-        padding: '7px 16px', borderRadius: 8,
-        border: 'none', outline: 'none',
-        background: active ? `${c.color}14` : 'transparent',
-        color: active ? c.color : 'rgba(255,255,255,0.35)',
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '8px 18px', border: 'none', outline: 'none',
+        background: active ? `${c.color}18` : 'transparent',
+        color: active ? c.color : 'rgba(255,255,255,0.3)',
         cursor: 'pointer', font: 'inherit',
         borderBottom: `2px solid ${active ? c.color : 'transparent'}`,
-        transition: 'all 0.15s',
+        transition: 'all 0.15s', flexShrink: 0,
       }}
-      onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.6)'; }}
-      onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'rgba(255,255,255,0.35)'; }}
+      onMouseEnter={e => { if (!active) { e.currentTarget.style.color = 'rgba(255,255,255,0.65)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; } }}
+      onMouseLeave={e => { if (!active) { e.currentTarget.style.color = 'rgba(255,255,255,0.3)'; e.currentTarget.style.background = 'transparent'; } }}
     >
-      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{c.icon}</span>
-      <span style={{ fontSize: 13, fontWeight: active ? 700 : 400 }}>{c.label}</span>
+      <span className="material-symbols-outlined" style={{ fontSize: 15, opacity: active ? 1 : 0.7 }}>{c.icon}</span>
+      <span style={{ fontSize: 12.5, fontWeight: active ? 700 : 400, letterSpacing: active ? '0.01em' : 0 }}>{c.label}</span>
     </button>
   );
 }
@@ -46,17 +45,17 @@ function SegmentoChip({ s, active, onClick }) {
   return (
     <button type="button" onClick={onClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 5,
-        padding: '4px 12px', borderRadius: 20,
-        border: `1px solid ${active ? s.color + '66' : 'rgba(255,255,255,0.08)'}`,
-        background: active ? `${s.color}10` : 'transparent',
-        color: active ? s.color : 'rgba(255,255,255,0.4)',
-        fontSize: 12, fontWeight: active ? 700 : 400,
-        cursor: 'pointer', font: 'inherit', transition: 'all 0.15s',
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        padding: '3px 11px', borderRadius: 20,
+        border: `1px solid ${active ? s.color + '55' : 'rgba(255,255,255,0.07)'}`,
+        background: active ? `${s.color}12` : 'transparent',
+        color: active ? s.color : 'rgba(255,255,255,0.35)',
+        fontSize: 11.5, fontWeight: active ? 700 : 400,
+        cursor: 'pointer', font: 'inherit', transition: 'all 0.12s',
       }}
     >
       {s.label}
-      <span style={{ opacity: 0.45, fontSize: 10 }}>{s.sub}</span>
+      <span style={{ opacity: 0.4, fontSize: 9.5 }}>{s.sub}</span>
     </button>
   );
 }
@@ -64,68 +63,64 @@ function SegmentoChip({ s, active, onClick }) {
 function MensajeCard({ m, onDesactivar }) {
   const canal  = CANALES.find(c => c.id === m.canal)    || { color: '#888', icon: 'chat',  label: m.canal || 'General' };
   const seg    = SEGMENTOS.find(s => s.id === m.segmento_destino) || { color: '#888', label: m.segmento_destino };
+  const fecha  = m.creado_en ? new Date(String(m.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.025)',
+      background: 'rgba(255,255,255,0.02)', borderRadius: 10,
       border: `1px solid rgba(255,255,255,0.06)`,
-      borderLeft: `3px solid ${canal.color}`,
-      borderRadius: 12, padding: '14px 18px',
-      display: 'flex', flexDirection: 'column', gap: 10,
+      borderLeft: `2px solid ${canal.color}88`,
+      padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          padding: '3px 10px', borderRadius: 20,
-          background: `${canal.color}18`, border: `1px solid ${canal.color}40`,
-          color: canal.color, fontSize: 12, fontWeight: 700,
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          padding: '2px 8px', borderRadius: 20,
+          background: `${canal.color}14`, color: canal.color, fontSize: 11, fontWeight: 700,
         }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{canal.icon}</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 11 }}>{canal.icon}</span>
           {canal.label}
         </span>
         <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 5,
-          padding: '3px 10px', borderRadius: 20,
-          background: `${seg.color}18`, border: `1px solid ${seg.color}40`,
-          color: seg.color, fontSize: 12, fontWeight: 700,
-        }}>
-          {seg.label}
-        </span>
-        <span style={{ marginLeft: 'auto', opacity: 0.3, fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>person</span>
+          display: 'inline-flex', alignItems: 'center',
+          padding: '2px 8px', borderRadius: 20,
+          background: `${seg.color}14`, color: seg.color, fontSize: 11, fontWeight: 700,
+        }}>{seg.label}</span>
+        <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.25)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 11 }}>person</span>
           {m.supervisor_nombre || 'Jefe'}
-          <span className="material-symbols-outlined" style={{ fontSize: 12, marginLeft: 6 }}>schedule</span>
-          {m.creado_en ? new Date(String(m.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+          {fecha && <><span style={{ margin: '0 3px', opacity: 0.4 }}>·</span>{fecha}</>}
         </span>
       </div>
-
+      {/* Mensaje */}
       <p style={{
-        margin: 0, fontSize: 13, lineHeight: 1.7,
-        color: 'rgba(255,255,255,0.82)',
-        background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '10px 14px',
-        whiteSpace: 'pre-wrap', fontFamily: 'inherit',
-      }}>
-        {m.mensaje}
-      </p>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+        margin: 0, fontSize: 12.5, lineHeight: 1.65,
+        color: 'rgba(255,255,255,0.75)', whiteSpace: 'pre-wrap', fontFamily: 'inherit',
+      }}>{m.mensaje}</p>
+      {/* Acciones */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
         {(m.pagos_posteriores ?? 0) > 0 && (
           <span style={{
-            fontSize: 12, color: '#00e676', background: 'rgba(0,230,118,0.1)',
-            border: '1px solid rgba(0,230,118,0.25)', borderRadius: 20, padding: '3px 10px',
-            display: 'flex', alignItems: 'center', gap: 5, fontWeight: 700,
+            fontSize: 11, color: '#00e676', background: 'rgba(0,230,118,0.08)',
+            border: '1px solid rgba(0,230,118,0.2)', borderRadius: 20, padding: '2px 8px',
+            display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 700,
           }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>check_circle</span>
+            <span className="material-symbols-outlined" style={{ fontSize: 11 }}>check_circle</span>
             {m.pagos_posteriores} pago(s)
           </span>
         )}
         {onDesactivar && (
           <button type="button" onClick={() => onDesactivar(m.id)} style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            background: 'rgba(239,83,80,0.08)', border: '1px solid rgba(239,83,80,0.25)',
-            color: '#ef5350', borderRadius: 20, padding: '4px 12px',
-            fontSize: 12, fontWeight: 700, cursor: 'pointer',
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>cancel</span>
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: 'transparent', border: '1px solid rgba(239,83,80,0.2)',
+            color: '#ef5350cc', borderRadius: 20, padding: '2px 10px',
+            fontSize: 11, fontWeight: 600, cursor: 'pointer', font: 'inherit',
+            transition: 'all 0.12s',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(239,83,80,0.1)'; e.currentTarget.style.color = '#ef5350'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#ef5350cc'; }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>cancel</span>
             Desactivar
           </button>
         )}
@@ -455,24 +450,23 @@ export default function MessagesConfig() {
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={handleEnviar} disabled={sending || !mensaje.trim()} style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '10px 26px', borderRadius: 22, border: 'none',
-            background: sending || !mensaje.trim()
-              ? 'rgba(255,255,255,0.07)'
-              : `linear-gradient(135deg, ${canalMeta.color}, ${canalMeta.color}bb)`,
-            color: sending || !mensaje.trim() ? 'rgba(255,255,255,0.25)' : '#000',
-            fontSize: 13, fontWeight: 800, cursor: sending || !mensaje.trim() ? 'not-allowed' : 'pointer',
-            boxShadow: !sending && mensaje.trim() ? `0 4px 18px ${canalMeta.color}40` : 'none',
-            transition: 'all 0.2s ease',
-          }}>
-            {sending
-              ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Enviando…</>
-              : <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>send</span> Enviar a Gestores</>
-            }
-          </button>
-        </div>
+        <button type="button" onClick={handleEnviar} disabled={sending || !mensaje.trim()} style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          padding: '11px 0', borderRadius: 10, border: 'none',
+          background: sending || !mensaje.trim()
+            ? 'rgba(255,255,255,0.06)'
+            : `linear-gradient(135deg, ${canalMeta.color}ee, ${canalMeta.color}99)`,
+          color: sending || !mensaje.trim() ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.85)',
+          fontSize: 13, fontWeight: 800, letterSpacing: '0.04em',
+          cursor: sending || !mensaje.trim() ? 'not-allowed' : 'pointer',
+          boxShadow: !sending && mensaje.trim() ? `0 2px 16px ${canalMeta.color}33` : 'none',
+          transition: 'all 0.15s',
+        }}>
+          {sending
+            ? <><span className="spinner" style={{ width: 13, height: 13 }} /> Enviando…</>
+            : <><span className="material-symbols-outlined" style={{ fontSize: 15 }}>send</span> Enviar a Gestores</>
+          }
+        </button>
         </div>{/* end padding div */}
       </div>{/* end compositor */}
 
