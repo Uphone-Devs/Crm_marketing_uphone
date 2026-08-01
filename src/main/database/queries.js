@@ -1950,6 +1950,7 @@ function getCompromisosEquipo(fecha = null, asesorId = null, opts = {}) {
     c.empresa = null;
     c.valor_mora = null;
     c.contrato = null;
+    c.dias_mora = null;
     if (ct && ct.metadata) {
       try {
         const m = JSON.parse(ct.metadata);
@@ -1959,6 +1960,11 @@ function getCompromisosEquipo(fecha = null, asesorId = null, opts = {}) {
         if (moraRaw != null) {
           const parsed = parseFloat(String(moraRaw).replace(/[^0-9.-]/g, ''));
           c.valor_mora = isNaN(parsed) ? null : parsed;
+        }
+        const diasRaw = m['DIAS IMPAGO'] ?? m['DIAS EN MORA'] ?? m['DIAS EN INPAGO'] ?? m['DIAS MORA'];
+        if (diasRaw != null) {
+          const d = parseInt(String(diasRaw), 10);
+          c.dias_mora = isNaN(d) ? null : d;
         }
       } catch (_) { /* metadata corrupto */ }
     } else if (!ct) {
