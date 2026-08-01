@@ -2402,7 +2402,7 @@ router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req
   try {
     const { mensaje, segmento_destino = 'TODOS', canal = 'TODOS' } = req.body;
     if (!mensaje?.trim()) return res.status(400).json({ error: 'Mensaje requerido' });
-    const canalesValidos = ['TODOS', 'WSP', 'RCS', 'CORREO'];
+    const canalesValidos = ['TODOS', 'WSP', 'RCS', 'CORREO', 'COMPROMISOS'];
     if (!canalesValidos.includes(canal)) return res.status(400).json({ error: 'Canal inválido' });
     const m = await db.mensajeBroadcast.create({
       data: { supervisorId: req.user.id, mensaje: mensaje.trim(), segmentoDestino: segmento_destino, canal },
