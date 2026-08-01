@@ -386,20 +386,20 @@ export default function MessagesConfig() {
         />
 
         {/* Variables clickeables */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', alignSelf: 'center', marginRight: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Variables</span>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 14 }}>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginRight: 4, letterSpacing: '0.06em', fontWeight: 600 }}>Insertar:</span>
           {VARIABLES.map(v => (
             <button key={v.key} type="button" onClick={() => insertarVariable(v.key)}
               title={`Insertar ${v.key}`}
               style={{
-                fontSize: 11, padding: '2px 9px', borderRadius: 20, cursor: 'pointer',
-                border: `1px solid ${canalMeta.color}44`,
-                background: `${canalMeta.color}0e`,
-                color: canalMeta.color, font: 'inherit', fontWeight: 600,
-                transition: 'background 0.12s',
+                fontSize: 11, padding: '1px 8px', borderRadius: 4, cursor: 'pointer',
+                border: '1px solid rgba(255,255,255,0.1)',
+                background: 'rgba(255,255,255,0.04)',
+                color: 'rgba(255,255,255,0.45)', font: 'inherit', fontFamily: 'monospace',
+                transition: 'all 0.12s',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = `${canalMeta.color}20`; }}
-              onMouseLeave={e => { e.currentTarget.style.background = `${canalMeta.color}0e`; }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
             >{v.key}</button>
           ))}
         </div>
