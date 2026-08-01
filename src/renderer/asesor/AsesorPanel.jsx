@@ -2803,7 +2803,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   //  - compromiso de pago VIGENTE (agendamiento cuya hora aún no pasa)
                   // Al pasar la hora, el compromiso vence → vuelve a contar y requiere gestión.
                   const pagado = c.ya_pago === 1 || c.validado_pago === 1 || c.estado_marcacion === 'YA_PAGO';
-                  const compromisoVigente = c.agendamiento_fecha_hora
+                  // Solo excluir si AGENDADO (esperando cita) — si ya está GESTIONADO, cuenta aunque tenga fecha futura
+                  const compromisoVigente = c.estado_marcacion === 'AGENDADO'
+                    && c.agendamiento_fecha_hora
                     && c.agendamiento_fecha_hora.slice(0, 19) > _nowWall;
                   if (pagado || compromisoVigente) return; // no cuenta en gestionables
                   // Vueltas 2+ por gestiones_count ACUMULADO (no gestiones_hoy): sube a 100%
@@ -3279,7 +3281,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             const s=_seg[d]; if(!s) return; // solo '0','1','2' son buckets válidos
                             // Excluir pagados y compromisos vigentes (misma regla que las cards de segmento)
                             const _pagado=ct.ya_pago===1||ct.validado_pago===1||ct.estado_marcacion==='YA_PAGO';
-                            const _compVig=ct.agendamiento_fecha_hora&&ct.agendamiento_fecha_hora.slice(0,19)>_nowWall2;
+                            const _compVig=ct.estado_marcacion==='AGENDADO'&&ct.agendamiento_fecha_hora&&ct.agendamiento_fecha_hora.slice(0,19)>_nowWall2;
                             if(_pagado||_compVig) return;
                             s.t++; if(_esTrab(ct)) s.g++;
                             if((ct.gestiones_count||0)>=2) s.g2++;
