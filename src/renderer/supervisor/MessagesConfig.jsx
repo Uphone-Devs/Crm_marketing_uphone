@@ -6,6 +6,13 @@ function buildApiBase() {
   return (ws.startsWith('http') ? ws.replace(/\/$/, '') : `http://${ws}:3001`) + '/api';
 }
 
+const CANALES = [
+  { id: 'TODOS',  label: 'Todos los canales', icon: 'all_inclusive', color: '#00e5ff' },
+  { id: 'WSP',    label: 'WhatsApp',           icon: 'chat',          color: '#25D366' },
+  { id: 'RCS',    label: 'RCS',                icon: 'sms',           color: '#64b5f6' },
+  { id: 'CORREO', label: 'Correo',             icon: 'email',         color: '#f48fb1' },
+];
+
 const INITIAL_SEGMENTOS = [
   { key: 'TODOS',       label: 'Todos los asesores',    icon: 'groups',         color: '#00e676', gradient: 'linear-gradient(135deg,#00e676,#00bfa5)' },
   { key: 'MENSUALES',   label: 'Campaña Mensual',        icon: 'calendar_month', color: '#29b6f6', gradient: 'linear-gradient(135deg,#29b6f6,#1565c0)' },
@@ -115,6 +122,20 @@ function MensajeCard({ m, showDelete, segmentoMeta, onDesactivar }) {
       {/* Meta-row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <SegmentoBadge keyVal={m.segmento_destino} segmentoMeta={segmentoMeta} />
+        {(() => {
+          const c = CANALES.find(x => x.id === m.canal) || CANALES[0];
+          return (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '4px 11px', borderRadius: 20,
+              background: `${c.color}18`, border: `1.5px solid ${c.color}50`,
+              color: c.color, fontSize: 12.5, fontWeight: 700, letterSpacing: 0.6,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>{c.icon}</span>
+              {c.label}
+            </span>
+          );
+        })()}
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, opacity: 0.45, fontSize: 12 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 13 }}>person</span>
           {m.supervisor_nombre || 'Jefe de Area'}
@@ -184,6 +205,7 @@ export default function MessagesConfig() {
   const [sending,   setSending]   = useState(false);
   const [mensaje,   setMensaje]   = useState('');
   const [segmento,  setSegmento]  = useState('TODOS');
+  const [canal,     setCanal]     = useState('TODOS');
   const [mensajes,  setMensajes]  = useState([]);
   const [expanded,  setExpanded]  = useState('activos');
   const [segmentos,    setSegmentos]    = useState(INITIAL_SEGMENTOS);
@@ -257,7 +279,7 @@ export default function MessagesConfig() {
         await fetch(`${apiBase}/mensajes-broadcast`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmento }),
+          body: JSON.stringify({ mensaje: mensaje.trim(), segmento_destino: segmento, canal }),
         });
       } else {
         const user = JSON.parse(localStorage.getItem('uphone_user') || '{}');
@@ -452,6 +474,36 @@ export default function MessagesConfig() {
                 Añadir tramo
               </button>
             )}
+          </div>
+        </div>
+
+        {/* Canal */}
+        <div style={{ marginBottom: 18 }}>
+          <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, opacity: 0.4, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+            Canal
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {CANALES.map(c => {
+              const active = canal === c.id;
+              return (
+                <button type="button" key={c.id} onClick={() => setCanal(c.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '7px 14px', borderRadius: 22,
+                    border: `1.5px solid ${active ? c.color : 'rgba(255,255,255,0.1)'}`,
+                    background: active ? `${c.color}20` : 'transparent',
+                    color: active ? c.color : 'rgba(255,255,255,0.5)',
+                    fontSize: 12, fontWeight: active ? 700 : 400,
+                    cursor: 'pointer',
+                    boxShadow: active ? `0 0 12px ${c.color}30` : 'none',
+                    transition: 'all 0.18s ease',
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{c.icon}</span>
+                  {c.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
