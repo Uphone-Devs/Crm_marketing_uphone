@@ -282,195 +282,265 @@ export default function MessagesConfig() {
   }
 
   return (
-    <div style={{ padding: '24px 24px 48px', maxWidth: 820, margin: '0 auto' }}>
+    <div style={{ padding: '24px 28px 48px', maxWidth: 900, margin: '0 auto' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 22 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', marginBottom: 28 }}>
         <div>
-          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'rgba(255,255,255,0.9)', letterSpacing: -0.2 }}>
-            Mensajes para Gestores
+          <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: -0.5 }}>
+            Mensajes
           </h3>
-          <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>
-            Configura el mensaje por canal y tramo de deuda
+          <p style={{ margin: '3px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.28)' }}>
+            Canal · Segmento · Mensaje
           </p>
         </div>
         <button type="button" onClick={cargarMensajes}
-          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', padding: 4 }}
+          style={{ marginLeft: 'auto', background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', cursor: 'pointer', padding: 6, borderRadius: 8 }}
           title="Recargar"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
         </button>
       </div>
 
-      {/* Compositor */}
-      <div style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.06)',
-        borderRadius: 14, marginBottom: 24,
-      }}>
-        {/* Canal tabs */}
-        <div style={{
-          display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.06)',
-          padding: '0 8px',
-        }}>
-          {CANALES.map(c => (
-            <CanalTab key={c.id} c={c} active={canal === c.id} onClick={() => setCanal(c.id)} />
-          ))}
-        </div>
+      {/* Compositor — layout 2 columnas */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, marginBottom: 32, alignItems: 'start' }}>
 
-        <div style={{ padding: '16px 20px' }}>
-          {/* Segmento */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', flexShrink: 0 }}>Segmento</span>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {SEGMENTOS.map(s => (
-                <SegmentoChip key={s.id} s={s} active={segmento === s.id} onClick={() => setSegmento(s.id)} />
-              ))}
-            </div>
-            {activoActual && (
-              <span style={{ marginLeft: 'auto', fontSize: 11, color: '#00e676', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 600, flexShrink: 0 }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check_circle</span>activo
-              </span>
-            )}
+        {/* Columna izquierda: formulario */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Canal cards 2×2 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {CANALES.map(c => {
+              const active = canal === c.id;
+              return (
+                <button key={c.id} type="button" onClick={() => setCanal(c.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '14px 18px', borderRadius: 12, cursor: 'pointer',
+                    border: `1.5px solid ${active ? c.color + '80' : 'rgba(255,255,255,0.07)'}`,
+                    background: active
+                      ? `linear-gradient(135deg, ${c.color}22, ${c.color}0c)`
+                      : 'rgba(255,255,255,0.03)',
+                    font: 'inherit', color: 'inherit',
+                    boxShadow: active ? `0 0 24px ${c.color}20` : 'none',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)'; } }}
+                  onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'; } }}
+                >
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: active ? `${c.color}28` : 'rgba(255,255,255,0.06)',
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 20, color: active ? c.color : 'rgba(255,255,255,0.35)' }}>{c.icon}</span>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? c.color : 'rgba(255,255,255,0.55)', letterSpacing: 0.1 }}>{c.label}</span>
+                  {active && <span style={{ marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%', background: c.color, flexShrink: 0, boxShadow: `0 0 6px ${c.color}` }} />}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Step 3 label */}
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', marginBottom: 10 }}>Mensaje</div>
+          {/* Segmento — segmented control */}
+          <div style={{
+            display: 'flex', background: 'rgba(255,255,255,0.04)',
+            borderRadius: 10, padding: 3, border: '1px solid rgba(255,255,255,0.07)',
+          }}>
+            {SEGMENTOS.map(s => {
+              const active = segmento === s.id;
+              return (
+                <button key={s.id} type="button" onClick={() => setSegmento(s.id)}
+                  style={{
+                    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    padding: '7px 4px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: active ? `${s.color}18` : 'transparent', font: 'inherit',
+                    outline: active ? `1px solid ${s.color}44` : 'none',
+                    transition: 'all 0.12s',
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: active ? 800 : 500, color: active ? s.color : 'rgba(255,255,255,0.35)', lineHeight: 1.2 }}>{s.label}</span>
+                  <span style={{ fontSize: 9, color: active ? s.color : 'rgba(255,255,255,0.2)', marginTop: 1, opacity: active ? 0.75 : 1 }}>{s.sub}</span>
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Asunto — solo CORREO */}
-        {canal === 'CORREO' && (
-          <div style={{ marginBottom: 12 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Asunto</p>
-            <input
-              type="text"
-              value={asunto}
-              onChange={e => setAsunto(e.target.value)}
+          {/* Asunto — solo CORREO */}
+          {canal === 'CORREO' && (
+            <input type="text" value={asunto} onChange={e => setAsunto(e.target.value)}
               placeholder="Asunto del correo…"
               style={{
                 width: '100%', boxSizing: 'border-box',
-                background: 'rgba(0,0,0,0.3)',
-                border: `1.5px solid ${asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'}`,
+                background: 'rgba(255,255,255,0.04)',
+                border: `1.5px solid ${asunto.trim() ? '#f48fb155' : 'rgba(255,255,255,0.08)'}`,
                 borderRadius: 10, padding: '10px 14px',
                 color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'inherit',
-                transition: 'border-color 0.2s',
+                outline: 'none', transition: 'border-color 0.15s',
               }}
-              onFocus={e => { e.target.style.borderColor = '#f48fb180'; }}
-              onBlur={e => { e.target.style.borderColor = asunto.trim() ? '#f48fb160' : 'rgba(255,255,255,0.08)'; }}
+              onFocus={e => { e.target.style.borderColor = '#f48fb188'; }}
+              onBlur={e => { e.target.style.borderColor = asunto.trim() ? '#f48fb155' : 'rgba(255,255,255,0.08)'; }}
             />
-          </div>
-        )}
+          )}
 
-
-        <textarea
-          ref={textareaRef}
-          value={mensaje}
-          onChange={e => setMensaje(e.target.value)}
-          rows={4}
-          placeholder={`Escribe el mensaje para ${canalMeta.label} · ${segmentoMeta.label}…`}
-          style={{
-            width: '100%', boxSizing: 'border-box',
-            background: 'rgba(0,0,0,0.3)',
-            border: `1.5px solid ${mensaje.trim() ? canalMeta.color + '60' : 'rgba(255,255,255,0.08)'}`,
-            borderRadius: 12, padding: '13px 16px',
-            color: 'rgba(255,255,255,0.9)', fontSize: 13.5, lineHeight: 1.7,
-            fontFamily: 'inherit', resize: 'vertical', minHeight: 110,
-            transition: 'border-color 0.2s',
-            marginBottom: 8,
-          }}
-          onFocus={e => { e.target.style.borderColor = canalMeta.color + '80'; }}
-          onBlur={e => { e.target.style.borderColor = mensaje.trim() ? canalMeta.color + '60' : 'rgba(255,255,255,0.08)'; }}
-        />
-
-        {/* Variables clickeables */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, marginBottom: 14 }}>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', marginRight: 4, letterSpacing: '0.06em', fontWeight: 600 }}>Insertar:</span>
-          {VARIABLES.map(v => (
-            <button key={v.key} type="button" onClick={() => insertarVariable(v.key)}
-              title={`Insertar ${v.key}`}
+          {/* Textarea */}
+          <div style={{ position: 'relative' }}>
+            <textarea ref={textareaRef} value={mensaje} onChange={e => setMensaje(e.target.value)} rows={5}
+              placeholder={`Escribe el mensaje para ${canalMeta.label} · ${segmentoMeta.label}…`}
               style={{
-                fontSize: 11, padding: '1px 8px', borderRadius: 4, cursor: 'pointer',
-                border: '1px solid rgba(255,255,255,0.1)',
+                width: '100%', boxSizing: 'border-box',
                 background: 'rgba(255,255,255,0.04)',
-                color: 'rgba(255,255,255,0.45)', font: 'inherit', fontFamily: 'monospace',
-                transition: 'all 0.12s',
+                border: `1.5px solid ${mensaje.trim() ? canalMeta.color + '55' : 'rgba(255,255,255,0.08)'}`,
+                borderRadius: 10, padding: '13px 14px',
+                color: 'rgba(255,255,255,0.9)', fontSize: 13.5, lineHeight: 1.7,
+                fontFamily: 'inherit', resize: 'vertical', minHeight: 120,
+                outline: 'none', transition: 'border-color 0.15s',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}
-            >{v.key}</button>
-          ))}
+              onFocus={e => { e.target.style.borderColor = canalMeta.color + '88'; }}
+              onBlur={e => { e.target.style.borderColor = mensaje.trim() ? canalMeta.color + '55' : 'rgba(255,255,255,0.08)'; }}
+            />
+            {mensaje && <span style={{ position: 'absolute', bottom: 8, right: 10, fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>{mensaje.length}c</span>}
+          </div>
+
+          {/* Variables */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)', fontWeight: 600, letterSpacing: '0.06em', marginRight: 2 }}>VAR</span>
+            {VARIABLES.map(v => (
+              <button key={v.key} type="button" onClick={() => insertarVariable(v.key)}
+                style={{
+                  fontSize: 11, padding: '2px 9px', borderRadius: 5, cursor: 'pointer',
+                  border: `1px solid ${canalMeta.color}33`,
+                  background: `${canalMeta.color}0a`,
+                  color: `${canalMeta.color}cc`, font: 'inherit', fontFamily: 'monospace',
+                  transition: 'all 0.1s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = `${canalMeta.color}22`; e.currentTarget.style.color = canalMeta.color; }}
+                onMouseLeave={e => { e.currentTarget.style.background = `${canalMeta.color}0a`; e.currentTarget.style.color = `${canalMeta.color}cc`; }}
+              >{v.key}</button>
+            ))}
+          </div>
+
+          {/* Imagen */}
+          {canalConImagen && (
+            <div>
+              {imagenUrl ? (
+                <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: `1px solid ${canalMeta.color}33` }}>
+                  <img src={imagenUrl} alt="preview" style={{ width: '100%', maxHeight: 160, objectFit: 'contain', display: 'block', background: 'rgba(0,0,0,0.3)' }} />
+                  <button type="button" onClick={() => setImagenUrl('')} style={{
+                    position: 'absolute', top: 8, right: 8,
+                    background: 'rgba(0,0,0,0.75)', border: 'none', borderRadius: 20, padding: '4px 10px', color: '#fff',
+                    fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, font: 'inherit',
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13 }}>delete</span>Quitar
+                  </button>
+                </div>
+              ) : (
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '9px 14px', borderRadius: 10, cursor: 'pointer',
+                  border: `1px dashed ${canalMeta.color}33`, background: `${canalMeta.color}06`,
+                  transition: 'all 0.15s',
+                }}
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = `${canalMeta.color}12`; }}
+                  onDragLeave={e => { e.currentTarget.style.background = `${canalMeta.color}06`; }}
+                  onDrop={e => {
+                    e.preventDefault(); e.currentTarget.style.background = `${canalMeta.color}06`;
+                    const file = e.dataTransfer.files[0];
+                    if (!file || !file.type.startsWith('image/')) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => setImagenUrl(ev.target.result);
+                    reader.readAsDataURL(file);
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 17, color: canalMeta.color, opacity: 0.6 }}>add_photo_alternate</span>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>Imagen opcional · <span style={{ opacity: 0.6 }}>JPG PNG GIF WebP</span></span>
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
+                    const file = e.target.files[0]; if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => setImagenUrl(ev.target.result);
+                    reader.readAsDataURL(file);
+                  }} />
+                </label>
+              )}
+            </div>
+          )}
+
+          {/* Botón enviar */}
+          <button type="button" onClick={handleEnviar} disabled={sending || !mensaje.trim()} style={{
+            width: '100%', padding: '13px 0', borderRadius: 12, border: 'none',
+            background: sending || !mensaje.trim()
+              ? 'rgba(255,255,255,0.06)'
+              : `linear-gradient(135deg, ${canalMeta.color}, ${canalMeta.color}88)`,
+            color: sending || !mensaje.trim() ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.9)',
+            fontSize: 14, fontWeight: 800, letterSpacing: '0.05em',
+            cursor: sending || !mensaje.trim() ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            boxShadow: !sending && mensaje.trim() ? `0 4px 24px ${canalMeta.color}44` : 'none',
+            transition: 'all 0.15s',
+          }}>
+            {sending
+              ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Enviando…</>
+              : <><span className="material-symbols-outlined" style={{ fontSize: 16 }}>send</span> Enviar a Gestores</>
+            }
+          </button>
         </div>
 
-        {/* Imagen — CORREO y RCS, después del mensaje */}
-        {canalConImagen && (
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 11, opacity: 0.4, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>Imagen ({canalMeta.label}) (opcional)</p>
-            {imagenUrl ? (
-              <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1.5px solid #f48fb150' }}>
-                <img src={imagenUrl} alt="preview" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', display: 'block', background: 'rgba(0,0,0,0.3)' }} />
-                <button type="button" onClick={() => setImagenUrl('')} style={{
-                  position: 'absolute', top: 8, right: 8,
-                  background: 'rgba(0,0,0,0.7)', border: '1px solid rgba(255,255,255,0.2)',
-                  borderRadius: 20, padding: '4px 10px', color: '#fff',
-                  fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
-                  Quitar
-                </button>
-              </div>
-            ) : (
-              <label style={{
-                display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 10,
-                padding: '8px 14px', borderRadius: 8, cursor: 'pointer',
-                border: '1.5px dashed rgba(244,143,177,0.35)', background: 'rgba(244,143,177,0.04)',
-                transition: 'border-color 0.2s, background 0.2s',
-              }}
-                onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#f48fb1'; e.currentTarget.style.background = 'rgba(244,143,177,0.1)'; }}
-                onDragLeave={e => { e.currentTarget.style.borderColor = 'rgba(244,143,177,0.35)'; e.currentTarget.style.background = 'rgba(244,143,177,0.04)'; }}
-                onDrop={e => {
-                  e.preventDefault();
-                  e.currentTarget.style.borderColor = 'rgba(244,143,177,0.35)';
-                  e.currentTarget.style.background = 'rgba(244,143,177,0.04)';
-                  const file = e.dataTransfer.files[0];
-                  if (!file || !file.type.startsWith('image/')) return;
-                  const reader = new FileReader();
-                  reader.onload = ev => setImagenUrl(ev.target.result);
-                  reader.readAsDataURL(file);
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 18, color: '#f48fb1', opacity: 0.7, flexShrink: 0 }}>add_photo_alternate</span>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Arrastra o haz clic · <span style={{ opacity: 0.5 }}>JPG PNG GIF WebP</span></span>
-                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => {
-                  const file = e.target.files[0]; if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = ev => setImagenUrl(ev.target.result);
-                  reader.readAsDataURL(file);
-                }} />
-              </label>
-            )}
+        {/* Columna derecha: preview + estado */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, position: 'sticky', top: 16 }}>
+          {/* Preview del mensaje */}
+          <div style={{
+            background: 'rgba(255,255,255,0.03)', borderRadius: 14,
+            border: `1px solid ${canalMeta.color}22`, overflow: 'hidden',
+          }}>
+            <div style={{
+              padding: '10px 14px',
+              background: `linear-gradient(135deg, ${canalMeta.color}14, transparent)`,
+              borderBottom: `1px solid rgba(255,255,255,0.05)`,
+              display: 'flex', alignItems: 'center', gap: 7,
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14, color: canalMeta.color }}>{canalMeta.icon}</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: canalMeta.color, letterSpacing: '0.05em' }}>{canalMeta.label}</span>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginLeft: 4 }}>· {segmentoMeta.label}</span>
+              {activoActual && (
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: '#00e676', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 700 }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#00e676', display: 'inline-block' }} />activo
+                </span>
+              )}
+            </div>
+            <div style={{ padding: '14px' }}>
+              {mensaje ? (
+                <p style={{ margin: 0, fontSize: 12.5, lineHeight: 1.65, color: 'rgba(255,255,255,0.7)', whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                  {mensaje}
+                </p>
+              ) : (
+                <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.18)', fontStyle: 'italic' }}>
+                  Vista previa del mensaje…
+                </p>
+              )}
+              {imagenUrl && <img src={imagenUrl} alt="" style={{ marginTop: 10, width: '100%', borderRadius: 8, objectFit: 'cover', maxHeight: 120 }} />}
+            </div>
           </div>
-        )}
 
-        <button type="button" onClick={handleEnviar} disabled={sending || !mensaje.trim()} style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          padding: '11px 0', borderRadius: 10, border: 'none',
-          background: sending || !mensaje.trim()
-            ? 'rgba(255,255,255,0.06)'
-            : `linear-gradient(135deg, ${canalMeta.color}ee, ${canalMeta.color}99)`,
-          color: sending || !mensaje.trim() ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.85)',
-          fontSize: 13, fontWeight: 800, letterSpacing: '0.04em',
-          cursor: sending || !mensaje.trim() ? 'not-allowed' : 'pointer',
-          boxShadow: !sending && mensaje.trim() ? `0 2px 16px ${canalMeta.color}33` : 'none',
-          transition: 'all 0.15s',
-        }}>
-          {sending
-            ? <><span className="spinner" style={{ width: 13, height: 13 }} /> Enviando…</>
-            : <><span className="material-symbols-outlined" style={{ fontSize: 15 }}>send</span> Enviar a Gestores</>
-          }
-        </button>
-        </div>{/* end padding div */}
-      </div>{/* end compositor */}
+          {/* Activos para esta selección */}
+          <div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.2)', letterSpacing: '0.08em', textTransform: 'uppercase', display: 'block', marginBottom: 8 }}>
+              Activos · {activos.length}
+            </span>
+            {activos.length > 0
+              ? activos.map(m => <MensajeCard key={m.id} m={m} onDesactivar={handleDesactivar} />)
+              : <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.18)', fontStyle: 'italic' }}>Sin mensajes activos</p>
+            }
+          </div>
+        </div>
+      </div>
 
-      {/* ── Historial ─────────────────────────────────────────────────────── */}
+      {/* Historial / Inactivos separados */}
+      <div>
+        {/* Filtros inline */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'rgba(255,255,255,0.2)', textTransform: 'uppercase', marginRight: 4 }}>Historial</span>
+
+      {/* Historial inactivos */}
       <div>
         {/* Filtros inline */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -496,18 +566,6 @@ export default function MessagesConfig() {
             </button>
           )}
         </div>
-
-        {/* Activos */}
-        {activos.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#00e676', textTransform: 'uppercase' }}>Activos · {activos.length}</span>
-            {activos.map(m => <MensajeCard key={m.id} m={m} onDesactivar={handleDesactivar} />)}
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '16px 0', color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>
-            Sin mensajes activos
-          </div>
-        )}
 
         {/* Historial inactivos */}
         {inactivos.length > 0 && (
