@@ -3612,11 +3612,30 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                           const email = meta['CORREO CLIENTE'] || meta['CORREO'] || meta['EMAIL'] || '';
                                           if (!email) { showToast('Sin correo registrado para este cliente', 'warning'); return; }
                                           try {
-                                            // Construir HTML rico con imagen base64 embebida (funciona offline)
                                             const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                                            // Comprimir imagen a max 600px / 80% calidad para que quepa en clipboard
+                                            let imgSrc = imagenUrl;
+                                            if (imagenUrl) {
+                                              try {
+                                                imgSrc = await new Promise((res, rej) => {
+                                                  const img = new Image();
+                                                  img.onload = () => {
+                                                    const MAX = 600;
+                                                    const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+                                                    const canvas = document.createElement('canvas');
+                                                    canvas.width  = Math.round(img.width  * scale);
+                                                    canvas.height = Math.round(img.height * scale);
+                                                    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                                                    res(canvas.toDataURL('image/jpeg', 0.8));
+                                                  };
+                                                  img.onerror = () => res(imagenUrl); // fallback: original
+                                                  img.src = imagenUrl;
+                                                });
+                                              } catch (_) { imgSrc = imagenUrl; }
+                                            }
                                             const htmlBody = [
                                               `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.7;color:#222;max-width:600px">`,
-                                              imagenUrl ? `<div style="text-align:center;margin-bottom:20px"><img src="${imagenUrl}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
+                                              imgSrc ? `<div style="text-align:center;margin-bottom:20px"><img src="${imgSrc}" alt="" style="max-width:100%;display:block;margin:0 auto"></div>` : '',
                                               mensaje ? `<p style="white-space:pre-wrap;margin:0">${esc(mensaje).replace(/\n/g,'<br>')}</p>` : '',
                                               `</div>`,
                                             ].join('');
