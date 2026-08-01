@@ -11,7 +11,7 @@ if (!process.env.JWT_SECRET) {
   throw new Error('[AUTH] JWT_SECRET env var must be set — add it to your .env file');
 }
 const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '8h';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '12h';
 
 class AuthService {
   async login(email, password) {

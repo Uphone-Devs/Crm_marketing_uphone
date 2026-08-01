@@ -147,21 +147,24 @@ router.get('/metricas', requireRole('jefe_area', 'admin'), async (req, res, next
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
 
-    const cdrsHoy = await db.cdr.findMany({
-      where: { timestampInicio: { gte: hoy } },
-      select: { duracionSeg: true, usuarioId: true, resultado: true },
-    });
+    const [agg] = await db.$queryRaw`
+      SELECT
+        COUNT(*)::int                    AS total_llamadas,
+        COALESCE(SUM(duracion_seg),0)::int AS tiempo_total_seg,
+        COUNT(DISTINCT usuario_id)::int  AS asesores_activos
+      FROM cdrs
+      WHERE timestamp_inicio >= ${hoy}
+    `;
 
-    const totalLlamadas = cdrsHoy.length;
-    const tiempoTotalSeg = cdrsHoy.reduce((sum, c) => sum + c.duracionSeg, 0);
-    const promedioSeg = totalLlamadas > 0 ? Math.round(tiempoTotalSeg / totalLlamadas) : 0;
-    const asesoresActivos = new Set(cdrsHoy.map(c => c.usuarioId)).size;
+    const totalLlamadas  = agg.total_llamadas;
+    const tiempoTotalSeg = agg.tiempo_total_seg;
+    const promedioSeg    = totalLlamadas > 0 ? Math.round(tiempoTotalSeg / totalLlamadas) : 0;
 
     res.json({
       totalLlamadas,
       tiempoTotalSeg,
       promedioSegundos: promedioSeg,
-      asesoresActivos,
+      asesoresActivos: agg.asesores_activos,
     });
   } catch (err) { next(err); }
 });

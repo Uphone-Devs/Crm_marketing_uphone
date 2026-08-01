@@ -136,7 +136,8 @@ model Cdr {
   sub_gestiones     sub_gestiones[]
 
   @@index([usuarioId, timestampInicio], map: "idx_cdrs_usuario_ts")
-  @@index([contactoId], map: "idx_cdrs_contacto")
+  @@index([timestampInicio], map: "idx_cdrs_ts")
+  @@index([contactoId, id(sort: Desc)], map: "idx_cdrs_contacto_id_desc")
   @@index([tipificacionId], map: "idx_cdrs_tipif")
   @@index([resultado], map: "idx_cdrs_resultado")
   @@map("cdrs")

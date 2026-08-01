@@ -212,6 +212,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
   const [ocultarCampanaId, setOcultarCampanaId] = useState('');
   const [ocultarFile, setOcultarFile]           = useState(null);
   const [ocultarContactos, setOcultarContactos] = useState(null); // parsed
+  const [ocultarParseando, setOcultarParseando] = useState(false);
   const [ocultarProcesando, setOcultarProcesando] = useState(false);
   const ocultarFileRef = useRef(null);
 
@@ -279,14 +280,19 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
     const f = e.target.files[0];
     if (!f) return;
     setOcultarFile(f);
+    setOcultarContactos(null);
+    setOcultarParseando(true);
     try {
       const { contactos } = f.name.endsWith('.csv')
         ? await parsearCSV(await f.text())
         : await parsearXLSX(f);
       setOcultarContactos(contactos);
+      if (!contactos.length) showToast('El Excel no tiene filas con teléfono válido.', 'warning');
     } catch (err) {
       showToast('Error al leer el archivo: ' + err.message, 'error');
       setOcultarContactos(null);
+    } finally {
+      setOcultarParseando(false);
     }
   };
 
@@ -1267,7 +1273,12 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             </div>
             <div>
               <label style={{ fontSize: 12, opacity: 0.6, display: 'block', marginBottom: 4 }}>
-                Excel con clientes a ocultar {ocultarContactos ? <span style={{ color: '#ff9800', fontWeight: 700 }}>({ocultarContactos.length} filas leídas)</span> : ''}
+                Excel con clientes a ocultar{' '}
+                {ocultarParseando
+                  ? <span style={{ color: '#ff9800' }}>⏳ Leyendo...</span>
+                  : ocultarContactos
+                    ? <span style={{ color: '#ff9800', fontWeight: 700 }}>({ocultarContactos.length} filas leídas)</span>
+                    : ''}
               </label>
               <input
                 ref={ocultarFileRef}
@@ -1281,7 +1292,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!ocultarCampanaId || !ocultarContactos?.length || ocultarProcesando}
+              disabled={!ocultarCampanaId || !ocultarContactos?.length || ocultarProcesando || ocultarParseando}
               onClick={handleOcultarLista}
               style={{ gap: 8, background: 'rgba(255,152,0,0.2)', border: '1px solid rgba(255,152,0,0.5)', color: '#ff9800' }}
             >
