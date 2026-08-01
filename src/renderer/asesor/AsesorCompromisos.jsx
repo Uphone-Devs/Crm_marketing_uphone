@@ -465,6 +465,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
               <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
                 <th style={th}>Hora llamada</th>
                 <th style={th}>Cliente</th>
+                <th style={{ ...th, textAlign: 'center' }}>Días imp.</th>
                 <th style={th}>Hora comprometida</th>
                 <th style={th}>Fecha de pago</th>
                 <th style={{ ...th, textAlign: 'right' }}>Monto</th>
@@ -506,7 +507,48 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                       <td style={td}><span className="text-mono" style={{ fontSize: 13, letterSpacing: 0.5 }}>{fmtHora(r.hora_gestion)}</span></td>
                       {/* Cliente */}
                       <td style={{ ...td, fontWeight: 600 }}>
-                        <div>{r.nombre_deudor || '—'}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span>{r.nombre_deudor || '—'}</span>
+                          {/* Botón mensaje compromiso WSP */}
+                          {r.telefono && (
+                            <button type="button"
+                              title="Enviar recordatorio de compromiso por WhatsApp"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                let tel = String(r.telefono).replace(/\D/g, '');
+                                if (tel.startsWith('0')) tel = '593' + tel.slice(1);
+                                const fecha = r.fecha_promesa
+                                  ? new Date(r.fecha_promesa.replace(' ', 'T')).toLocaleDateString('es-EC', { day: '2-digit', month: 'short' })
+                                  : 'la fecha acordada';
+                                const monto = r.monto_acordado != null ? ` de $${Number(r.monto_acordado).toFixed(2)}` : '';
+                                const msg = `Estimado/a ${r.nombre_deudor || 'cliente'}, le recordamos su compromiso de pago${monto} para el día ${fecha}. Por favor realice su pago puntualmente. Gracias.`;
+                                const fn = callApi || ((ch, ...a) => window.api.invoke(ch, ...a));
+                                try {
+                                  const res = await fn('adb:openWhatsApp', tel, msg).catch(() => ({ success: false }));
+                                  if (res?.success || res?.chatOpened) {
+                                    showToast?.('WhatsApp abierto con recordatorio', 'success');
+                                  } else {
+                                    const url = `https://api.whatsapp.com/send?phone=${tel}&text=${encodeURIComponent(msg)}`;
+                                    await fn('shell:openExternal', url).catch(() => {});
+                                    showToast?.('WhatsApp Web abierto con recordatorio', 'info');
+                                  }
+                                } catch (_) {
+                                  const url = `https://api.whatsapp.com/send?phone=${tel}&text=${encodeURIComponent(msg)}`;
+                                  await (callApi || ((ch,...a)=>window.api.invoke(ch,...a)))('shell:openExternal', url).catch(()=>{});
+                                }
+                              }}
+                              style={{
+                                flexShrink: 0, width: 22, height: 22, borderRadius: 6,
+                                background: 'rgba(37,211,102,0.12)', border: '1px solid rgba(37,211,102,0.3)',
+                                color: '#25D366', cursor: 'pointer',
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 13 }}>chat</span>
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
                           <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: color.bg, color: color.fg }}>
                             {TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc}
@@ -521,6 +563,16 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                             <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 5px', borderRadius: 99, background: 'rgba(255,152,0,0.15)', color: '#ffcc02' }}>REAGENDADO</span>
                           )}
                         </div>
+                      </td>
+                      {/* Días impago */}
+                      <td style={{ ...td, textAlign: 'center' }}>
+                        {r.dias_mora != null
+                          ? <span style={{
+                              fontSize: 12, fontWeight: 800, padding: '2px 7px', borderRadius: 99,
+                              background: r.dias_mora === 0 ? 'rgba(0,230,118,0.12)' : r.dias_mora === 1 ? 'rgba(255,202,40,0.15)' : 'rgba(255,152,0,0.15)',
+                              color:      r.dias_mora === 0 ? '#00e676'              : r.dias_mora === 1 ? '#ffca28'              : '#ff9800',
+                            }}>{r.dias_mora}</span>
+                          : <span style={{ opacity: 0.3 }}>—</span>}
                       </td>
                       {/* Hora comprometida */}
                       <td style={td}>
@@ -569,7 +621,7 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
                     </tr>
                     {isOpen && (
                       <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
-                        <td colSpan={7} style={{ padding: '10px 14px' }}>
+                        <td colSpan={8} style={{ padding: '10px 14px' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, fontSize: 12 }}>
                             <Detail label="Teléfono"       value={r.telefono  || '—'} mono />
                             <Detail label="Cédula"         value={r.cedula    || '—'} mono />
