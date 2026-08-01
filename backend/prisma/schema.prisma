@@ -201,6 +201,7 @@ model MensajeBroadcast {
   supervisorId    Int      @map("supervisor_id")
   mensaje         String
   segmentoDestino String   @default("TODOS") @map("segmento_destino")
+  canal           String   @default("TODOS") @map("canal")
   creadoEn        DateTime @default(now()) @map("creado_en")
   activo          Boolean  @default(true)
   supervisor      Usuario  @relation(fields: [supervisorId], references: [id])
