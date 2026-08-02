@@ -128,7 +128,9 @@ npx prisma migrate resolve --applied 20260709140000_remove_supervisor_role
 npx prisma migrate resolve --applied 20260725000000_llave_empresa
 ```
 
-Marcar solo las que la base **realmente** refleja. Verificar cada una antes con `\d` sobre las tablas que toca. `add_validacion_tables.sql` está suelto, fuera del formato de directorio de Prisma: revisar a mano si sus tablas existen.
+La lista completa de migraciones está en `backend/prisma/migrations/`; usar los nombres de directorio tal cual. Marcar solo las que la base **realmente** refleja, verificando antes con `\d` sobre las tablas que toca cada una.
+
+> Ya no quedan archivos `.sql` sueltos en `migrations/`. Los tres que había (`add_validacion_tables.sql`, `add_canal_mensajes_broadcast.sql`, `add_asunto_imagen_mensajes_broadcast.sql`) no los ejecutaba `migrate deploy` por no seguir el formato de directorio. El primero estaba cubierto por `20260725000001_add_missing_tables`; los otros dos se reemplazaron por la migración `20260801000001_mensajes_broadcast_canal_asunto_imagen`, que es idempotente.
 
 **C) La tabla existe pero falta alguna migración reciente.** Aplicar solo las pendientes con `migrate deploy` (paso 5), tras confirmar en el SQL de cada una que no reescribe datos.
 
@@ -163,6 +165,16 @@ npx prisma migrate status    # debe decir: Database schema is up to date
 ```
 
 Si `migrate status` anuncia que va a aplicar migraciones que creías ya reflejadas, volver al paso 4.
+
+Comprobar que las columnas del módulo de mensajes quedaron en su sitio — es lo que rompía antes, porque `schema.prisma` las declaraba y ninguna migración formal las creaba:
+
+```bash
+psql "$DATABASE_URL" -c "\d mensajes_broadcast" | grep -E 'canal|asunto|imagen_url'
+```
+
+Deben aparecer las tres. Si falta alguna, el módulo de mensajes broadcast falla entero: Prisma hace `SELECT` explícito de todas las columnas del modelo.
+
+> **No usar `POST /api/admin/run-migrations`.** Esa ruta se retiró: aplicaba índices y creaba `metricas_diarias_asesor` con `$executeRawUnsafe` por HTTP, duplicando lo que ya hacen `20260729000000_perf_indexes` y `20260729000001_metricas_diarias_asesor`, y dejando la base fuera del control del historial de Prisma. El único camino para el esquema es `migrate deploy`.
 
 ---
 
@@ -319,6 +331,10 @@ Al volver a `main` se pierden los parches de seguridad: el WebSocket vuelve a ac
 ## 15. Pendientes que este despliegue NO resuelve
 
 Quedan fuera de esta entrega y siguen abiertos:
+
+- **`GET /api/admin/backup.dump`** descarga el dump completo de la base con una sola credencial admin, a través del túnel público. Es exfiltración de los datos de todos los deudores en una petición. Conviene rate-limit, registro de auditoría de cada descarga, o restringirlo a origen de red interna.
+- **`GET /api/admin/update-policy` es público y además escribe**: hace `upsert`, así que cualquiera sin credenciales puede crear la fila `id=1`. La lectura pública es deliberada (el cliente consulta la ventana sin token), pero debería separarse en una lectura sin efectos secundarios.
+- **`hotfix/cdrs-indexes` sin mergear** (índices en `cdrs` y reescritura de `cartera-equipo` con carga lazy). Revisar si se solapa con `20260801000000_cdrs_index_optimize` antes de integrarlo.
 
 - **Aislamiento por equipo a medias en el WebSocket**: se aplica a `AUDIO_CHUNK`, pero `ESTADO_ASESOR` y `METRICAS_ASESOR` siguen difundiéndose a todos los supervisores conectados.
 - **`MARCAR_CLIENTE` y `REMOTE_DIAL`** no comprueban que el asesor destino pertenezca al equipo del supervisor que emite el comando.
