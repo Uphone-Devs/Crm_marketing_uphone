@@ -9,8 +9,8 @@
 - El backend **se arranca a mano**: no hay servicio ni tarea programada. Si se cierra la sesión de Bastion, la API cae. Este runbook lo convierte en servicio.
 - Los asesores entran **solo por el túnel**, así que el backend puede escuchar en loopback.
 - El backend usa el puerto **3002**. El `3001` lo ocupa **otro CRM en producción en esta misma VM** (ver aviso de convivencia). `5432` escucha en `0.0.0.0`.
-- Conviven dos Node: `C:\Program Files\nodejs` (v20.18.0) y `F:\node22`.
-- Espacio en `C:` reducido (~4 GB libres). El proyecto y los respaldos viven en `F:`.
+- El backend corre hoy con `F:\node22\node.exe` sobre `F:\crm-backend\app\backend\src\index.js`, ya en `127.0.0.1:3002`. La otra instalación, `C:\Program Files\nodejs` (v20.18.0), **no sirve** para Prisma 7.
+- Espacio en `C:` reducido (~4 GB libres). **`F:` aloja los dos CRMs**, el proyecto y los respaldos: medir su margen antes de volcar nada (paso 1).
 
 > **La base tiene datos productivos.** Nada de este runbook se ejecuta sin haber completado el paso 1 (respaldo verificado). El paso 4 puede obligar a detener el despliegue.
 
@@ -61,8 +61,8 @@ Get-NetTCPConnection -LocalPort 3001,3002 -State Listen |
 La rama `fix/migracion-mensajes-broadcast` ya está mergeada. Desplegar desde `main`.
 
 ```powershell
-git clone https://github.com/Uphone-Devs/Crm_marketing_uphone.git F:\crm-backendpp
-Set-Location F:\crm-backendpp
+git clone https://github.com/Uphone-Devs/Crm_marketing_uphone.git F:\crm-backend\app
+Set-Location F:\crm-backend\app
 git log --oneline -3
 ```
 
@@ -78,7 +78,7 @@ Si el repositorio ya está en la VM, basta con actualizar (paso 3).
 | PostgreSQL 16 | `Get-Service postgresql-x64-16` | Running / Automatic |
 | NSSM | `Test-Path C:\nssm\nssm.exe` | Descargar de nssm.cc si falta |
 | cloudflared | `Get-Service cloudflared` | Ya activo |
-| Espacio en `F:` | `Get-PSDrive F` | Debe superar 2× el tamaño de la base |
+| Espacio en `F:` | `Get-PSDrive F` | Compartido con el CRM de flujo. Ver la regla de decision del paso 1 |
 
 **Sobre las dos versiones de Node:** confirma cuál usa el proceso actual antes de seguir.
 
@@ -95,17 +95,37 @@ El servicio se registrará con el binario que cumpla la versión mínima. Si `F:
 
 ## 1. Respaldo (obligatorio, antes de todo)
 
-Primero, medir. Con solo ~4 GB libres en `C:`, el destino del dump es `F:`.
+> **`F:` es disco compartido: ahí viven los dos CRMs.** Llenarlo no es una molestia, es un incidente. Si el data directory de PostgreSQL también está en `F:`, quedarse sin espacio **detiene la base y tumba ambos sistemas**. El restore de prueba duplica la base, así que este paso puede pedir varios GB. Medir antes de escribir nada.
+
+**Primero medir: espacio, tamaño de la base y dónde vive PostgreSQL.**
 
 ```powershell
 $env:PGPASSWORD = 'PASSWORD_DE_POSTGRES'
 $PG = 'C:\Program Files\PostgreSQL\16\bin'
 
+# Espacio libre por unidad
+Get-PSDrive -PSProvider FileSystem |
+  Select-Object Name, @{n='LibreGB';e={[math]::Round($_.Free/1GB,2)}},
+                      @{n='UsadoGB';e={[math]::Round($_.Used/1GB,2)}} | Format-Table -AutoSize
+
+# Tamano de cada base
 & "$PG\psql.exe" -U postgres -h 127.0.0.1 -c `
-  "SELECT datname, pg_size_pretty(pg_database_size(datname)) FROM pg_database WHERE datname NOT IN ('template0','template1');"
+  "SELECT datname, pg_size_pretty(pg_database_size(datname)) AS tam, pg_database_size(datname) AS bytes FROM pg_database WHERE datname NOT IN ('template0','template1') ORDER BY bytes DESC;"
+
+# Donde guarda los datos PostgreSQL: si es F:, el margen es critico
+& "$PG\psql.exe" -U postgres -h 127.0.0.1 -c "SHOW data_directory;"
 ```
 
-Anota el nombre y el tamaño. El restore de prueba **duplica** la base: necesitas espacio para el dump más una copia completa.
+**Regla de decisión antes de continuar:**
+
+| Situación | Acción |
+|---|---|
+| Libre en `F:` > 3× el tamaño de la base | Continuar con el dump en `F:` |
+| Libre en `F:` entre 1× y 3× | Hacer el dump, **omitir el restore de prueba en esta VM** y verificarlo en otra máquina |
+| Libre en `F:` < 1× | **Detener.** Liberar espacio o volcar a un recurso de red antes de seguir |
+| `data_directory` en `F:` y margen ajustado | **Detener.** Ampliar el disco antes de tocar nada |
+
+No sirve de nada respaldar si el propio respaldo provoca la caída que intentabas prevenir.
 
 ```powershell
 $DB    = 'crm_marketing'          # ajustar al nombre real
@@ -113,11 +133,18 @@ $stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
 New-Item -ItemType Directory -Force -Path F:\backups | Out-Null
 $dump  = "F:\backups\${DB}_$stamp.dump"
 
-& "$PG\pg_dump.exe" -U postgres -h 127.0.0.1 -F c -d $DB -f $dump
+& "$PG\pg_dump.exe" -U postgres -h 127.0.0.1 -F c -Z 9 -d $DB -f $dump
 Get-Item $dump | Select-Object FullName, @{n='MB';e={[math]::Round($_.Length/1MB,1)}}
+
+# Margen restante tras el volcado
+Get-PSDrive F | Select-Object @{n='LibreGB';e={[math]::Round($_.Free/1GB,2)}}
 ```
 
-**Probar que restaura.** Un `.dump` que nadie verificó no es un respaldo.
+`-Z 9` aplica compresión máxima: en una base de cobranza, mayormente texto, reduce bastante el volcado. Cuesta CPU, que aquí importa menos que el espacio.
+
+**Probar que restaura.** Un `.dump` que nadie verifico no es un respaldo.
+
+> Omitir este bloque si la regla de decision anterior lo indica: `crm_restore_test` ocupa **otra copia completa** de la base en la misma unidad que usan ambos CRMs. Si el margen es ajustado, verificar el dump en otra maquina.
 
 ```powershell
 & "$PG\createdb.exe" -U postgres -h 127.0.0.1 crm_restore_test
@@ -152,7 +179,7 @@ Parar primero el proceso manual, si sigue corriendo. Identificalo por su linea d
 ```powershell
 Stop-Process -Id <PID_DEL_BACKEND> -Force
 
-Set-Location F:\crm-backendpp
+Set-Location F:\crm-backend\app
 git fetch origin
 git checkout main
 git pull --ff-only origin main
@@ -287,7 +314,7 @@ npm run seed:catalogo
 Hoy el backend se arranca a mano y muere al cerrar la sesión. Este paso lo convierte en servicio con arranque automático.
 
 ```powershell
-Set-Location F:\crm-backendpp
+Set-Location F:\crm-backend\app
 .\deploy\instalar-servicio-windows.ps1 `
   -RutaBackend 'C:\crm\backend' `
   -NodeExe     'F:\node22\node.exe' `
@@ -429,7 +456,7 @@ Flujo completo: `LoginPage.jsx:74` invoca `updater:start` tras el login → `src
 
 ```powershell
 Stop-Service crm-backend
-Set-Location F:\crm-backendpp
+Set-Location F:\crm-backend\app
 git checkout <commit-anterior>
 Set-Location C:\crm\backend
 npm ci --omit=dev
