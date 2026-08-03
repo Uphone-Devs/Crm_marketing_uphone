@@ -7,8 +7,8 @@
 !.env.example
 
 # DB dumps
-scripts/*.sql
-scripts/*.json
+/scripts/*.sql
+/scripts/*.json
 
 # graphify output (should not be committed)
 graphify-out/
@@ -89,8 +89,10 @@ npm-debug.log*
 # Windows reserved device name — no existe como archivo real, git no puede indexarlo
 NUL.css
 
-# Scripts temporales de desarrollo/parche (no son parte del producto)
-scripts/
+# Scripts temporales de desarrollo/parche en la raiz (no son parte del producto).
+# Anclado a /scripts/: sin la barra inicial la regla ignoraba CUALQUIER carpeta
+# scripts/ del repo en silencio, incluida backend/scripts/ (codigo de produccion).
+/scripts/
 patch.js
 gen-hash.js
 reset-admin.js
