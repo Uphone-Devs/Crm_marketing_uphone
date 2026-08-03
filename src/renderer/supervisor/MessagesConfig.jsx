@@ -138,6 +138,7 @@ export default function MessagesConfig() {
   const [mensajes,  setMensajes]  = useState([]);
   const [asunto,    setAsunto]    = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
+  const [userEdited, setUserEdited] = useState(false);
   const textareaRef = useRef(null);
 
   const VARIABLES = [
@@ -189,8 +190,14 @@ export default function MessagesConfig() {
     return () => removeListener?.();
   }, [cargarMensajes]);
 
-  // Pre-cargar mensaje activo al cambiar selección
+  // Reset userEdited cuando el supervisor cambia canal o segmento
+  useEffect(() => { setUserEdited(false); }, [canal, segmento]);
+
+  // Pre-cargar mensaje activo al cambiar selección.
+  // Si el usuario ya editó manualmente, no sobreescribir (mensajes se recarga
+  // por WS y borraba lo que el supervisor estaba escribiendo).
   useEffect(() => {
+    if (userEdited) return;
     const activo = mensajes.find(m =>
       (m.activo === 1 || m.activo === true) &&
       m.canal === canal &&
@@ -199,7 +206,7 @@ export default function MessagesConfig() {
     setMensaje(activo ? activo.mensaje : '');
     setAsunto(activo?.asunto || '');
     setImagenUrl(activo?.imagen_url || '');
-  }, [canal, segmento, mensajes]);
+  }, [canal, segmento, mensajes, userEdited]);
 
   async function handleEnviar() {
     if (!mensaje.trim()) { showToast('Escribe el mensaje antes de enviar', 'warning'); return; }
@@ -224,6 +231,7 @@ export default function MessagesConfig() {
         await window.api.invoke('db:insertMensajeBroadcast', user.id, mensaje.trim(), segmento);
       }
       showToast('Mensaje enviado ✓', 'success');
+      setUserEdited(false);
       await cargarMensajes();
     } catch {
       showToast('Error al enviar el mensaje', 'error');
@@ -385,7 +393,7 @@ export default function MessagesConfig() {
 
           {/* Textarea */}
           <div style={{ position: 'relative' }}>
-            <textarea ref={textareaRef} value={mensaje} onChange={e => setMensaje(e.target.value)} rows={5}
+            <textarea ref={textareaRef} value={mensaje} onChange={e => { setMensaje(e.target.value); setUserEdited(true); }} rows={5}
               placeholder={`Escribe el mensaje para ${canalMeta.label} · ${segmentoMeta.label}…`}
               style={{
                 width: '100%', boxSizing: 'border-box',
