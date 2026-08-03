@@ -10,10 +10,25 @@
  * Un solo servidor en puerto 3001 maneja REST API + WebSocket.
  */
 
-// ── Load environment variables (MUST be before any other imports) ──
-require('dotenv').config();
-
 const { app, BrowserWindow } = require('electron');
+
+// ── Load environment variables (MUST be before any other imports) ──
+// En producción (.asar read-only) leer desde userData; en dev desde raíz del proyecto.
+const _crypto = require('crypto');
+const _fs     = require('fs');
+const _path   = require('path');
+const _envPath = app.isPackaged
+  ? _path.join(app.getPath('userData'), '.env')
+  : _path.resolve(__dirname, '../../.env');
+require('dotenv').config({ path: _envPath });
+
+// Auto-generate JWT_SECRET on first run — no manual config needed per machine
+if (!process.env.JWT_SECRET) {
+  const secret = _crypto.randomBytes(64).toString('hex');
+  process.env.JWT_SECRET = secret;
+  _fs.appendFileSync(_envPath, `\nJWT_SECRET=${secret}\n`, 'utf8');
+  console.log('[CONFIG] JWT_SECRET auto-generado y persistido en', _envPath);
+}
 const { exec, spawn } = require('child_process');
 const path = require('path');
 const { initDatabase, closeDb } = require('./database/db');

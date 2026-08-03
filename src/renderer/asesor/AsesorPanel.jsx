@@ -3256,20 +3256,27 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
                               <span>Grupo</span>
                               <div ref={grupoDropRef} style={{ position: 'relative' }}>
+                                {(() => { const on = grupoFiltroSet.size > 0; return (
                                 <button type="button"
                                   onClick={(e) => { e.stopPropagation(); setGrupoDropOpen(v => !v); }}
+                                  onMouseEnter={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; }}
+                                  onMouseLeave={e => { if (!on) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
                                   style={{
-                                    display: 'inline-flex', alignItems: 'center', gap: 3, cursor: 'pointer',
-                                    background: grupoFiltroSet.size > 0 ? 'rgba(206,147,216,0.15)' : 'rgba(255,255,255,0.05)',
-                                    border: `1px solid ${grupoFiltroSet.size > 0 ? 'rgba(206,147,216,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                                    borderRadius: 20, padding: '1px 8px', font: 'inherit',
-                                    color: grupoFiltroSet.size > 0 ? '#ce93d8' : 'rgba(255,255,255,0.7)',
-                                    fontSize: 10, fontWeight: 700,
+                                    display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                    height: 20, padding: '0 8px', borderRadius: 7, font: 'inherit',
+                                    fontSize: 9.5, fontWeight: 700, letterSpacing: '0.03em', textTransform: 'none',
+                                    background: on ? 'rgba(206,147,216,0.16)' : 'rgba(255,255,255,0.04)',
+                                    border: `1px solid ${on ? 'rgba(206,147,216,0.55)' : 'rgba(255,255,255,0.1)'}`,
+                                    color: on ? '#ce93d8' : 'rgba(255,255,255,0.6)',
+                                    boxShadow: on ? '0 0 10px rgba(206,147,216,0.18)' : 'none',
+                                    transition: 'all 0.13s',
                                   }}
                                 >
-                                  <span className="material-symbols-outlined" style={{ fontSize: 12, color: grupoFiltroSet.size > 0 ? '#ce93d8' : 'rgba(255,255,255,0.45)' }}>filter_alt</span>
-                                  {grupoFiltroSet.size > 0 ? `${grupoFiltroSet.size} sel.` : 'TODOS'}
+                                  <span className="material-symbols-outlined" style={{ fontSize: 13, color: on ? '#ce93d8' : 'rgba(255,255,255,0.4)' }}>filter_alt</span>
+                                  {on ? `${grupoFiltroSet.size} sel.` : 'Todos'}
+                                  <span className="material-symbols-outlined" style={{ fontSize: 14, marginLeft: -1, color: on ? '#ce93d8' : 'rgba(255,255,255,0.4)', transform: grupoDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>expand_more</span>
                                 </button>
+                                ); })()}
                                 {grupoDropOpen && (
                                   <div
                                     onClick={(e) => e.stopPropagation()}
@@ -3324,14 +3331,22 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               <button type="button"
                                 onClick={() => setUsarTelefono2(v => !v)}
                                 title={usarTelefono2 ? 'Usando Teléfono 2 — click para volver a Tel 1' : 'Usar Teléfono 2 (solo muestra contactos con Tel 2)'}
+                                onMouseEnter={e => { if (!usarTelefono2) e.currentTarget.style.background = 'rgba(255,255,255,0.09)'; }}
+                                onMouseLeave={e => { if (!usarTelefono2) e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
                                 style={{
-                                  fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 20, cursor: 'pointer',
-                                  border: `1px solid ${usarTelefono2 ? 'rgba(100,181,246,0.6)' : 'rgba(255,255,255,0.12)'}`,
-                                  background: usarTelefono2 ? 'rgba(100,181,246,0.15)' : 'rgba(255,255,255,0.04)',
-                                  color: usarTelefono2 ? '#64b5f6' : 'rgba(255,255,255,0.4)',
-                                  font: 'inherit', letterSpacing: '0.04em',
+                                  display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer',
+                                  height: 20, padding: '0 8px', borderRadius: 7, font: 'inherit',
+                                  fontSize: 9.5, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'none',
+                                  border: `1px solid ${usarTelefono2 ? 'rgba(100,181,246,0.6)' : 'rgba(255,255,255,0.1)'}`,
+                                  background: usarTelefono2 ? 'rgba(100,181,246,0.16)' : 'rgba(255,255,255,0.04)',
+                                  color: usarTelefono2 ? '#64b5f6' : 'rgba(255,255,255,0.5)',
+                                  boxShadow: usarTelefono2 ? '0 0 10px rgba(100,181,246,0.18)' : 'none',
+                                  transition: 'all 0.13s',
                                 }}
-                              >{usarTelefono2 ? 'TEL 2 ✓' : 'TEL 2'}</button>
+                              >
+                                <span className="material-symbols-outlined" style={{ fontSize: 13, color: usarTelefono2 ? '#64b5f6' : 'rgba(255,255,255,0.4)' }}>{usarTelefono2 ? 'check_circle' : 'smartphone'}</span>
+                                Tel 2
+                              </button>
                             </div>
                           </th>
                           <th style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, opacity: 0.6, textTransform: 'uppercase', textAlign: 'right' }}>
