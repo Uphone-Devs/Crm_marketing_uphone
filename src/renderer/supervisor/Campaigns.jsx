@@ -268,8 +268,6 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
       if (res.success) {
         showToast(`${res.restored} contactos restaurados para ${asesorNombre}`, 'success');
         fetchCampaigns();
-        // Notificar al asesor
-        window.api.invoke('ws:notifyCarteraAsignada', asesorId).catch(() => {});
       }
     } catch (err) {
       showToast('Error al restaurar: ' + err.message, 'error');
@@ -547,8 +545,6 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
       for (const { gestor, contactos, asesorId, res } of resultadosInsercion) {
         if (res.success) {
           totalInsertados += res.count;
-          // Notificar al asesor para que recargue cartera sin reiniciar el CRM
-          window.api.invoke('ws:notifyCarteraAsignada', asesorId).catch(() => {});
           const asesor = asesores.find(a => a.id === asesorId);
 
           // Financials por asesor calculados desde los contactos ya en memoria

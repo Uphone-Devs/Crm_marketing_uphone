@@ -39,7 +39,7 @@ export default function QuickConnect({ onConnected }) {
     setLoading('wifi');
     setShowWifiModal(false);
     try {
-      await window.api.invoke('db:setConfig', 'ultima_ip_wifi', ip);
+      localStorage.setItem('ultima_ip_wifi', ip);
       const result = await window.api.invoke('adb:connectWifi', ip);
       if (result.success) {
         showToast(`Conectado por WiFi a ${ip}`, 'success');
@@ -54,8 +54,8 @@ export default function QuickConnect({ onConnected }) {
     }
   }
 
-  async function openWifiModal() {
-    const { valor } = await window.api.invoke('db:getConfig', 'ultima_ip_wifi');
+  function openWifiModal() {
+    const valor = localStorage.getItem('ultima_ip_wifi');
     if (valor) setIp(valor);
     setShowWifiModal(true);
   }
