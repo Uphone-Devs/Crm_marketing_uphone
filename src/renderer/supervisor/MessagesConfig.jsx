@@ -138,7 +138,7 @@ export default function MessagesConfig() {
   const [mensajes,  setMensajes]  = useState([]);
   const [asunto,    setAsunto]    = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
-  const [userEdited, setUserEdited] = useState(false);
+  const prefillDoneRef = useRef(false);
   const textareaRef = useRef(null);
 
   const VARIABLES = [
@@ -190,14 +190,14 @@ export default function MessagesConfig() {
     return () => removeListener?.();
   }, [cargarMensajes]);
 
-  // Reset userEdited cuando el supervisor cambia canal o segmento
-  useEffect(() => { setUserEdited(false); }, [canal, segmento]);
+  // Resetear prefill cuando supervisor cambia canal o segmento
+  useEffect(() => { prefillDoneRef.current = false; }, [canal, segmento]);
 
-  // Pre-cargar mensaje activo al cambiar selección.
-  // Si el usuario ya editó manualmente, no sobreescribir (mensajes se recarga
-  // por WS y borraba lo que el supervisor estaba escribiendo).
+  // Pre-cargar mensaje activo — solo UNA VEZ por canal/segmento seleccionado.
+  // Recargas por WS (mensajes cambia) no sobreescriben lo que el supervisor escribe.
   useEffect(() => {
-    if (userEdited) return;
+    if (prefillDoneRef.current) return;
+    if (loading) return; // esperar carga inicial
     const activo = mensajes.find(m =>
       (m.activo === 1 || m.activo === true) &&
       m.canal === canal &&
@@ -206,7 +206,8 @@ export default function MessagesConfig() {
     setMensaje(activo ? activo.mensaje : '');
     setAsunto(activo?.asunto || '');
     setImagenUrl(activo?.imagen_url || '');
-  }, [canal, segmento, mensajes, userEdited]);
+    prefillDoneRef.current = true;
+  }, [canal, segmento, mensajes, loading]);
 
   async function handleEnviar() {
     if (!mensaje.trim()) { showToast('Escribe el mensaje antes de enviar', 'warning'); return; }
@@ -215,7 +216,7 @@ export default function MessagesConfig() {
       const apiBase   = buildApiBase();
       const authToken = localStorage.getItem('auth_token');
       if (apiBase) {
-        await fetch(`${apiBase}/mensajes-broadcast`, {
+        const res = await fetch(`${apiBase}/mensajes-broadcast`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({
@@ -226,15 +227,18 @@ export default function MessagesConfig() {
             imagen_url:      (canal === 'CORREO' || canal === 'RCS') ? imagenUrl.trim() || null : null,
           }),
         });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
       } else {
         const user = JSON.parse(localStorage.getItem('uphone_user') || '{}');
         await window.api.invoke('db:insertMensajeBroadcast', user.id, mensaje.trim(), segmento);
       }
       showToast('Mensaje enviado ✓', 'success');
-      setUserEdited(false);
       await cargarMensajes();
-    } catch {
-      showToast('Error al enviar el mensaje', 'error');
+    } catch (err) {
+      showToast('Error al enviar: ' + (err?.message || 'sin respuesta'), 'error');
     } finally {
       setSending(false);
     }
@@ -376,7 +380,7 @@ export default function MessagesConfig() {
 
           {/* Asunto — solo CORREO */}
           {canal === 'CORREO' && (
-            <input type="text" value={asunto} onChange={e => setAsunto(e.target.value)}
+            <input type="text" value={asunto}
               placeholder="Asunto del correo…"
               style={{
                 width: '100%', boxSizing: 'border-box',
@@ -386,6 +390,7 @@ export default function MessagesConfig() {
                 color: 'rgba(255,255,255,0.9)', fontSize: 13, fontFamily: 'inherit',
                 outline: 'none', transition: 'border-color 0.15s',
               }}
+              onChange={e => setAsunto(e.target.value)}
               onFocus={e => { e.target.style.borderColor = '#f48fb188'; }}
               onBlur={e => { e.target.style.borderColor = asunto.trim() ? '#f48fb155' : 'rgba(255,255,255,0.08)'; }}
             />
@@ -393,7 +398,7 @@ export default function MessagesConfig() {
 
           {/* Textarea */}
           <div style={{ position: 'relative' }}>
-            <textarea ref={textareaRef} value={mensaje} onChange={e => { setMensaje(e.target.value); setUserEdited(true); }} rows={5}
+            <textarea ref={textareaRef} value={mensaje} onChange={e => setMensaje(e.target.value)} rows={5}
               placeholder={`Escribe el mensaje para ${canalMeta.label} · ${segmentoMeta.label}…`}
               style={{
                 width: '100%', boxSizing: 'border-box',

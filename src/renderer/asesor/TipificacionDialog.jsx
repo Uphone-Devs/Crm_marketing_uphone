@@ -438,7 +438,7 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
       body    = interpolateTemplate(selectTemplate('email_body',    diasMora, tramos, templates), contacto, asesorNombre);
     }
 
-    const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailDestino.trim())}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    const url = `mailto:${encodeURIComponent(emailDestino.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
     try {
       const invokeFn = callApi || window.api.invoke;
