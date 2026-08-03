@@ -101,8 +101,9 @@ server.listen(PORT, HOST, () => {
   console.log(`🚀 API + WebSocket escuchando en ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
 });
 
-// systemd envía SIGTERM, no SIGINT: sin este handler el proceso moría sin cerrar
-// el servidor HTTP ni drenar el pool de Prisma en cada `systemctl restart`.
+// Apagado ordenado: cierra el servidor HTTP y drena el pool de Prisma antes de salir.
+// Sin esto, cada reinicio deja conexiones colgadas en pg_stat_activity hasta que
+// Postgres las expira solo.
 let cerrando = false;
 async function apagar(senal) {
   if (cerrando) return;
@@ -126,8 +127,20 @@ async function apagar(senal) {
   });
 }
 
+// En Linux/systemd basta con las senales. La VM de produccion es Windows Server, que
+// no tiene senales POSIX: process.kill() ahi termina el proceso de forma incondicional
+// (equivale a SIGKILL), asi que estos dos handlers NUNCA se ejecutan bajo PM2 en la VM.
+// Se dejan porque si aplican en desarrollo local y en cualquier host Unix.
 process.on('SIGTERM', () => apagar('SIGTERM'));
 process.on('SIGINT', () => apagar('SIGINT'));
+
+// El camino real de apagado en la VM: PM2 suple la falta de senales mandando el string
+// 'shutdown' por el canal IPC antes de matar el proceso (respeta --kill-timeout). Sin
+// este handler, `pm2 restart` nunca llama a db.$disconnect().
+// Si el proceso corre sin PM2 no hay canal IPC y el listener simplemente no se dispara.
+process.on('message', (msg) => {
+  if (msg === 'shutdown') apagar('shutdown (PM2)');
+});
 
 // Manejo de Upgrade para WebSockets Nativos (Monitor).
 // Retirado socket.io, todo upgrade corresponde al WS de monitoreo. La sesión sigue
