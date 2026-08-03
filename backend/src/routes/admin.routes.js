@@ -280,15 +280,30 @@ router.delete('/users/:id', authMiddleware, requireRole('admin'), async (req, re
 });
 
 // ── Auto-update: política de ventana horaria ───────────────────────────────
+// Usa SQL crudo para no depender de la versión del Prisma client generado en la VM.
+function mapPolicy(r) {
+    return {
+        id:               Number(r.id),
+        enabled:          r.enabled,
+        startTime:        r.start_time,
+        endTime:          r.end_time,
+        days:             r.days,
+        checkIntervalMin: Number(r.check_interval_min),
+        updatedAt:        r.updated_at,
+    };
+}
+
 // GET público: el main process de cada cliente lo lee sin token (schedule no es secreto).
 router.get('/update-policy', async (req, res) => {
     try {
-        const policy = await prisma.updatePolicy.upsert({
-            where: { id: 1 },
-            update: {},
-            create: { id: 1 },
-        });
-        res.json(policy);
+        let rows = await prisma.$queryRaw`SELECT * FROM update_policy WHERE id = 1`;
+        if (!rows.length) {
+            rows = await prisma.$queryRaw`
+                INSERT INTO update_policy (id) VALUES (1)
+                ON CONFLICT (id) DO UPDATE SET id = 1
+                RETURNING *`;
+        }
+        res.json(mapPolicy(rows[0]));
     } catch (err) {
         console.error('[UPDATE-POLICY] Error:', err?.message || err);
         res.status(500).json({ error: 'Error obteniendo política de update' });
@@ -301,13 +316,20 @@ router.put('/update-policy', authMiddleware, requireRole('admin'), async (req, r
     if (errorMsg) return res.status(400).json({ error: errorMsg });
     try {
         const { enabled, startTime, endTime, days, checkIntervalMin } = req.body;
-        const policy = await prisma.updatePolicy.upsert({
-            where: { id: 1 },
-            update: { enabled, startTime, endTime, days, checkIntervalMin },
-            create: { id: 1, enabled, startTime, endTime, days, checkIntervalMin },
-        });
-        res.json(policy);
+        // days validado como enteros por validarPolicy → literal Postgres seguro
+        const daysLiteral = `{${days.map(Number).join(',')}}`;
+        const rows = await prisma.$queryRawUnsafe(
+            `INSERT INTO update_policy (id, enabled, start_time, end_time, days, check_interval_min, updated_at)
+             VALUES (1, $1, $2, $3, $4::int[], $5, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+               enabled = $1, start_time = $2, end_time = $3, days = $4::int[],
+               check_interval_min = $5, updated_at = NOW()
+             RETURNING *`,
+            enabled, startTime, endTime, daysLiteral, checkIntervalMin
+        );
+        res.json(mapPolicy(rows[0]));
     } catch (err) {
+        console.error('[UPDATE-POLICY] Error guardando:', err?.message || err);
         res.status(500).json({ error: 'Error guardando política de update' });
     }
 });
