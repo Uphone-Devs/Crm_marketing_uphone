@@ -1,7 +1,10 @@
-# Environment variables
+# Environment variables.
+# Cualquier variante queda fuera (.env.test, .env.produccion, .env.vm...), salvo la
+# plantilla. Los patrones anteriores solo cubrían .env, .env.local y .env.*.local:
+# un .env.test con credenciales reales se podía commitear sin que git avisara.
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # DB dumps
 scripts/*.sql
