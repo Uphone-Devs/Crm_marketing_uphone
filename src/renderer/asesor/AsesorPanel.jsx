@@ -4473,6 +4473,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   asesorNombre={usuario.nombre}
                   asesorId={usuario.id}
                   callApi={callApi}
+                  mensajesBroadcast={mensajesBroadcast}
                   onAltDialed={handleAltDialed}
                   onExternalDial={handleExternalDial}
                   ultimaTipificacion={historialGestiones?.[0]?.tipificacion_codigo || null}
@@ -4976,6 +4977,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           asesorNombre={usuario.nombre}
           asesorId={usuario.id}
           callApi={callApi}
+          mensajesBroadcast={mensajesBroadcast}
           onAltDialed={handleAltDialed}
           onExternalDial={handleExternalDial}
           ultimaTipificacion={historialGestiones?.[0]?.tipificacion_codigo || null}
