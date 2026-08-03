@@ -1,6 +1,6 @@
 # Runbook de despliegue — backend CRM Marketing Uphone
 
-**Destino:** VM de Azure con **Windows Server 2022 Datacenter** · **PostgreSQL 16** en la misma VM · exposición por **Cloudflare tunnel** (servicio `cloudflared` ya activo) · **base de datos ya poblada**.
+**Destino:** VM de Azure con **Windows Server 2022 Datacenter** · **PostgreSQL 16** en la misma VM · backend en el puerto **3002** · exposición por **Cloudflare tunnel** (servicio `cloudflared` ya activo) · **base de datos ya poblada**.
 
 **Qué se despliega:** únicamente `backend/`. El cliente Electron se distribuye aparte y no cambia en esta entrega — los parches son todos del lado servidor.
 
@@ -8,7 +8,7 @@
 
 - El backend **se arranca a mano**: no hay servicio ni tarea programada. Si se cierra la sesión de Bastion, la API cae. Este runbook lo convierte en servicio.
 - Los asesores entran **solo por el túnel**, así que el backend puede escuchar en loopback.
-- Puerto `3001` escuchando hoy en `0.0.0.0`; `5432` también.
+- El backend usa el puerto **3002**. Hoy hay un `3001` escuchando en `0.0.0.0` (otro proceso, pendiente de identificar) y `5432` tambien en `0.0.0.0`.
 - Conviven dos Node: `C:\Program Files\nodejs` (v20.18.0) y `F:\node22`.
 - Espacio en `C:` reducido (~4 GB libres): los respaldos van a `F:`.
 
@@ -259,7 +259,7 @@ Get-Service crm-backend
 Get-Content F:\logs\crm-backend\salida.log -Tail 20
 ```
 
-Esperado: `🚀 API + WebSocket escuchando en 127.0.0.1:3001 (NODE_ENV=production)`.
+Esperado: `🚀 API + WebSocket escuchando en 127.0.0.1:3002 (NODE_ENV=production)`.
 
 **Por qué NSSM y no `sc.exe`:** al detener, NSSM envía Ctrl+C, que Node traduce a **SIGINT** y dispara el cierre ordenado (cierra el servidor HTTP y drena el pool de Prisma). `sc.exe` mata el proceso sin aviso y deja conexiones colgadas en `pg_stat_activity`.
 
@@ -279,7 +279,7 @@ Get-Content "C:\Windows\System32\config\systemprofile\.cloudflared\config.yml" -
 Get-ChildItem "$env:USERPROFILE\.cloudflared" -ErrorAction SilentlyContinue
 ```
 
-Si el `ingress` no apunta a `http://127.0.0.1:3001`, corregirlo y reiniciar el servicio. `deploy\cloudflared-config.yml` sirve de plantilla.
+Si el `ingress` no apunta a `http://127.0.0.1:3002`, corregirlo y reiniciar el servicio. `deploy\cloudflared-config.yml` sirve de plantilla.
 
 Tras cambiar `HOST` a `127.0.0.1`, confirmar que el túnel sigue alcanzando el backend (verificación 1 del paso 12).
 
@@ -290,18 +290,18 @@ Tras cambiar `HOST` a `127.0.0.1`, confirmar que el túnel sigue alcanzando el b
 Con el túnel, la VM **no necesita puertos públicos**.
 
 ```powershell
-Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 3001,5432 } |
+Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 3002,5432 } |
   Select-Object LocalAddress, LocalPort | Format-Table -AutoSize
 ```
 
-Tras el paso 9, el `3001` debe aparecer solo en `127.0.0.1`. El `5432` sigue en `0.0.0.0`: restringirlo en `postgresql.conf` (`listen_addresses = 'localhost'`) o, como mínimo, con regla de firewall.
+Tras el paso 9, el `3002` debe aparecer solo en `127.0.0.1`. El `5432` sigue en `0.0.0.0`: restringirlo en `postgresql.conf` (`listen_addresses = 'localhost'`) o, como mínimo, con regla de firewall.
 
 ```powershell
 New-NetFirewallRule -DisplayName "Bloquear PostgreSQL externo" `
   -Direction Inbound -LocalPort 5432 -Protocol TCP -Action Block -Profile Any
 ```
 
-En el NSG de Azure: sin reglas de entrada para 3001 ni 5432. Dejar solo el acceso administrativo restringido por IP.
+En el NSG de Azure: sin reglas de entrada para 3002, 3001 ni 5432. Dejar solo el acceso administrativo restringido por IP.
 
 ---
 
@@ -325,7 +325,7 @@ $HOST_PUB = 'https://crm.tu-dominio.com'
 | 8 | Migraciones al día | `npx prisma migrate status` | `Database schema is up to date` |
 | 9 | Cierre ordenado | `Restart-Service crm-backend` y revisar el log | `[APP] SIGINT recibido` y `[APP] Cierre limpio`, sin `Cierre forzado` |
 | 10 | Sin conexiones colgadas | `psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='crm_marketing';"` | vuelve al valor previo |
-| 11 | Puerto no expuesto | `Get-NetTCPConnection -LocalPort 3001 -State Listen` | solo `127.0.0.1` |
+| 11 | Puerto no expuesto | `Get-NetTCPConnection -LocalPort 3002 -State Listen` | solo `127.0.0.1` |
 | 12 | Escalada de privilegios cerrada | con token `jefe_area`: `POST /api/admin/users` con `"rol":"admin"`, y `PUT /api/admin/users/<id-admin>` con `"rol":"asesor"` | `403` en ambos |
 | 13 | Auto-update apagado | `psql -c "SELECT enabled, start_time, end_time, days FROM update_policy;"` | `enabled = f` |
 | 14 | Columnas de mensajería | `psql -c "\d mensajes_broadcast"` | aparecen `canal`, `asunto`, `imagen_url` |
