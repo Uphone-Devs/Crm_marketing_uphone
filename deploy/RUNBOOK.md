@@ -289,8 +289,14 @@ HOST_PUB=https://crm.tu-dominio.com
 | 10 | Sin conexiones colgadas | `psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_stat_activity WHERE datname='crm_marketing';"` | vuelve al valor previo tras el reinicio |
 | 11 | Puerto no expuesto | `ss -ltnp \| grep 3001` | solo `127.0.0.1` |
 | 12 | Escalada de privilegios cerrada | con token de `jefe_area`: `POST /api/admin/users` con `"rol":"admin"`, y `PUT /api/admin/users/<id-de-un-admin>` con `"rol":"asesor"` | `403` en ambos |
+| 13 | Auto-update apagado | `psql "$DATABASE_URL" -c "SELECT enabled, start_time, end_time, days FROM update_policy;"` | `enabled = f` |
+| 14 | Columnas de mensajería presentes | `psql "$DATABASE_URL" -c "\d mensajes_broadcast" \| grep -cE 'canal\|asunto\|imagen_url'` | `3` |
 
 **El punto 9 solo puede verificarse en la VM.** El manejo de `SIGTERM` se implementó y se revisó, pero Windows no emite SIGTERM real, así que no pudo probarse en el entorno de desarrollo.
+
+**Si el punto 13 devuelve `enabled = t`, detener y revisar.** Significa que alguien activó el auto-update: con un instalador publicado, la flota entera se actualizaría sola dentro de la ventana. Ver §13.1 antes de dejarlo encendido.
+
+**Si el punto 14 no devuelve 3**, el módulo de mensajería fallará entero. Volver al paso 5.
 
 ---
 
@@ -302,6 +308,37 @@ No requiere reinstalación por estos cambios. Sí requiere reconfigurar la URL d
 2. El cliente deriva solo el WebSocket a `wss://crm.tu-dominio.com/?token=...` (`src/renderer/shared/apiClient.js`, `AsesorPanel.jsx:928`).
 
 Ningún cambio de esta entrega toca el protocolo cliente↔servidor: el WebSocket sigue autenticándose en el mensaje `IDENTIFICAR`, tal como ya hacía `main`.
+
+### 13.1 Auto-update: qué se despliega y qué no
+
+**Este despliegue no actualiza ningún cliente.** Instala el mecanismo, apagado.
+
+Lo que entra: la tabla `update_policy` (migración `20260728000000_add_update_policy`) y los endpoints `GET`/`PUT /api/admin/update-policy`.
+
+Lo que **no** ocurre, por dos cortes independientes:
+
+1. `enabled` es `false` por defecto en el schema. El `GET` crea la fila con los valores por defecto (ventana 13:00–14:00, lunes a viernes, chequeo cada 30 min, hora de Guayaquil) y `isDentroDeVentana` corta en seco cuando `enabled` es falso (`src/main/updateWindow.js:37`).
+2. El binario no sale de este backend. `electron-builder.yml` publica contra `https://crm.anomalydevs.qzz.io/updates/`, otro host. Sin un `latest.yml` y un `.exe` de versión superior ahí, `checkForUpdates()` no encuentra nada.
+
+Flujo completo, para referencia: `LoginPage.jsx:74` invoca `updater:start` tras el login → `src/main/updater.js` consulta la política cada `checkIntervalMin` → si está habilitada y dentro de la ventana, llama a `autoUpdater.checkForUpdates()`.
+
+**Antes de poner `enabled: true`, resolver tres cosas:**
+
+- **Los instaladores no están firmados.** El script de build fija `CSC_IDENTITY_AUTO_DISCOVERY=false` y `publish.provider` es `generic`. Con auto-update activo, quien controle ese dominio o su DNS puede empujar un ejecutable a todas las PCs de cobranza, y `electron-updater` lo instalará sin verificar firma. Firmar los instaladores cierra este vector.
+- **Alinear el versionado.** `package.json` está en `3.0.0` y la documentación habla de "Versión 4.0". El updater compara versiones: si la publicada no supera a la instalada, no pasa nada y el fallo es silencioso.
+- **Probar con una sola máquina primero.** Activar la política con una ventana corta, verificar la actualización en un equipo, y solo entonces abrir la ventana a la flota.
+
+Para encender o apagar la política:
+
+```bash
+# consultar
+curl -s $HOST_PUB/api/admin/update-policy
+
+# apagar (requiere token admin)
+curl -X PUT $HOST_PUB/api/admin/update-policy \
+  -H "Authorization: Bearer $TOKEN_ADMIN" -H 'Content-Type: application/json' \
+  -d '{"enabled":false,"startTime":"13:00","endTime":"14:00","days":[1,2,3,4,5],"checkIntervalMin":30}'
+```
 
 ---
 
@@ -335,6 +372,7 @@ Quedan fuera de esta entrega y siguen abiertos:
 - **`GET /api/admin/backup.dump`** descarga el dump completo de la base con una sola credencial admin, a través del túnel público. Es exfiltración de los datos de todos los deudores en una petición. Conviene rate-limit, registro de auditoría de cada descarga, o restringirlo a origen de red interna.
 - **`GET /api/admin/update-policy` es público y además escribe**: hace `upsert`, así que cualquiera sin credenciales puede crear la fila `id=1`. La lectura pública es deliberada (el cliente consulta la ventana sin token), pero debería separarse en una lectura sin efectos secundarios.
 - **`hotfix/cdrs-indexes` sin mergear** (índices en `cdrs` y reescritura de `cartera-equipo` con carga lazy). Revisar si se solapa con `20260801000000_cdrs_index_optimize` antes de integrarlo.
+- **Instaladores sin firmar con auto-update por `provider: generic`** (ver §13.1). Mientras `update_policy.enabled` siga en `false` no hay exposición, pero es la condición a resolver antes de activarlo.
 
 - **Aislamiento por equipo a medias en el WebSocket**: se aplica a `AUDIO_CHUNK`, pero `ESTADO_ASESOR` y `METRICAS_ASESOR` siguen difundiéndose a todos los supervisores conectados.
 - **`MARCAR_CLIENTE` y `REMOTE_DIAL`** no comprueban que el asesor destino pertenezca al equipo del supervisor que emite el comando.
