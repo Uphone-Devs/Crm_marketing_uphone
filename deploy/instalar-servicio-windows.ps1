@@ -18,7 +18,7 @@
 [CmdletBinding()]
 param(
     [string]$Nombre      = 'crm-backend',
-    [string]$RutaBackend = 'C:\crm\backend',
+    [string]$RutaBackend = 'F:\crm-backend\app\backend',
     [string]$NodeExe     = 'F:\node22\node.exe',
     [string]$NssmExe     = 'C:\nssm\nssm.exe',
     [string]$RutaLogs    = 'F:\logs\crm-backend',
@@ -46,11 +46,34 @@ if ($mayor -lt 20 -or ($mayor -eq 20 -and $menor -lt 19)) {
 }
 Write-Host "Node $version en $NodeExe - OK"
 
-# El puerto real lo define PORT en backend\.env; aqui solo se informa.
-$envPort = (Select-String -Path (Join-Path $RutaBackend '.env') -Pattern '^\s*PORT\s*=' -ErrorAction SilentlyContinue |
-            Select-Object -First 1).Line
-if ($envPort) { Write-Host "Puerto declarado en .env: $($envPort.Trim())" }
-else          { Write-Host "AVISO: PORT no esta definido en .env; el codigo usara 3001 por defecto." }
+# PORT es obligatorio y se valida, no se avisa. En esta VM convive otro CRM que ya
+# ocupa el 3001, que es justo el valor al que cae el codigo si la variable falta.
+# Arrancar sin PORT provocaria EADDRINUSE o, si el otro CRM estuviera parado en ese
+# momento, este servicio le robaria el puerto y lo dejaria sin arrancar despues.
+$rutaEnv = Join-Path $RutaBackend '.env'
+$lineaPort = (Select-String -Path $rutaEnv -Pattern '^\s*PORT\s*=\s*(\d+)' -ErrorAction SilentlyContinue |
+              Select-Object -First 1)
+if (-not $lineaPort) {
+    throw "PORT no esta definido en $rutaEnv. Es obligatorio: el 3001 por defecto ya lo usa otro CRM en esta VM."
+}
+$Puerto = [int]$lineaPort.Matches[0].Groups[1].Value
+Write-Host "Puerto declarado en .env: $Puerto"
+
+# El puerto no puede estar ocupado por un proceso ajeno al servicio que instalamos.
+$enUso = Get-NetTCPConnection -LocalPort $Puerto -State Listen -ErrorAction SilentlyContinue
+if ($enUso) {
+    $duenos = $enUso.OwningProcess | Sort-Object -Unique | ForEach-Object {
+        $p = Get-Process -Id $_ -ErrorAction SilentlyContinue
+        "PID $_ ($($p.ProcessName))"
+    }
+    $svc = Get-Service -Name $Nombre -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -eq 'Running') {
+        Write-Host "Puerto $Puerto en uso por el propio servicio '$Nombre' - se reconfigurara."
+    }
+    else {
+        throw "Puerto $Puerto ya ocupado por: $($duenos -join ', '). Detener ese proceso o cambiar PORT antes de instalar."
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $RutaLogs | Out-Null
 

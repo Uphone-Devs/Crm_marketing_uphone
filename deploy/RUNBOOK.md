@@ -8,13 +8,51 @@
 
 - El backend **se arranca a mano**: no hay servicio ni tarea programada. Si se cierra la sesión de Bastion, la API cae. Este runbook lo convierte en servicio.
 - Los asesores entran **solo por el túnel**, así que el backend puede escuchar en loopback.
-- El backend usa el puerto **3002**. Hoy hay un `3001` escuchando en `0.0.0.0` (otro proceso, pendiente de identificar) y `5432` tambien en `0.0.0.0`.
+- El backend usa el puerto **3002**. El `3001` lo ocupa **otro CRM en producción en esta misma VM** (ver aviso de convivencia). `5432` escucha en `0.0.0.0`.
 - Conviven dos Node: `C:\Program Files\nodejs` (v20.18.0) y `F:\node22`.
-- Espacio en `C:` reducido (~4 GB libres): los respaldos van a `F:`.
+- Espacio en `C:` reducido (~4 GB libres). El proyecto y los respaldos viven en `F:`.
 
 > **La base tiene datos productivos.** Nada de este runbook se ejecuta sin haber completado el paso 1 (respaldo verificado). El paso 4 puede obligar a detener el despliegue.
 
 Todos los comandos son de **PowerShell como administrador**, salvo donde se indique.
+
+---
+
+## AVISO — esta VM aloja otro CRM en producción
+
+El **CRM de flujo** corre en la misma máquina y ocupa el puerto **3001**. Cuatro consecuencias que hay que respetar durante todo el despliegue:
+
+1. **`PORT=3002` es obligatorio en `backend\.env`.** Si falta, el código cae a 3001 por defecto: o falla con `EADDRINUSE`, o —si el otro CRM estuviera detenido en ese instante— le roba el puerto y lo deja sin poder arrancar, con NSSM reintentando cada 5 segundos. `instalar-servicio-windows.ps1` aborta si `PORT` no está definido o si el puerto ya está ocupado.
+
+2. **No sobrescribir la configuración de `cloudflared`.** El servicio activo casi con seguridad sirve también al otro CRM. `deploy\cloudflared-config.yml` es una **plantilla de referencia**: hay que **añadir** una regla de `ingress` al archivo existente, nunca reemplazarlo. Copiarlo encima tumbaría el túnel del CRM de flujo.
+
+3. **Reiniciar la VM afecta a ambos sistemas.** La verificación 15 (arranque automático) requiere su propia ventana, coordinada con quien opere el otro CRM.
+
+4. **Cuidado con las reglas de firewall y PostgreSQL.** Si el CRM de flujo usa la misma instancia de PostgreSQL, restringir `listen_addresses` o bloquear el 5432 puede dejarlo sin base. Verificar antes de aplicar el paso 11.
+
+5. **El CRM de flujo se gestiona con PM2** (`node_modules\pm2\lib\ProcessContainerFork.js`, bajo el perfil `CLIENT_ADMIN`). **No registres crm_marketing en esa misma instancia de PM2.** Un `pm2 restart all`, `pm2 kill` o `pm2 update` afectaría a los dos sistemas a la vez. Por eso este runbook usa NSSM: deja cada aplicación con su propio ciclo de vida y su propio gestor.
+
+Mapa confirmado de la VM:
+
+| Puerto | Sistema | Binario | Gestor | Bind |
+|---|---|---|---|---|
+| 3002 | **crm_marketing** (este) | `F:\node22\node.exe` | manual → **NSSM** | `127.0.0.1` |
+| 3001 | CRM de flujo | `C:\Program Files\nodejs\node.exe` | PM2 | `0.0.0.0` |
+
+Antes de empezar, identifica qué corre en cada puerto:
+
+```powershell
+Get-NetTCPConnection -LocalPort 3001,3002 -State Listen |
+  ForEach-Object {
+    $p = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+    [PSCustomObject]@{
+      Puerto = $_.LocalPort
+      PID    = $_.OwningProcess
+      Exe    = $p.Path
+      Cmd    = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.OwningProcess)").CommandLine
+    }
+  } | Format-List
+```
 
 ---
 
@@ -23,8 +61,8 @@ Todos los comandos son de **PowerShell como administrador**, salvo donde se indi
 La rama `fix/migracion-mensajes-broadcast` ya está mergeada. Desplegar desde `main`.
 
 ```powershell
-git clone https://github.com/Uphone-Devs/Crm_marketing_uphone.git C:\crm
-Set-Location C:\crm
+git clone https://github.com/Uphone-Devs/Crm_marketing_uphone.git F:\crm-backendpp
+Set-Location F:\crm-backendpp
 git log --oneline -3
 ```
 
@@ -107,12 +145,14 @@ El paso 6 rota `JWT_SECRET`, lo que **invalida todas las sesiones activas**: los
 
 ## 3. Traer el código
 
-Parar primero el proceso manual, si sigue corriendo. Identifícalo por su línea de comando (la del paso 0.1) y detén **solo** ese PID: hay otros procesos `node` en la máquina.
+Parar primero el proceso manual, si sigue corriendo. Identificalo por su linea de comando (la del paso 0.1) y deten **solo** ese PID.
+
+> **Confirma que el PID escucha en 3002, no en 3001.** El 3001 es el CRM de flujo: detenerlo deja a otro equipo sin sistema. Hay once procesos `node` en la maquina.
 
 ```powershell
 Stop-Process -Id <PID_DEL_BACKEND> -Force
 
-Set-Location C:\crm
+Set-Location F:\crm-backendpp
 git fetch origin
 git checkout main
 git pull --ff-only origin main
@@ -247,7 +287,7 @@ npm run seed:catalogo
 Hoy el backend se arranca a mano y muere al cerrar la sesión. Este paso lo convierte en servicio con arranque automático.
 
 ```powershell
-Set-Location C:\crm
+Set-Location F:\crm-backendpp
 .\deploy\instalar-servicio-windows.ps1 `
   -RutaBackend 'C:\crm\backend' `
   -NodeExe     'F:\node22\node.exe' `
@@ -279,7 +319,19 @@ Get-Content "C:\Windows\System32\config\systemprofile\.cloudflared\config.yml" -
 Get-ChildItem "$env:USERPROFILE\.cloudflared" -ErrorAction SilentlyContinue
 ```
 
-Si el `ingress` no apunta a `http://127.0.0.1:3002`, corregirlo y reiniciar el servicio. `deploy\cloudflared-config.yml` sirve de plantilla.
+**No reemplaces el archivo de configuracion.** Ese tunel sirve tambien al CRM de flujo. Abre el `config.yml` existente y **anade** una regla de `ingress` antes de la regla final `http_status:404`:
+
+```yaml
+ingress:
+  # ... reglas existentes del otro CRM, sin tocar ...
+
+  - hostname: crm.tu-dominio.com
+    service: http://127.0.0.1:3002
+
+  - service: http_status:404   # debe quedar siempre al final
+```
+
+Tras editar: `Restart-Service cloudflared` y comprobar que **ambos** sistemas responden. `deploy\cloudflared-config.yml` es solo una plantilla de referencia.
 
 Tras cambiar `HOST` a `127.0.0.1`, confirmar que el túnel sigue alcanzando el backend (verificación 1 del paso 12).
 
@@ -294,7 +346,9 @@ Get-NetTCPConnection -State Listen | Where-Object { $_.LocalPort -in 3002,5432 }
   Select-Object LocalAddress, LocalPort | Format-Table -AutoSize
 ```
 
-Tras el paso 9, el `3002` debe aparecer solo en `127.0.0.1`. El `5432` sigue en `0.0.0.0`: restringirlo en `postgresql.conf` (`listen_addresses = 'localhost'`) o, como mínimo, con regla de firewall.
+Tras el paso 9, el `3002` debe aparecer solo en `127.0.0.1`. El `5432` sigue en `0.0.0.0`: restringirlo en `postgresql.conf` (`listen_addresses = 'localhost'`) o, como minimo, con regla de firewall.
+
+> **Antes de tocarlo, verifica si el CRM de flujo usa esta misma instancia de PostgreSQL.** Si se conecta desde otra maquina, restringir `listen_addresses` lo deja sin base. Comprobar con `SELECT DISTINCT client_addr FROM pg_stat_activity WHERE client_addr IS NOT NULL;`
 
 ```powershell
 New-NetFirewallRule -DisplayName "Bloquear PostgreSQL externo" `
@@ -329,7 +383,9 @@ $HOST_PUB = 'https://crm.tu-dominio.com'
 | 12 | Escalada de privilegios cerrada | con token `jefe_area`: `POST /api/admin/users` con `"rol":"admin"`, y `PUT /api/admin/users/<id-admin>` con `"rol":"asesor"` | `403` en ambos |
 | 13 | Auto-update apagado | `psql -c "SELECT enabled, start_time, end_time, days FROM update_policy;"` | `enabled = f` |
 | 14 | Columnas de mensajería | `psql -c "\d mensajes_broadcast"` | aparecen `canal`, `asunto`, `imagen_url` |
-| 15 | Arranque automático | `Restart-Computer`, y al volver `Get-Service crm-backend` | `Running` sin intervención |
+| 15 | Arranque automatico | `Restart-Computer`, y al volver `Get-Service crm-backend` | `Running` sin intervencion |
+
+> La verificacion 15 **reinicia toda la VM y con ella el CRM de flujo**. Coordinar ventana con quien lo opere, y comprobar que ambos sistemas vuelven.
 
 **El punto 9 no se había podido probar hasta ahora**: el entorno de desarrollo es Windows y no emite SIGTERM. Aquí se verifica el camino real, que es SIGINT vía NSSM.
 
@@ -373,7 +429,7 @@ Flujo completo: `LoginPage.jsx:74` invoca `updater:start` tras el login → `src
 
 ```powershell
 Stop-Service crm-backend
-Set-Location C:\crm
+Set-Location F:\crm-backendpp
 git checkout <commit-anterior>
 Set-Location C:\crm\backend
 npm ci --omit=dev
