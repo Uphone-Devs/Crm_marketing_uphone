@@ -1,7 +1,6 @@
 const express = require('express');
 const os = require('os');
 const bcrypt = require('bcryptjs');
-const { spawn } = require('child_process');
 const router = express.Router();
 const prisma = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
@@ -278,56 +277,6 @@ router.delete('/users/:id', authMiddleware, requireRole('admin'), async (req, re
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado.' });
         res.status(500).json({ error: 'Error interno del servidor' });
     }
-});
-
-// GET /api/admin/backup.dump — descarga pg_dump en custom-format (solo admin)
-router.get('/backup.dump', authMiddleware, requireRole('admin'), (req, res) => {
-  const dbUrl = process.env.DATABASE_URL;
-  let url;
-  try {
-    url = new URL(dbUrl);
-  } catch {
-    return res.status(500).json({ error: 'DATABASE_URL inválida' });
-  }
-
-  const dbName = url.pathname.slice(1);
-  const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  const filename = `crm_backup_${timestamp}.dump`;
-
-  const args = [
-    '-h', url.hostname,
-    '-p', url.port || '5432',
-    '-U', url.username,
-    '-d', dbName,
-    '-F', 'c',
-  ];
-
-  const pgDump = spawn('pg_dump', args, {
-    env: { ...process.env, PGPASSWORD: decodeURIComponent(url.password) },
-  });
-
-  let started = false;
-
-  pgDump.stdout.once('data', () => {
-    started = true;
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    pgDump.stdout.pipe(res);
-  });
-
-  pgDump.on('error', (err) => {
-    if (!started && !res.headersSent) {
-      res.status(500).json({ error: 'pg_dump no disponible: ' + err.message });
-    }
-  });
-
-  pgDump.stderr.on('data', (d) => console.error('[pg_dump]', d.toString().trim()));
-
-  pgDump.on('close', (code) => {
-    if (code !== 0 && !res.headersSent) {
-      res.status(500).json({ error: `pg_dump terminó con código ${code}` });
-    }
-  });
 });
 
 // ── Auto-update: política de ventana horaria ───────────────────────────────

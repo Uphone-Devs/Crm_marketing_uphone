@@ -136,7 +136,9 @@ function setupWsServer(httpServer) {
                         break;
 
                     case 'TIPIFICACION_REALIZADA':
-                        broadcastToSupervisors(msg);
+                        if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
+                            broadcastToSupervisors({ ...msg, asesor_id: clientInfo.id });
+                        }
                         break;
 
                     case 'RITMO_BAJO':
@@ -170,10 +172,10 @@ function setupWsServer(httpServer) {
 
                     case 'MARCAR_CLIENTE':
                     case 'REMOTE_DIAL':
-                        // Comandos del supervisor al asesor
+                        // Comandos del supervisor al asesor — solo al propio equipo
                         if (clientInfo.rol === 'SUPERVISOR' && msg.asesor_id) {
                             const target = estadosAsesores[msg.asesor_id];
-                            if (target && target.socket && target.socket.readyState === ws.OPEN) {
+                            if (target && target.supervisorId === clientInfo.id && target.socket && target.socket.readyState === ws.OPEN) {
                                 target.socket.send(JSON.stringify(msg));
                             }
                         }

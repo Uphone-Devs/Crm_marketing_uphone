@@ -3215,6 +3215,12 @@ router.post('/confirmar-pago-compromiso', async (req, res, next) => {
     const { cdrId, montoPagado, comprobante, formaPago } = req.body;
     if (!cdrId) return res.status(400).json({ error: 'cdrId requerido' });
 
+    const cdrOwner = await db.cdr.findUnique({ where: { id: Number(cdrId) }, select: { usuarioId: true } });
+    if (!cdrOwner) return res.status(404).json({ error: 'CDR no encontrado' });
+    if (!isSupervisor(req.user.rol) && cdrOwner.usuarioId !== req.user.id) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+
     const tipPagoReal = await db.tipificacion.findUnique({ where: { codigo: 'PAGO_REAL' } });
     if (!tipPagoReal) return res.status(500).json({ error: 'Tipificación PAGO_REAL no encontrada' });
 
@@ -3256,6 +3262,9 @@ router.post('/reagendar-compromiso', async (req, res, next) => {
 
     const cdr = await db.cdr.findUnique({ where: { id: Number(cdrId) }, select: { contactoId: true, usuarioId: true } });
     if (!cdr) return res.status(404).json({ error: 'CDR no encontrado' });
+    if (!isSupervisor(req.user.rol) && cdr.usuarioId !== req.user.id) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
 
     if (nuevoMonto != null) {
       await db.cdr.update({ where: { id: Number(cdrId) }, data: { montoAcordado: Number(nuevoMonto) } });
@@ -3303,6 +3312,9 @@ router.post('/marcar-compromiso-incumplido', async (req, res, next) => {
 
     const cdr = await db.cdr.findUnique({ where: { id: Number(cdrId) }, select: { contactoId: true, usuarioId: true } });
     if (!cdr) return res.status(404).json({ error: 'CDR no encontrado' });
+    if (!isSupervisor(req.user.rol) && cdr.usuarioId !== req.user.id) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
 
     await db.cdr.update({ where: { id: Number(cdrId) }, data: { tipificacionId: tipIncump.id, resultado: 'INCUMP' } });
 
@@ -3758,6 +3770,10 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
+      return res.status(400).json({ error: 'Parámetro de fecha inválido' });
+    }
     const _ve = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
     const empC  = (a) => _ve === 'UPHONE' ? `AND ${a}.empresa IN ('TEC_SAS','SCC')` : _ve ? `AND ${a}.empresa = '${_ve}'` : '';
 
