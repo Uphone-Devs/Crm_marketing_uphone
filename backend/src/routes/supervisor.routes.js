@@ -2394,22 +2394,26 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
 });
 
 // ── Mensajes Broadcast ───────────────────────────────────────────
+// Usa SQL crudo para no depender de la versión del Prisma client generado en la VM.
 router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
   try {
-    const rows = await db.mensajeBroadcast.findMany({
-      orderBy: { creadoEn: 'desc' },
-      include: { supervisor: { select: { nombre: true } } },
-    });
+    const rows = await db.$queryRaw`
+      SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+             mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
+      FROM mensajes_broadcast mb
+      LEFT JOIN usuarios u ON u.id = mb.supervisor_id
+      ORDER BY mb.creado_en DESC
+    `;
     res.json(rows.map(m => ({
-      id:                m.id,
+      id:                Number(m.id),
       mensaje:           m.mensaje,
-      segmento_destino:  m.segmentoDestino,
-      canal:             m.canal,
+      segmento_destino:  m.segmento_destino,
+      canal:             m.canal ?? null,
       asunto:            m.asunto ?? null,
-      imagen_url:        m.imagenUrl ?? null,
+      imagen_url:        m.imagen_url ?? null,
       activo:            m.activo ? 1 : 0,
-      supervisor_nombre: m.supervisor?.nombre ?? null,
-      creado_en:         m.creadoEn,
+      supervisor_nombre: m.supervisor_nombre ?? null,
+      creado_en:         m.creado_en,
       pagos_posteriores: 0,
     })));
   } catch (err) { next(err); }
@@ -2421,27 +2425,24 @@ router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req
     if (!mensaje?.trim()) return res.status(400).json({ error: 'Mensaje requerido' });
     const canalesValidos = ['TODOS', 'WSP', 'RCS', 'CORREO', 'COMPROMISOS'];
     if (!canalesValidos.includes(canal)) return res.status(400).json({ error: 'Canal inválido' });
-    const m = await db.mensajeBroadcast.create({
-      data: {
-        supervisorId:    req.user.id,
-        mensaje:         mensaje.trim(),
-        segmentoDestino: segmento_destino,
-        canal,
-        asunto:          asunto?.trim() || null,
-        imagenUrl:       imagen_url?.trim() || null,
-      },
-      include: { supervisor: { select: { nombre: true } } },
-    });
+    const supervisorNombre = await db.$queryRaw`SELECT nombre FROM usuarios WHERE id = ${req.user.id}`;
+    const rows = await db.$queryRaw`
+      INSERT INTO mensajes_broadcast (supervisor_id, mensaje, segmento_destino, canal, asunto, imagen_url)
+      VALUES (${req.user.id}, ${mensaje.trim()}, ${segmento_destino}, ${canal},
+              ${asunto?.trim() || null}, ${imagen_url?.trim() || null})
+      RETURNING id, mensaje, segmento_destino, canal, asunto, imagen_url, activo, creado_en
+    `;
+    const m = rows[0];
     const payload = {
-      id:                m.id,
+      id:                Number(m.id),
       mensaje:           m.mensaje,
-      segmento_destino:  m.segmentoDestino,
-      canal:             m.canal,
+      segmento_destino:  m.segmento_destino,
+      canal:             m.canal ?? null,
       asunto:            m.asunto ?? null,
-      imagen_url:        m.imagenUrl ?? null,
+      imagen_url:        m.imagen_url ?? null,
       activo:            1,
-      supervisor_nombre: m.supervisor?.nombre ?? null,
-      creado_en:         m.creadoEn,
+      supervisor_nombre: supervisorNombre[0]?.nombre ?? null,
+      creado_en:         m.creado_en,
       pagos_posteriores: 0,
     };
     broadcastToAll({ tipo: 'NUEVO_MENSAJE_BROADCAST', mensaje: payload });
