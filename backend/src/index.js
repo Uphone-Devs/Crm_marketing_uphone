@@ -95,12 +95,13 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3001;
 const HOST = process.env.HOST || '127.0.0.1';
 
-(async () => {
-  try {
-    await db.$executeRawUnsafe(`ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS canal       VARCHAR(20) NOT NULL DEFAULT 'TODOS'`);
-    await db.$executeRawUnsafe(`ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS asunto      VARCHAR(255)`);
-    await db.$executeRawUnsafe(`ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS imagen_url  TEXT`);
-    await db.$executeRawUnsafe(`
+async function schemaHeal() {
+  // Cada sentencia por separado: si una falla, las demás siguen. Log del error real.
+  const stmts = [
+    [`mb.canal`,      `ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS canal      VARCHAR(20) NOT NULL DEFAULT 'TODOS'`],
+    [`mb.asunto`,     `ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS asunto     VARCHAR(255)`],
+    [`mb.imagen_url`, `ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS imagen_url TEXT`],
+    [`metricas_diarias_asesor`, `
       CREATE TABLE IF NOT EXISTS metricas_diarias_asesor (
         asesor_id       INTEGER          NOT NULL,
         fecha           TEXT             NOT NULL,
@@ -114,17 +115,34 @@ const HOST = process.env.HOST || '127.0.0.1';
         tiempo_aire_seg INTEGER          NOT NULL DEFAULT 0,
         actualizado_en  TIMESTAMP(3)     NOT NULL DEFAULT NOW(),
         CONSTRAINT metricas_diarias_asesor_pkey PRIMARY KEY (asesor_id, fecha)
-      )
-    `);
-    console.log('[schema-heal] OK');
-  } catch (e) {
-    console.warn('[schema-heal] advertencia (no crítico):', e.message);
+      )`],
+    [`update_policy`, `
+      CREATE TABLE IF NOT EXISTS update_policy (
+        id                 INTEGER      NOT NULL DEFAULT 1,
+        enabled            BOOLEAN      NOT NULL DEFAULT false,
+        start_time         TEXT         NOT NULL DEFAULT '13:00',
+        end_time           TEXT         NOT NULL DEFAULT '14:00',
+        days               INTEGER[]    NOT NULL DEFAULT '{1,2,3,4,5}',
+        check_interval_min INTEGER      NOT NULL DEFAULT 30,
+        updated_at         TIMESTAMP(3) NOT NULL DEFAULT NOW(),
+        CONSTRAINT update_policy_pkey PRIMARY KEY (id)
+      )`],
+  ];
+  for (const [label, sql] of stmts) {
+    try {
+      await db.$executeRawUnsafe(sql);
+    } catch (e) {
+      console.error(`[schema-heal] FALLÓ ${label}:`, e.message);
+    }
   }
+  console.log('[schema-heal] completado');
+}
 
+schemaHeal().finally(() => {
   server.listen(PORT, HOST, () => {
     console.log(`API + WebSocket escuchando en ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
   });
-})();
+});
 
 // systemd envía SIGTERM, no SIGINT: sin este handler el proceso moría sin cerrar
 // el servidor HTTP ni drenar el pool de Prisma en cada `systemctl restart`.
