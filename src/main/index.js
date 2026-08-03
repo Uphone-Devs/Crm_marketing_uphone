@@ -31,12 +31,8 @@ if (!process.env.JWT_SECRET) {
 }
 const { exec, spawn } = require('child_process');
 const path = require('path');
-const { initDatabase, closeDb } = require('./database/db');
 const { registerIpcHandlers } = require('./ipcHandlers');
-const { initApiServer, stopApiServer } = require('./apiServer');
-const { stopWebSocketServer } = require('./wsServer');
 const { stopAll: stopAdbProcesses } = require('./adbManager');
-const { initScheduler, stopScheduler } = require('./scheduler');
 const { createLoginWindow } = require('./windowManager');
 
 /**
@@ -115,31 +111,7 @@ function ensureFirewallRule() {
 app.commandLine.appendSwitch('disable-features', 'Autofill');
 
 app.whenReady().then(() => {
-  // ── 1. Base de datos ──────────────────────────────────────
-  try {
-    initDatabase();
-    console.log('[APP] [OK] Base de datos inicializada');
-  } catch (err) {
-    console.error('[APP] [FATAL] No se pudo inicializar la base de datos:', err.message);
-    // Mostrar un dialogo nativo antes de salir
-    const { dialog } = require('electron');
-    dialog.showErrorBox(
-      'Error crítico — Base de datos',
-      `No se pudo inicializar la base de datos local.\n\nDetalle: ${err.message}\n\nLa aplicación se cerrará.`
-    );
-    app.quit();
-    return;          // detener el resto de la secuencia de arranque
-  }
-
-  // ── 1b. Scheduler de agendamientos ────────────────────
-  try {
-    initScheduler();
-    console.log('[APP] [OK] Scheduler de agendamientos iniciado');
-  } catch (err) {
-    console.error('[APP] [FAIL] Error scheduler:', err.message);
-  }
-
-  // ── 2. Handlers IPC ───────────────────────────────────
+  // ── 1. Handlers IPC ───────────────────────────────────
   registerIpcHandlers();
   console.log('[APP] [OK] IPC handlers registrados');
 
@@ -168,12 +140,8 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   console.log('[APP] Cerrando — limpiando procesos...');
   stopBackend();
-  stopScheduler();
   try { require('./updater').stopUpdater(); } catch {}
   stopAdbProcesses();
-  stopWebSocketServer();
-  stopApiServer();
-  closeDb();
 });
 
 app.on('window-all-closed', () => {
