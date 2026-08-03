@@ -79,8 +79,22 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// ── Schema self-healing (columnas que pueden faltar si migrate deploy no corrió) ──
-// ADD COLUMN IF NOT EXISTS es idempotente: no hace nada si la columna ya existe.
+// ── Native Monitoring WS Server ───────────────────────────────
+const monitorWss = setupWsServer(server);
+
+// ── Error handling middleware ─────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('[Error]', err.stack);
+  const status = err.status || err.statusCode || 500;
+  const safeMsg = status < 500 ? err.message : 'Error interno del servidor';
+  res.status(status).json({ error: safeMsg });
+});
+
+// ── Server startup — schema-heal ANTES de aceptar requests ───
+// ADD COLUMN IF NOT EXISTS es idempotente; no hace nada si la columna ya existe.
+const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || '127.0.0.1';
+
 (async () => {
   try {
     await db.$executeRawUnsafe(`ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS canal       VARCHAR(20) NOT NULL DEFAULT 'TODOS'`);
@@ -104,31 +118,13 @@ app.get('/health', async (req, res) => {
     `);
     console.log('[schema-heal] OK');
   } catch (e) {
-    console.warn('[schema-heal]', e.message);
+    console.warn('[schema-heal] advertencia (no crítico):', e.message);
   }
+
+  server.listen(PORT, HOST, () => {
+    console.log(`API + WebSocket escuchando en ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+  });
 })();
-
-// ── Native Monitoring WS Server ───────────────────────────────
-const monitorWss = setupWsServer(server);
-
-// ── Error handling middleware ─────────────────────────────────
-app.use((err, req, res, next) => {
-  console.error('[Error]', err.stack);
-  // No exponer detalles internos (paths Prisma, stack traces) al cliente
-  const status = err.status || err.statusCode || 500;
-  const safeMsg = status < 500 ? err.message : 'Error interno del servidor';
-  res.status(status).json({ error: safeMsg });
-});
-
-// ── Server startup ────────────────────────────────────────────
-const PORT = process.env.PORT || 3001;
-
-// Por defecto solo loopback: el acceso externo entra por el túnel de Cloudflare,
-// que corre en la misma VM. Exponer en 0.0.0.0 debe ser una decisión explícita.
-const HOST = process.env.HOST || '127.0.0.1';
-server.listen(PORT, HOST, () => {
-  console.log(`🚀 API + WebSocket escuchando en ${HOST}:${PORT} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
-});
 
 // systemd envía SIGTERM, no SIGINT: sin este handler el proceso moría sin cerrar
 // el servidor HTTP ni drenar el pool de Prisma en cada `systemctl restart`.
