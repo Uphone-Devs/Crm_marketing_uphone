@@ -166,7 +166,7 @@ const TIPIF_ICON = {
   };
 const LABEL_MONTO = { PMP:'Monto comprometido a pagar', PAGO_REAL:'Monto realmente pagado', AB_PARC:'Monto del abono parcial', PEND_COMP:'Monto pendiente de comprobar' };
 
-export default function TipificacionDialog({ open, tipifInicial, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida, ultimaTipificacion = null }) {
+export default function TipificacionDialog({ open, tipifInicial, mode = 'inline', onSave, onCancel, contacto, asesorNombre, asesorId, callApi, onAltDialed, onExternalDial, onAccionRapida, ultimaTipificacion = null, mensajesBroadcast = [] }) {
   const [tipificaciones, setTipificaciones] = useState([]);
   const [selectedId, setSelectedId] = useState('');
   const [notas, setNotas] = useState('');
@@ -411,8 +411,30 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
       return;
     }
     const diasMora = getDiasMora(contacto);
-    const subject = interpolateTemplate(selectTemplate('email_subject', diasMora, tramos, templates), contacto, asesorNombre);
-    const body = interpolateTemplate(selectTemplate('email_body', diasMora, tramos, templates), contacto, asesorNombre);
+
+    // Obtener subject/body desde mensajes_broadcast (sistema actual del supervisor).
+    // Fallback al sistema legacy de config si no hay broadcast activo.
+    let subject = '';
+    let body = '';
+    if (mensajesBroadcast.length > 0) {
+      const segmento = diasMora === 0 ? 'TRAMO_0' : diasMora === 1 ? 'TRAMO_1' : 'TRAMO_2';
+      const activos  = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
+      const match =
+        activos.find(m => m.segmento_destino === segmento && m.canal === 'CORREO') ||
+        activos.find(m => m.segmento_destino === 'TODOS'  && m.canal === 'CORREO') ||
+        activos.find(m => m.segmento_destino === segmento && m.canal === 'TODOS')  ||
+        activos.find(m => m.segmento_destino === 'TODOS'  && m.canal === 'TODOS');
+      if (match) {
+        subject = interpolateTemplate(match.asunto    || '', contacto, asesorNombre);
+        body    = interpolateTemplate(match.mensaje   || '', contacto, asesorNombre);
+      }
+    }
+    // Fallback: plantillas legacy del config
+    if (!body) {
+      subject = subject || interpolateTemplate(selectTemplate('email_subject', diasMora, tramos, templates), contacto, asesorNombre);
+      body    = interpolateTemplate(selectTemplate('email_body',    diasMora, tramos, templates), contacto, asesorNombre);
+    }
+
     const url = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailDestino.trim())}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
     try {
