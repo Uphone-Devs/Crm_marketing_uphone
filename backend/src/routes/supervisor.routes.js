@@ -3774,6 +3774,8 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
     if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
       return res.status(400).json({ error: 'Parámetro de fecha inválido' });
     }
+    const startTs = new Date(`${fechaInicio}T00:00:00.000Z`);
+    const endTs   = new Date(`${fechaFin}T23:59:59.999Z`);
     const _ve = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
     const empC  = (a) => _ve === 'UPHONE' ? `AND ${a}.empresa IN ('TEC_SAS','SCC')` : _ve ? `AND ${a}.empresa = '${_ve}'` : '';
 
@@ -3835,11 +3837,11 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
         SUM(CASE WHEN c.canal = 'llamada'  THEN 1 ELSE 0 END) AS llamadas
       FROM cdrs c
       JOIN contactos ct ON ct.id = c.contacto_id
-      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      WHERE c.timestamp_inicio >= $1 AND c.timestamp_inicio <= $2
         AND ${DIAS_CT} IN (0, 1, 2)
         ${empC('ct')}
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `, startTs, endTs);
 
     const cdrsMap = {};
     for (const r of cdrsRows) {
@@ -3861,8 +3863,8 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
           c.contacto_id AS ct_id
         FROM cdrs c
         JOIN contactos ct ON ct.id = c.contacto_id
-        WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
-          AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+        WHERE c.timestamp_inicio >= $1 AND c.timestamp_inicio <= $2
+          AND DATE(ct.fecha_asignacion AT TIME ZONE 'America/Guayaquil') BETWEEN $3 AND $4
           AND ${DIAS_CT} IN (0, 1, 2)
           ${empC('ct')}
         UNION
@@ -3894,7 +3896,7 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
           ${empC('c')}
       ) sub
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `, startTs, endTs, fechaInicio, fechaFin);
 
     const unicosMap = {};
     for (const r of unicosRows) {
@@ -3911,13 +3913,13 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
       FROM cdrs c
       JOIN contactos ct ON ct.id = c.contacto_id
       JOIN tipificaciones t ON t.id = c.tipificacion_id
-      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      WHERE c.timestamp_inicio >= $1 AND c.timestamp_inicio <= $2
         AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
         AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
         AND ${DIAS_CT} IN (0, 1, 2)
         ${empC('ct')}
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `, startTs, endTs);
 
     const compMap = {};
     for (const r of compRows) {
@@ -4086,6 +4088,12 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
+      return res.status(400).json({ error: 'Parámetro de fecha inválido' });
+    }
+    const startTs = new Date(`${fechaInicio}T00:00:00.000Z`);
+    const endTs   = new Date(`${fechaFin}T23:59:59.999Z`);
     const _ic = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
     const icEmpC = _ic === 'UPHONE' ? `AND ct.empresa IN ('TEC_SAS','SCC')` : _ic ? `AND ct.empresa = '${_ic}'` : '';
 
@@ -4104,13 +4112,13 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
       FROM cdrs c
       JOIN contactos ct ON ct.id = c.contacto_id
       JOIN tipificaciones t ON t.id = c.tipificacion_id
-      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      WHERE c.timestamp_inicio >= $1 AND c.timestamp_inicio <= $2
         AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
         AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
         AND ${DIAS_CT} IN (0, 1, 2)
         ${icEmpC}
       GROUP BY fecha, dias
-    `, fechaInicio, fechaFin);
+    `, startTs, endTs);
 
     const compMap = {};
     for (const r of compRows) {
@@ -4122,6 +4130,8 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
     const offsetMs   = 7 * 24 * 60 * 60 * 1000;
     const prevInicio = new Date(new Date(fechaInicio + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
     const prevFin    = new Date(new Date(fechaFin    + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+    const prevStartTs = new Date(`${prevInicio}T00:00:00.000Z`);
+    const prevEndTs   = new Date(`${prevFin}T23:59:59.999Z`);
 
     const prevRows = await db.$queryRawUnsafe(`
       SELECT DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
@@ -4129,11 +4139,11 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
         SUM(CASE WHEN c.resultado = 'COMP_CUM' OR t.codigo = 'PAGO_REAL' THEN 1 ELSE 0 END) AS cumplidos
       FROM cdrs c
       JOIN tipificaciones t ON t.id = c.tipificacion_id
-      WHERE DATE(c.timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      WHERE c.timestamp_inicio >= $1 AND c.timestamp_inicio <= $2
         AND t.codigo IN ('PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP')
         AND (c.resultado IS NULL OR c.resultado != 'INCUMP')
       GROUP BY fecha
-    `, prevInicio, prevFin);
+    `, prevStartTs, prevEndTs);
 
     const prevByDate = {};
     for (const r of prevRows) {
@@ -4235,6 +4245,12 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
   try {
     const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
     const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
+      return res.status(400).json({ error: 'Parámetro de fecha inválido' });
+    }
+    const startTs = new Date(`${fechaInicio}T00:00:00.000Z`);
+    const endTs   = new Date(`${fechaFin}T23:59:59.999Z`);
     const _gm = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
     const gmEmpJoin  = _gm ? `JOIN contactos ct ON ct.id = contacto_id` : '';
     const gmEmpWhere = _gm === 'UPHONE' ? `AND ct.empresa IN ('TEC_SAS','SCC')` : _gm ? `AND ct.empresa = '${_gm}'` : '';
@@ -4252,10 +4268,10 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
         usuario_id, COUNT(*) AS gestiones
       FROM cdrs
       ${gmEmpJoin}
-      WHERE DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      WHERE timestamp_inicio >= $1 AND timestamp_inicio <= $2
         ${gmEmpWhere}
       GROUP BY fecha, usuario_id
-    `, fechaInicio, fechaFin);
+    `, startTs, endTs);
 
     const cdrMap = {};
     for (const r of cdrRows) {
@@ -4301,14 +4317,16 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
     const offsetMs   = 7 * 24 * 60 * 60 * 1000;
     const prevInicio = new Date(new Date(fechaInicio + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
     const prevFin    = new Date(new Date(fechaFin    + 'T12:00:00').getTime() - offsetMs).toISOString().slice(0, 10);
+    const prevStartTs = new Date(`${prevInicio}T00:00:00.000Z`);
+    const prevEndTs   = new Date(`${prevFin}T23:59:59.999Z`);
 
     const prevRows = await db.$queryRawUnsafe(`
       SELECT DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') AS fecha,
         COUNT(*) AS gestiones
       FROM cdrs
-      WHERE DATE(timestamp_inicio AT TIME ZONE 'America/Guayaquil') BETWEEN $1 AND $2
+      WHERE timestamp_inicio >= $1 AND timestamp_inicio <= $2
       GROUP BY fecha
-    `, prevInicio, prevFin);
+    `, prevStartTs, prevEndTs);
 
     const prevByDate = {};
     for (const r of prevRows) {
