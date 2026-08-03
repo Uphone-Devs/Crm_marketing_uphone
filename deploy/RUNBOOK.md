@@ -1,332 +1,424 @@
 # Runbook de despliegue — backend CRM Marketing Uphone
 
-**Destino:** VM de Azure (Linux) · PostgreSQL 15 en la misma VM · exposición por Cloudflare named tunnel · **base de datos ya poblada**.
+> **Reescrito 2026-08-03.** La versión anterior describía un despliegue Linux
+> (`/opt/crm`, systemd, `sudo -u crm`) que **no corresponde a la VM real**. Si un agente
+> te cita pasos con `systemctl`, está leyendo la versión vieja de este archivo.
 
-**Qué se despliega:** únicamente `backend/`. El cliente Electron se distribuye aparte y no cambia en esta entrega — los parches de seguridad de esta rama son todos del lado servidor.
+**Destino:** una sola VM de Azure con **Windows Server**. PostgreSQL en la misma VM.
+Proceso administrado por **PM2** corriendo como servicio de Windows.
 
-> **La base tiene datos productivos.** Ningún paso de este runbook debe ejecutarse sin haber completado antes el paso 1 (respaldo verificado). El paso 4 incluye una comprobación de deriva que puede obligar a detener el despliegue.
-
----
-
-## 0. Obtener este código
-
-El endurecimiento vive en la rama `fix/predeploy-hardening` (`a536c8b`), que **todavía no está mergeada a `main`**. El PR no se ha abierto.
-
-En la máquina desde la que operes:
-
-```bash
-git clone https://github.com/Uphone-Devs/Crm_marketing_uphone.git
-cd Crm_marketing_uphone
-git checkout fix/predeploy-hardening
-git log --oneline -4
-```
-
-Deben aparecer estos cuatro commits:
-
-```
-a536c8b Documenta cuál es el backend real y añade los artefactos de despliegue
-033d665 Separa el seed de demo del catálogo de producción
-d39c1ab Prepara el ciclo de vida del backend para systemd y retira socket.io
-1e1eaac Protege las cuentas admin de modificación por jefe_area
-```
-
-Abrir el PR (opcional antes de desplegar, obligatorio antes de mergear):
-
-```bash
-gh pr create --base main --head fix/predeploy-hardening \
-  --title "Endurece el backend para el despliegue en la VM" \
-  --body-file deploy/PR-BODY.md
-```
-
-O por navegador: `https://github.com/Uphone-Devs/Crm_marketing_uphone/pull/new/fix/predeploy-hardening`
-
-Se puede desplegar la rama sin mergear —el paso 3 hace `checkout` de ella en la VM— pero conviene mergear antes de dar el despliegue por cerrado, para que `main` refleje lo que está en producción.
+**Qué se despliega:** únicamente `backend/`. El cliente Electron se distribuye aparte.
 
 ---
 
-## 0.1 Prerrequisitos
+## 0. Contexto crítico — esta VM aloja DOS CRMs
 
-| Requisito | Comprobación |
-|---|---|
-| Node.js ≥ 22 | `node -v` |
-| PostgreSQL 15 activo | `systemctl is-active postgresql` |
-| Usuario de sistema `crm` | `id crm` |
-| `cloudflared` instalado | `cloudflared --version` |
-| Código en `/opt/crm` | `git -C /opt/crm log --oneline -1` |
+| | terminal-cobranza | CRM Marketing (este repo) |
+|---|---|---|
+| Repo | `tonyrecaldeuph/Terminal-cobranza-Uphone` | `Uphone-Devs/Crm_marketing_uphone` |
+| Código en la VM | `F:\cobranza\app` | *(determinar — paso 2)* |
+| Base | SQLite `F:\cobranza\data\terminal.db` | PostgreSQL |
+| Proceso | PM2 (servicio de Windows) | PM2 |
+| Puerto por defecto | `PORT \|\| 3001` | `PORT \|\| 3001` ← **mismo** |
 
-Valores que necesitas a mano antes de empezar:
+CRM Marketing es un **fork** de terminal-cobranza. Comparten estructura, nombres de
+archivo y puerto por defecto. Es fácil confundir uno con otro: verificá siempre en qué
+directorio estás parado.
 
-- `DATABASE_URL` del usuario de aplicación (debe ser dueño del esquema para aplicar migraciones)
-- `JWT_SECRET` nuevo — `openssl rand -hex 64`
-- Hostname del túnel, p. ej. `crm.tu-dominio.com`
+**Reglas que no se negocian:**
+
+1. **Nunca** ejecutar `npm ci` ni `npm install` en la raíz de ningún repo de la VM. Solo
+   dentro de `backend/`. La raíz arrastra `better-sqlite3` (módulo nativo) y recompilarlo
+   puede dejar a terminal-cobranza sin poder arrancar.
+2. **Nunca** cambiar la versión de Node instalada globalmente sin avisar. `better-sqlite3`
+   está compilado contra el ABI actual; al subir Node, terminal-cobranza revienta con
+   `NODE_MODULE_VERSION mismatch` en su próximo reinicio — que puede ser horas después.
+3. Antes de levantar este backend, confirmar que su `PORT` **no** es el que ya usa
+   terminal-cobranza.
+4. Si PostgreSQL es un cluster compartido, cualquier cambio en `postgresql.conf` que
+   exija reiniciar el motor (p. ej. `shared_preload_libraries`) **baja los dos CRMs**.
+   Ese reinicio se agenda, no se improvisa.
 
 ---
 
-## 1. Respaldo (obligatorio, antes de todo)
+## 1. Estado real de las ramas (verificado 2026-08-03)
 
-```bash
-sudo -u postgres pg_dump -Fc crm_marketing > ~/crm_marketing_$(date +%F_%H%M).dump
-ls -lh ~/crm_marketing_*.dump
+- `fix/predeploy-hardening` → **ya está mergeada en `main`**. No hay nada pendiente ahí.
+  (La versión anterior de este runbook decía lo contrario. Era falso.)
+- `hotfix/cdrs-indexes` → **no desplegar**. Es el enfoque descartado de `cartera-equipo`;
+  `main` se quedó con `559f59c`. Además su carpeta `20260729000001_add_cdrs_indexes`
+  colisiona en prefijo con `20260729000001_metricas_diarias_asesor`.
+- `fix/campana-empresa-y-backfill` → contiene la migración `20260729000002` y el script
+  de backfill. **Debe estar mergeada en `main` antes de desplegar** (ver pasos 7 y 8).
+- Ramas de dependabot → ninguna es requisito de este despliegue.
+
+Confirmá antes de empezar que lo que vas a desplegar incluye la migración
+`20260729000002_add_campana_empresa`:
+
+```powershell
+git log --oneline -3
+Test-Path backend\prisma\migrations\20260729000002_add_campana_empresa\migration.sql
 ```
 
-Verificar que el respaldo **restaura**, no solo que el archivo existe:
+Si devuelve `False`, **detené el despliegue**: sin esa columna, `POST /api/campanas`,
+`POST /api/campanas/:id/contactos` y `GET /api/campanas/dashboard` fallan para cualquier
+campaña, no solo CREDI_TV.
 
-```bash
-sudo -u postgres createdb crm_restore_test
-sudo -u postgres pg_restore -d crm_restore_test ~/crm_marketing_*.dump
-sudo -u postgres psql -d crm_restore_test -c "SELECT count(*) FROM usuarios;"
-sudo -u postgres dropdb crm_restore_test
+---
+
+## 2. Descubrimiento del entorno (hacer siempre, anotar la salida)
+
+Nada de lo que sigue asume rutas. Sacalas de acá:
+
+```powershell
+# Qué corre hoy bajo PM2 y desde dónde
+pm2 list
+pm2 describe <nombre-app>        # anotar: cwd, script, interpreter, exec_mode
+
+# Puertos ocupados
+netstat -ano | findstr ":3001 :3002 :5432"
+
+# PostgreSQL: ¿un cluster o varios?
+Get-Service -Name "postgresql*"
+psql -U postgres -c "\l"
+
+# Versión de Node (no tocarla)
+node -v
+```
+
+Guardá esta salida antes de cambiar nada. Es tu punto de comparación si algo se rompe.
+
+---
+
+## 3. Respaldo — obligatorio, antes de todo
+
+**Las dos bases**, no solo la de este CRM. El runbook anterior ignoraba que existe una
+segunda.
+
+```powershell
+$fecha = Get-Date -Format "yyyy-MM-dd_HHmm"
+
+# PostgreSQL (CRM Marketing)
+pg_dump -U postgres -Fc crm_marketing -f "F:\backups\crm_marketing_$fecha.dump"
+
+# SQLite (terminal-cobranza) — copia con el API detenido o vía sqlite3 .backup
+Copy-Item F:\cobranza\data\terminal.db "F:\backups\terminal_$fecha.db"
+```
+
+Verificar que el dump de Postgres **restaura**, no solo que el archivo pesa:
+
+```powershell
+psql -U postgres -c "CREATE DATABASE crm_restore_test;"
+pg_restore -U postgres -d crm_restore_test "F:\backups\crm_marketing_$fecha.dump"
+psql -U postgres -d crm_restore_test -c "SELECT count(*) FROM usuarios;"
+psql -U postgres -c "DROP DATABASE crm_restore_test;"
 ```
 
 Si el restore falla, **detener el despliegue**.
 
 ---
 
-## 2. Ventana y aviso
+## 4. Ventana y aviso
 
-El paso 6 rota `JWT_SECRET`, lo que **invalida todas las sesiones activas**: los asesores conectados verán "sesión expirada" y deberán volver a entrar. Ejecutar fuera de horario de gestión y avisar a la operación.
+Este despliegue **no requiere ventana de caída** si el paso 7 se hace como está escrito.
 
----
-
-## 3. Traer el código
-
-```bash
-sudo -u crm git -C /opt/crm fetch origin
-sudo -u crm git -C /opt/crm checkout fix/predeploy-hardening
-sudo -u crm git -C /opt/crm log --oneline -1
-```
+Sí requiere aviso si vas a rotar `JWT_SECRET`: eso invalida todas las sesiones activas y
+los asesores verán "sesión expirada". Rotarlo es opcional en un despliegue de rutina.
 
 ---
 
-## 4. Estado de las migraciones (paso más delicado del despliegue)
+## 5. Traer el código
 
-El repositorio ya trae `backend/prisma/migrations/` con el historial del esquema. **El riesgo no es que falten: es que la base productiva no tenga registro de haberlas aplicado.** Si `_prisma_migrations` está vacía o no existe, `migrate deploy` intentará ejecutarlas todas desde cero contra datos reales.
-
-Primero, comprobar qué sabe la base:
-
-```bash
-cd /opt/crm/backend
-export DATABASE_URL="postgresql://..."
-
-psql "$DATABASE_URL" -c \
-  "SELECT migration_name, finished_at FROM _prisma_migrations ORDER BY finished_at;" \
-  2>/dev/null || echo "SIN TABLA _prisma_migrations"
+```powershell
+cd <ruta-del-repo-marketing-en-la-VM>     # del paso 2
+git fetch origin
+git status                                 # el árbol debe estar limpio
+git checkout main
+git pull --ff-only origin main
+git log --oneline -1
 ```
 
-Tres desenlaces:
-
-**A) La tabla lista todas las migraciones del repo.** Estado normal. Continuar al paso 5.
-
-**B) No existe la tabla, o está incompleta.** La base se construyó fuera de Prisma. **No ejecutar `migrate deploy`.** Hay que adoptar el historial marcando como aplicada cada migración que la base ya refleja, sin ejecutar su SQL:
-
-```bash
-npx prisma migrate resolve --applied 20260629200721_init
-npx prisma migrate resolve --applied 20260703000001_add_missing_columns
-npx prisma migrate resolve --applied 20260708000001_add_meta_diaria_campanas
-npx prisma migrate resolve --applied 20260708000002_add_scheduled_datetime_to_cdrs
-npx prisma migrate resolve --applied 20260709140000_remove_supervisor_role
-npx prisma migrate resolve --applied 20260725000000_llave_empresa
-```
-
-Marcar solo las que la base **realmente** refleja. Verificar cada una antes con `\d` sobre las tablas que toca. `add_validacion_tables.sql` está suelto, fuera del formato de directorio de Prisma: revisar a mano si sus tablas existen.
-
-**C) La tabla existe pero falta alguna migración reciente.** Aplicar solo las pendientes con `migrate deploy` (paso 5), tras confirmar en el SQL de cada una que no reescribe datos.
-
-Comprobar además la deriva entre el schema y la base:
-
-```bash
-npx prisma migrate diff \
-  --from-url "$DATABASE_URL" \
-  --to-schema-datamodel prisma/schema.prisma \
-  --script
-```
-
-Salida vacía significa que coinciden. Si aparecen `ALTER`/`CREATE`, **detener** y revisar cada sentencia con el equipo antes de seguir.
-
-Y verificar la tabla que se crea sola en cada arranque, fuera de migraciones:
-
-```bash
-psql "$DATABASE_URL" -c "\d sub_gestiones"
-```
+Si `git status` muestra cambios locales, **pará y averiguá qué son** antes de pisarlos.
 
 ---
 
-## 5. Aplicar migraciones pendientes
+## 6. Dependencias
 
-Solo después de que el paso 4 haya dejado el historial consistente:
+```powershell
+cd <repo>\backend
+npm ci --omit=dev
+npx prisma generate
+```
 
-```bash
-cd /opt/crm/backend
-npx prisma migrate status    # debe listar el estado real, sin sorpresas
+`prisma generate` es **obligatorio** en este despliegue: `schema.prisma` cambió (campo
+`Campana.empresa`). Si lo salteás, el cliente Prisma no conoce la columna y las rutas de
+campañas siguen fallando aunque la migración haya corrido.
+
+Recordatorio del paso 0: `npm ci` acá dentro, nunca en la raíz.
+
+---
+
+## 7. Migraciones — el paso delicado
+
+### 7.1 Qué sabe la base
+
+```powershell
+$env:DATABASE_URL = "postgresql://..."
+psql "$env:DATABASE_URL" -c "SELECT migration_name, finished_at FROM _prisma_migrations ORDER BY finished_at;"
+```
+
+Si la tabla no existe o está incompleta, la base se construyó fuera de Prisma. **No
+ejecutes `migrate deploy` todavía**: adoptá el historial marcando como aplicada cada
+migración que la base ya refleja, verificando antes con `\d` que sus tablas/columnas
+existan de verdad:
+
+```
+20260629200721_init
+20260703000001_add_missing_columns
+20260708000001_add_meta_diaria_campanas
+20260708000002_add_scheduled_datetime_to_cdrs
+20260709140000_remove_supervisor_role
+20260725000000_llave_empresa
+20260725000001_add_missing_tables
+20260725000002_empresa_credi_tv
+20260728000000_add_update_policy
+```
+
+```powershell
+npx prisma migrate resolve --applied <nombre>
+```
+
+`add_validacion_tables.sql` está suelto, fuera del formato de directorio de Prisma:
+revisá a mano si sus tablas existen.
+
+### 7.2 ⚠️ Trampa de los índices — leer antes de correr `migrate deploy`
+
+`20260729000000_perf_indexes` crea índices con `CREATE INDEX` **sin `CONCURRENTLY`**.
+Sobre `cdrs` (90k+ filas) eso toma un lock que **bloquea escrituras**: los asesores no
+pueden guardar gestiones mientras se construye. Es el síntoma exacto del incidente del
+29-07.
+
+Peor: `IF NOT EXISTS` compara por **nombre**, no por columnas. Si la base ya tiene
+`idx_cdrs_usuario_timestamp` / `idx_cdrs_contacto_id` (los nombres del hotfix del 29-07),
+la migración igual va a construir `idx_cdrs_usuario_ts` / `idx_cdrs_contacto` sobre las
+**mismas columnas** — bloqueo de escrituras ahora, y dos índices redundantes por columna
+para siempre, con doble overhead en cada `INSERT` a `cdrs`.
+
+**Averiguá qué hay realmente:**
+
+```powershell
+psql "$env:DATABASE_URL" -c "SELECT tablename, indexname FROM pg_indexes WHERE tablename IN ('cdrs','contactos','eventos','validacion_pagos','usuarios') ORDER BY tablename, indexname;"
+```
+
+**En cualquiera de los dos casos, el procedimiento es el mismo:** creá a mano solo los
+índices que falten, uno por comando y con `CONCURRENTLY` (no admite transacción), y
+después marcá la migración como aplicada sin ejecutarla:
+
+```powershell
+psql "$env:DATABASE_URL" -c "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ct_telefono ON contactos (telefono);"
+# ...repetir solo para los que falten, según la lista de la migración
+npx prisma migrate resolve --applied 20260729000000_perf_indexes
+```
+
+Nunca dejes que `migrate deploy` construya estos índices en horario de gestión.
+
+### 7.3 Aplicar el resto
+
+Las dos migraciones restantes son seguras en caliente:
+
+- `20260729000001_metricas_diarias_asesor` → `CREATE TABLE IF NOT EXISTS` sobre tabla
+  nueva. Sin impacto.
+- `20260729000002_add_campana_empresa` → `ADD COLUMN IF NOT EXISTS` nullable sin default:
+  instantáneo en PG 11+, no reescribe la tabla. El índice va sobre `campanas`, que es
+  chica.
+
+```powershell
+npx prisma migrate status
 npx prisma migrate deploy
 npx prisma migrate status    # debe decir: Database schema is up to date
 ```
 
-Si `migrate status` anuncia que va a aplicar migraciones que creías ya reflejadas, volver al paso 4.
+Comprobación de deriva final:
 
----
-
-## 6. Configurar el entorno
-
-```bash
-cd /opt/crm/backend
-sudo -u crm cp .env.example .env
-sudo -u crm nano .env          # completar DATABASE_URL, JWT_SECRET, CORS_ORIGIN
-sudo chmod 600 .env
-sudo chown crm:crm .env
+```powershell
+npx prisma migrate diff --from-url "$env:DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script
 ```
 
-`CORS_ORIGIN` debe ser el hostname del túnel: `https://crm.tu-dominio.com`.
-`HOST` se queda en `127.0.0.1`: el único acceso externo es el túnel, que corre en esta misma VM.
-
-El proceso **no arranca** si falta `DATABASE_URL`, `JWT_SECRET`, o `CORS_ORIGIN` con `NODE_ENV=production`. Es intencional.
+Salida vacía = coinciden. Si aparecen `ALTER`/`CREATE`, **detener** y revisar.
 
 ---
 
-## 7. Instalar dependencias
+## 8. Backfill de métricas diarias
 
-```bash
-cd /opt/crm/backend
-sudo -u crm npm ci --omit=dev
-sudo -u crm npx prisma generate
+`metricas_diarias_asesor` nace vacía. El upsert incremental (`PATCH /api/cdrs/:id`) solo
+suma hacia adelante, así que `/jefe/tendencia-semanal` mostraría **$0 en los últimos 6
+días** hasta acumular datos nuevos.
+
+```powershell
+cd <repo>
+node backend\scripts\backfill-metricas-diarias.js
 ```
 
-Ya no hay módulos nativos: se eliminaron `better-sqlite3`, `@prisma/adapter-better-sqlite3`, `@aws-sdk/*` y `socket.io`, que estaban declarados y sin uso. La instalación no requiere toolchain de compilación.
+Idempotente (`ON CONFLICT DO UPDATE` recalcula, no suma) — se puede repetir sin duplicar.
+
+**Qué esperar:** el backfill agrega el estado *actual* de cada CDR; el upsert en vivo
+suma +1 por cada PATCH con `tipificacionId`. Si hubo re-tipificaciones históricas, los
+números no cuadran centavo a centavo con lo que el incremental habría acumulado. El
+backfill refleja el estado real de `cdrs` y es el punto de partida más confiable.
+
+**Nota:** si en algún momento se usó `POST /api/admin/run-migrations`, ese endpoint corrió
+un backfill con `ON CONFLICT DO NOTHING` y sin filtrar por `tipificacion_id`, dejando
+filas en cero. Correr este script las corrige.
 
 ---
 
-## 8. Catálogo de tipificaciones
+## 9. Configuración
+
+```powershell
+cd <repo>\backend
+Copy-Item .env.example .env
+notepad .env
+```
+
+Completar:
+
+| Variable | Nota |
+|---|---|
+| `DATABASE_URL` | El usuario debe ser dueño del esquema para aplicar migraciones |
+| `JWT_SECRET` | Mínimo 32 chars. Rotarlo invalida las sesiones activas |
+| `PORT` | **Verificar que no choque con terminal-cobranza** (paso 2) |
+| `HOST` | `.env.example` sugiere `0.0.0.0`; el default del código es `127.0.0.1`. Usar loopback salvo que el acceso externo lo exija explícitamente |
+| `CORS_ORIGIN` | El origen real desde el que entran los clientes |
+
+El proceso **no arranca** si falta `DATABASE_URL`, `JWT_SECRET` o `CORS_ORIGIN` con
+`NODE_ENV=production`. Es intencional.
+
+---
+
+## 10. Catálogo de tipificaciones
 
 Idempotente, seguro de repetir:
 
-```bash
-cd /opt/crm/backend
-sudo -u crm npm run seed:catalogo
+```powershell
+cd <repo>\backend
+npm run seed:catalogo
 ```
 
-**Nunca** ejecutar `npm run seed:demo` en la VM: crea 10 cuentas con contraseña pública y 50 deudores ficticios. El script se niega a correr con `NODE_ENV=production`, pero conviene no invocarlo igualmente.
+**Nunca** ejecutar `npm run seed:demo` en la VM: crea 10 cuentas con contraseña pública y
+50 deudores ficticios. El script se niega a correr con `NODE_ENV=production`, pero no lo
+invoques igual.
 
 ---
 
-## 9. Servicio systemd
+## 11. Arranque bajo PM2
 
-```bash
-sudo cp /opt/crm/deploy/crm-backend.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now crm-backend
-sudo systemctl status crm-backend
-journalctl -u crm-backend -n 40 --no-pager
+```powershell
+cd <repo>\backend
+pm2 start src/index.js --name crm-marketing-api
+pm2 save
+pm2 logs crm-marketing-api --lines 40
 ```
 
-Esperado en el log: `🚀 API + WebSocket escuchando en 127.0.0.1:3001 (NODE_ENV=production)`.
+Esperado en el log:
+`🚀 API + WebSocket escuchando en <HOST>:<PORT> (NODE_ENV=production)`
 
----
+Si la app ya existía: `pm2 restart crm-marketing-api --update-env`.
 
-## 10. Túnel Cloudflare
-
-```bash
-cloudflared tunnel login
-cloudflared tunnel create crm-uphone
-cloudflared tunnel route dns crm-uphone crm.tu-dominio.com
-
-sudo cp /opt/crm/deploy/cloudflared-config.yml /etc/cloudflared/config.yml
-sudo nano /etc/cloudflared/config.yml     # pegar UUID y hostname reales
-
-sudo cloudflared service install
-sudo systemctl enable --now cloudflared
-sudo systemctl status cloudflared
-```
-
----
-
-## 11. Red
-
-Con named tunnel la VM **no necesita puerto público**:
-
-```bash
-# El backend solo escucha en loopback
-ss -ltnp | grep 3001        # debe mostrar 127.0.0.1:3001, no 0.0.0.0:3001
-
-# PostgreSQL solo local
-ss -ltnp | grep 5432
-```
-
-En el NSG de Azure: sin reglas de entrada para 3001 ni 5432. Dejar solo el acceso administrativo (SSH) restringido por IP de origen.
+`pm2 save` es lo que hace que sobreviva al reinicio de la VM. Sin eso, el servicio de
+Windows levanta PM2 vacío.
 
 ---
 
 ## 12. Verificación post-deploy
 
-Ejecutar en orden. Cualquier fallo detiene la puesta en producción.
+Cualquier fallo detiene la puesta en producción.
 
-```bash
-HOST_PUB=https://crm.tu-dominio.com
-```
+| # | Comprobación | Esperado |
+|---|---|---|
+| 1 | `curl http://127.0.0.1:<PORT>/live` | `{"status":"OK",...}` |
+| 2 | `curl http://127.0.0.1:<PORT>/health` | `{"status":"OK","db":"up",...}` |
+| 3 | `POST /api/auth/login` con credencial real | `200` con `token` |
+| 4 | **`POST /api/campanas`** con `empresa: "CREDI_TV"` | `201` — es lo que arreglaba este despliegue |
+| 5 | `GET /api/campanas/dashboard` | `200`, sin `column c.empresa does not exist` |
+| 6 | `GET /jefe/tendencia-semanal` | montos reales, no `$0` en los últimos 6 días |
+| 7 | `npx prisma migrate status` | `Database schema is up to date` |
+| 8 | CORS rechaza origen ajeno | sin cabecera `access-control-allow-origin` |
+| 9 | Rate-limit de login: 25 intentos fallidos seguidos | `429` a partir del intento 21 |
+| 10 | WS sin autenticar | `{"tipo":"ERROR","mensaje":"No autenticado"}` |
+| 11 | **terminal-cobranza sigue arriba** | `pm2 list` lo muestra `online` y responde en su puerto |
+| 12 | **Apagado ordenado bajo PM2.** `pm2 restart crm-marketing-api`, luego `pm2 logs` | `[APP] shutdown (PM2) recibido — cerrando...` seguido de `[APP] Cierre limpio`. **Nunca** `Cierre forzado tras 10s` |
+| 13 | **PostgreSQL sin conexiones colgadas** | `SELECT count(*) FROM pg_stat_activity` vuelve al valor del paso 2 |
 
-| # | Comprobación | Comando | Esperado |
-|---|---|---|---|
-| 1 | Liveness | `curl -s $HOST_PUB/live` | `{"status":"OK",...}` |
-| 2 | Readiness con base | `curl -s $HOST_PUB/health` | `{"status":"OK","db":"up",...}` |
-| 3 | CORS rechaza origen ajeno | `curl -si -H 'Origin: https://atacante.example' $HOST_PUB/live \| grep -i access-control-allow-origin` | sin cabecera |
-| 4 | Login funciona | `curl -s -X POST $HOST_PUB/api/auth/login -H 'Content-Type: application/json' -d '{"email":"...","password":"..."}'` | `200` con `token` |
-| 5 | Rate-limit de login | 25 intentos fallidos seguidos con el mismo email | `429` a partir del intento 21 |
-| 6 | WS sin autenticar | `npx wscat -c "wss://crm.tu-dominio.com/"` y enviar `{"tipo":"ESTADO_ASESOR"}` | responde `{"tipo":"ERROR","mensaje":"No autenticado"}` |
-| 7 | WS con token válido | conectar y enviar `{"tipo":"IDENTIFICAR","rol":"ASESOR","token":"$TOKEN"}` | no cierra la conexión |
-| 8 | Migraciones al día | `npx prisma migrate status` | `Database schema is up to date` |
-| 9 | Apagado ordenado | `sudo systemctl restart crm-backend` | log `[APP] SIGTERM recibido` y `[APP] Cierre limpio`, sin `Cierre forzado` |
-| 10 | Sin conexiones colgadas | `psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_stat_activity WHERE datname='crm_marketing';"` | vuelve al valor previo tras el reinicio |
-| 11 | Puerto no expuesto | `ss -ltnp \| grep 3001` | solo `127.0.0.1` |
-| 12 | Escalada de privilegios cerrada | con token de `jefe_area`: `POST /api/admin/users` con `"rol":"admin"`, y `PUT /api/admin/users/<id-de-un-admin>` con `"rol":"asesor"` | `403` en ambos |
+El punto 11 es el que la versión anterior de este runbook no tenía. Verificalo siempre.
 
-**El punto 9 solo puede verificarse en la VM.** El manejo de `SIGTERM` se implementó y se revisó, pero Windows no emite SIGTERM real, así que no pudo probarse en el entorno de desarrollo.
-
----
-
-## 13. Cliente Electron
-
-No requiere reinstalación por estos cambios. Sí requiere reconfigurar la URL del servidor una vez:
-
-1. Panel Admin → campo de URL de la VM → `https://crm.tu-dominio.com`
-2. El cliente deriva solo el WebSocket a `wss://crm.tu-dominio.com/?token=...` (`src/renderer/shared/apiClient.js`, `AsesorPanel.jsx:928`).
-
-Ningún cambio de esta entrega toca el protocolo cliente↔servidor: el WebSocket sigue autenticándose en el mensaje `IDENTIFICAR`, tal como ya hacía `main`.
+**El punto 12 solo puede probarse en la VM.** Windows no tiene señales POSIX, así que los
+handlers `SIGTERM`/`SIGINT` no se ejecutan ahí; el apagado ordenado depende del mensaje
+IPC `shutdown` que manda PM2 (`backend/src/index.js:141`). Si en el log aparece
+`Cierre forzado` o no aparece ninguna línea `[APP]`, el canal IPC no está llegando:
+revisá que la app se haya arrancado con `pm2 start` (no con `node` suelto bajo un
+envoltorio) y que `--kill-timeout` sea mayor que los 10s del temporizador de respaldo.
 
 ---
 
-## 14. Rollback
+## 13. Rollback
 
-```bash
-sudo systemctl stop crm-backend
-sudo -u crm git -C /opt/crm checkout main
-cd /opt/crm/backend && sudo -u crm npm ci --omit=dev && sudo -u crm npx prisma generate
-sudo systemctl start crm-backend
+```powershell
+pm2 stop crm-marketing-api
+cd <repo>
+git checkout <commit-anterior>
+cd backend
+npm ci --omit=dev
+npx prisma generate
+pm2 restart crm-marketing-api
 ```
 
-Restaurar la base solo si el paso 4 o 5 alteró el esquema:
+Restaurar la base **solo** si el paso 7 alteró el esquema y algo salió mal:
 
-```bash
-sudo systemctl stop crm-backend
-sudo -u postgres dropdb crm_marketing
-sudo -u postgres createdb crm_marketing
-sudo -u postgres pg_restore -d crm_marketing ~/crm_marketing_<fecha>.dump
-sudo systemctl start crm-backend
+```powershell
+pm2 stop crm-marketing-api
+psql -U postgres -c "DROP DATABASE crm_marketing;"
+psql -U postgres -c "CREATE DATABASE crm_marketing;"
+pg_restore -U postgres -d crm_marketing "F:\backups\crm_marketing_<fecha>.dump"
+pm2 start crm-marketing-api
 ```
 
-Al volver a `main` se pierden los parches de seguridad: el WebSocket vuelve a aceptar conexiones sin autenticación. Un rollback debe ir acompañado de cerrar el túnel (`sudo systemctl stop cloudflared`) hasta reponer la versión corregida.
+Volver atrás pierde los parches de seguridad del hardening (el WebSocket vuelve a aceptar
+conexiones sin autenticar). Si el rollback se sostiene en el tiempo, cerrá el acceso
+externo hasta reponer la versión corregida.
+
+---
+
+## 14. Limpieza post-despliegue
+
+- [ ] **Borrar `POST /api/admin/run-migrations`** (`backend/src/routes/admin.routes.js:368`).
+      Está marcado como temporal desde el commit `7a9ea8a`. Ejecuta DDL crudo y corre un
+      backfill con semántica distinta a la del script oficial.
+- [ ] Decidir sobre los índices redundantes de `cdrs` (ver 7.2). `DROP INDEX CONCURRENTLY`
+      del par sobrante, fuera de horario de gestión.
+- [ ] Cerrar o borrar la rama `hotfix/cdrs-indexes`.
+- [x] ~~Borrar `deploy/crm-backend.service` y `deploy/cloudflared-config.yml`~~ — hecho
+      2026-08-03. Eran artefactos de un despliegue Linux que no existe.
 
 ---
 
 ## 15. Pendientes que este despliegue NO resuelve
 
-Quedan fuera de esta entrega y siguen abiertos:
-
-- **Aislamiento por equipo a medias en el WebSocket**: se aplica a `AUDIO_CHUNK`, pero `ESTADO_ASESOR` y `METRICAS_ASESOR` siguen difundiéndose a todos los supervisores conectados.
-- **`MARCAR_CLIENTE` y `REMOTE_DIAL`** no comprueban que el asesor destino pertenezca al equipo del supervisor que emite el comando.
-- **`TIPIFICACION_REALIZADA`** no verifica rol: un asesor autenticado puede difundir eventos arbitrarios al panel del supervisor.
-- **Vulnerabilidades npm** arrastradas por `exceljs@3` (`rimraf`, `glob`, `fstream`, `uuid` antiguos). Subir a `exceljs@4` requiere QA de los reportes xlsx.
-- **CI no cubre `backend/`**: sigue sin instalar, auditar ni probar el código que corre en la VM.
-- **Sin logging estructurado ni rotación**; `journald` recoge la salida, pero el login sigue registrando el email en claro.
-- **IDOR en rutas de supervisor** (`supervisor.routes.js:384`, `/cartera*`, `/bitacora`): autenticadas pero sin verificación de pertenencia.
-- **Estado del WebSocket en memoria del proceso**: no sobrevive a un reinicio ni admite una segunda instancia.
-- **`CREATE TABLE IF NOT EXISTS sub_gestiones`** sigue ejecutándose en cada arranque, fuera del control de migraciones.
-- **`pg_dump` programado**: el respaldo del paso 1 es manual y puntual; falta la tarea recurrente y la definición de RPO/RTO.
+- **Aislamiento por equipo a medias en el WebSocket**: se aplica a `AUDIO_CHUNK`, pero
+  `ESTADO_ASESOR` y `METRICAS_ASESOR` siguen difundiéndose a todos los supervisores.
+- **`MARCAR_CLIENTE` y `REMOTE_DIAL`** no comprueban que el asesor destino pertenezca al
+  equipo del supervisor que emite el comando.
+- **`TIPIFICACION_REALIZADA`** no verifica rol: un asesor autenticado puede difundir
+  eventos arbitrarios al panel del supervisor.
+- **IDOR en rutas de supervisor** (`supervisor.routes.js:384`, `/cartera*`, `/bitacora`):
+  autenticadas pero sin verificación de pertenencia.
+- **Cambio semántico en `gestiones_count`** (`559f59c`): pasó de contar histórico completo
+  a contar solo el día de hoy. Confirmar si es intencional.
+- **CI no cubre `backend/`**: sigue sin instalar, auditar ni probar el código de la VM.
+- **`CREATE TABLE IF NOT EXISTS sub_gestiones`** se ejecuta en cada arranque, fuera del
+  control de migraciones.
+- **Vulnerabilidades npm** arrastradas por `exceljs@3` en el histórico de dependencias.
+- **Sin logging estructurado ni rotación**; el login sigue registrando el email en claro.
+- **`pg_dump` programado**: el respaldo del paso 3 es manual y puntual. Falta la tarea
+  recurrente y la definición de RPO/RTO.
+- **Estado del WebSocket en memoria del proceso**: no sobrevive a un reinicio ni admite
+  una segunda instancia.
