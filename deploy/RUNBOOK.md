@@ -144,14 +144,16 @@ Get-PSDrive F | Select-Object @{n='LibreGB';e={[math]::Round($_.Free/1GB,2)}}
 
 **Probar que restaura.** Un `.dump` que nadie verifico no es un respaldo.
 
+> Las consultas usan `count(1)` y no `count(*)` a proposito: PowerShell expande el `*` al pasar argumentos a ejecutables nativos, y psql recibe `count()`, que falla.
+
 > Omitir este bloque si la regla de decision anterior lo indica: `crm_restore_test` ocupa **otra copia completa** de la base en la misma unidad que usan ambos CRMs. Si el margen es ajustado, verificar el dump en otra maquina.
 
 ```powershell
 & "$PG\createdb.exe" -U postgres -h 127.0.0.1 crm_restore_test
 & "$PG\pg_restore.exe" -U postgres -h 127.0.0.1 -d crm_restore_test $dump
 
-& "$PG\psql.exe" -U postgres -h 127.0.0.1 -d crm_restore_test -c "SELECT count(*) FROM usuarios;"
-& "$PG\psql.exe" -U postgres -h 127.0.0.1 -d crm_restore_test -c "SELECT count(*) FROM contactos;"
+& "$PG\psql.exe" -U postgres -h 127.0.0.1 -d crm_restore_test -c "SELECT count(1) FROM usuarios;"
+& "$PG\psql.exe" -U postgres -h 127.0.0.1 -d crm_restore_test -c "SELECT count(1) FROM contactos;"
 
 & "$PG\dropdb.exe" -U postgres -h 127.0.0.1 crm_restore_test
 ```
@@ -268,6 +270,8 @@ Set-Location C:\crm\backend
 Copy-Item .env.example .env
 notepad .env
 ```
+
+> **`CORS_ORIGIN` es obligatorio y hoy falta en el `.env` de la VM.** Sin esa variable, con `NODE_ENV=production` el proceso **no arranca**: `exigirVariablesDeEntorno()` aborta a proposito para evitar desplegar con CORS abierto. Verificado el 2026-08-03: el `.env` tiene `DATABASE_URL`, `PORT=3002`, `HOST=127.0.0.1` y `NODE_ENV=production`, pero no `CORS_ORIGIN`. Anadirla antes del paso 9.
 
 Completar `DATABASE_URL`, `JWT_SECRET` (`openssl rand -hex 64`, o `[Convert]::ToHexString((New-Object byte[] 64 | % { (New-Object Random).NextBytes($_); $_ }))`) y `CORS_ORIGIN` con el hostname del túnel.
 
@@ -405,7 +409,7 @@ $HOST_PUB = 'https://crm.tu-dominio.com'
 | 7 | WS con token válido | enviar `{"tipo":"IDENTIFICAR","rol":"ASESOR","token":"..."}` | no cierra la conexión |
 | 8 | Migraciones al día | `npx prisma migrate status` | `Database schema is up to date` |
 | 9 | Cierre ordenado | `Restart-Service crm-backend` y revisar el log | `[APP] SIGINT recibido` y `[APP] Cierre limpio`, sin `Cierre forzado` |
-| 10 | Sin conexiones colgadas | `psql -c "SELECT count(*) FROM pg_stat_activity WHERE datname='crm_marketing';"` | vuelve al valor previo |
+| 10 | Sin conexiones colgadas | `psql -c "SELECT count(1) FROM pg_stat_activity WHERE datname='crm_marketing';"` | vuelve al valor previo |
 | 11 | Puerto no expuesto | `Get-NetTCPConnection -LocalPort 3002 -State Listen` | solo `127.0.0.1` |
 | 12 | Escalada de privilegios cerrada | con token `jefe_area`: `POST /api/admin/users` con `"rol":"admin"`, y `PUT /api/admin/users/<id-admin>` con `"rol":"asesor"` | `403` en ambos |
 | 13 | Auto-update apagado | `psql -c "SELECT enabled, start_time, end_time, days FROM update_policy;"` | `enabled = f` |
