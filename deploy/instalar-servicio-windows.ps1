@@ -1,13 +1,16 @@
 <#
-    instalar-servicio-windows.ps1 — Registra el backend como servicio de Windows con NSSM.
+    instalar-servicio-windows.ps1 - Registra el backend como servicio de Windows con NSSM.
 
-    Por qué NSSM y no `sc.exe`: al detener el servicio, NSSM puede enviar Ctrl+C al
+    Por que NSSM y no sc.exe: al detener el servicio, NSSM puede enviar Ctrl+C al
     proceso, lo que Node traduce a SIGINT y dispara el cierre ordenado de src/index.js
-    (cierra el servidor HTTP y drena el pool de Prisma). `sc.exe` mata el proceso sin
+    (cierra el servidor HTTP y drena el pool de Prisma). sc.exe mata el proceso sin
     aviso: conexiones colgadas en pg_stat_activity tras cada reinicio.
 
-    Windows no emite SIGTERM: el handler de SIGTERM del código solo aplica en Linux.
-    El que actúa aquí es el de SIGINT.
+    Windows no emite SIGTERM: el handler de SIGTERM del codigo solo aplica en Linux.
+    El que actua aqui es el de SIGINT.
+
+    Sin caracteres no-ASCII a proposito: PowerShell 5.1 lee los .ps1 sin BOM como ANSI
+    y un acento o un guion largo puede romper el parseo en la VM.
 
     Ejecutar como administrador. Idempotente: si el servicio existe, lo reconfigura.
 #>
@@ -18,7 +21,8 @@ param(
     [string]$RutaBackend = 'C:\crm\backend',
     [string]$NodeExe     = 'F:\node22\node.exe',
     [string]$NssmExe     = 'C:\nssm\nssm.exe',
-    [string]$RutaLogs    = 'F:\logs\crm-backend'
+    [string]$RutaLogs    = 'F:\logs\crm-backend',
+    [string]$ServicioPg  = 'postgresql-x64-16'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,52 +39,60 @@ Requerir (Join-Path $RutaBackend '.env') 'backend\.env'
 # Node debe ser >= 20.19: Prisma 7 no soporta versiones anteriores.
 $version = (& $NodeExe -v).TrimStart('v')
 $partes  = $version.Split('.')
-$mayor   = [int]$partes[0]; $menor = [int]$partes[1]
+$mayor   = [int]$partes[0]
+$menor   = [int]$partes[1]
 if ($mayor -lt 20 -or ($mayor -eq 20 -and $menor -lt 19)) {
-    throw "Node $version no cumple el requisito de Prisma 7 (^20.19 || ^22.12 || >=24)."
+    throw "Node $version no cumple el requisito de Prisma 7 (^20.19, ^22.12 o >=24)."
 }
-Write-Host "Node $version en $NodeExe — OK"
+Write-Host "Node $version en $NodeExe - OK"
+
+# El puerto real lo define PORT en backend\.env; aqui solo se informa.
+$envPort = (Select-String -Path (Join-Path $RutaBackend '.env') -Pattern '^\s*PORT\s*=' -ErrorAction SilentlyContinue |
+            Select-Object -First 1).Line
+if ($envPort) { Write-Host "Puerto declarado en .env: $($envPort.Trim())" }
+else          { Write-Host "AVISO: PORT no esta definido en .env; el codigo usara 3001 por defecto." }
 
 New-Item -ItemType Directory -Force -Path $RutaLogs | Out-Null
 
 $existe = Get-Service -Name $Nombre -ErrorAction SilentlyContinue
 if ($existe) {
-    Write-Host "Servicio '$Nombre' ya existe — deteniendo para reconfigurar"
+    Write-Host "Servicio '$Nombre' ya existe - deteniendo para reconfigurar"
     if ($existe.Status -ne 'Stopped') { & $NssmExe stop $Nombre | Out-Null }
-} else {
+}
+else {
     & $NssmExe install $Nombre $NodeExe 'src\index.js'
 }
 
-& $NssmExe set $Nombre Application        $NodeExe
-& $NssmExe set $Nombre AppParameters      'src\index.js'
-& $NssmExe set $Nombre AppDirectory       $RutaBackend
-& $NssmExe set $Nombre DisplayName        'CRM Marketing Uphone - Backend'
-& $NssmExe set $Nombre Description        'API REST + WebSocket (Express + Prisma + PostgreSQL), puerto 3001'
-& $NssmExe set $Nombre Start              SERVICE_AUTO_START
+& $NssmExe set $Nombre Application   $NodeExe
+& $NssmExe set $Nombre AppParameters 'src\index.js'
+& $NssmExe set $Nombre AppDirectory  $RutaBackend
+& $NssmExe set $Nombre DisplayName   'CRM Marketing Uphone - Backend'
+& $NssmExe set $Nombre Description   'API REST + WebSocket (Express + Prisma + PostgreSQL)'
+& $NssmExe set $Nombre Start         SERVICE_AUTO_START
 
 # NODE_ENV tambien por servicio: no depende de que el .env este completo.
 & $NssmExe set $Nombre AppEnvironmentExtra 'NODE_ENV=production'
 
 # Cierre ordenado: Ctrl+C -> SIGINT, con 15s antes de matar el proceso.
-& $NssmExe set $Nombre AppStopMethodSkip     0
-& $NssmExe set $Nombre AppStopMethodConsole  15000
-& $NssmExe set $Nombre AppStopMethodWindow   0
-& $NssmExe set $Nombre AppStopMethodThreads  0
+& $NssmExe set $Nombre AppStopMethodSkip    0
+& $NssmExe set $Nombre AppStopMethodConsole 15000
+& $NssmExe set $Nombre AppStopMethodWindow  0
+& $NssmExe set $Nombre AppStopMethodThreads 0
 
-# Reinicio automatico con espera creciente, para no entrar en bucle si la base no responde.
+# Reinicio automatico con espera, para no entrar en bucle si la base no responde.
 & $NssmExe set $Nombre AppExit Default Restart
 & $NssmExe set $Nombre AppRestartDelay 5000
 & $NssmExe set $Nombre AppThrottle     10000
 
-# Logs con rotacion diaria (10 MB por archivo).
-& $NssmExe set $Nombre AppStdout          (Join-Path $RutaLogs 'salida.log')
-& $NssmExe set $Nombre AppStderr          (Join-Path $RutaLogs 'error.log')
-& $NssmExe set $Nombre AppRotateFiles     1
-& $NssmExe set $Nombre AppRotateOnline    1
-& $NssmExe set $Nombre AppRotateBytes     10485760
+# Logs con rotacion (10 MB por archivo).
+& $NssmExe set $Nombre AppStdout       (Join-Path $RutaLogs 'salida.log')
+& $NssmExe set $Nombre AppStderr       (Join-Path $RutaLogs 'error.log')
+& $NssmExe set $Nombre AppRotateFiles  1
+& $NssmExe set $Nombre AppRotateOnline 1
+& $NssmExe set $Nombre AppRotateBytes  10485760
 
-# Espera a PostgreSQL: sin esto el servicio arranca antes que la base tras un reinicio.
-& $NssmExe set $Nombre DependOnService 'postgresql-x64-16'
+# Espera a PostgreSQL: sin esto el servicio arranca antes que la base tras reiniciar.
+& $NssmExe set $Nombre DependOnService $ServicioPg
 
 Write-Host ''
 Write-Host "Servicio '$Nombre' configurado. Arrancar con:"

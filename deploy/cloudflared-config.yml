@@ -27,7 +27,7 @@ originRequest:
 
 ingress:
   - hostname: crm.tu-dominio.com
-    service: http://127.0.0.1:3001
+    service: http://127.0.0.1:3002
     originRequest:
       # Cabecera Host original para que el rate-limit y los logs vean el dominio.
       httpHostHeader: crm.tu-dominio.com
