@@ -417,13 +417,16 @@ export default function TipificacionDialog({ open, tipifInicial, mode = 'inline'
     let subject = '';
     let body = '';
     if (mensajesBroadcast.length > 0) {
-      const segmento = diasMora === 0 ? 'TRAMO_0' : diasMora === 1 ? 'TRAMO_1' : 'TRAMO_2';
-      const activos  = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
+      const segmento   = diasMora === 0 ? 'TRAMO_0' : diasMora === 1 ? 'TRAMO_1' : 'TRAMO_2';
+      const activos    = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
+      // null/vacío en canal = mensajes viejos sin canal asignado → aplican a todos los canales
+      const esCorreo   = (m) => m.canal === 'CORREO';
+      const esGeneral  = (m) => !m.canal || m.canal === 'TODOS';
       const match =
-        activos.find(m => m.segmento_destino === segmento && m.canal === 'CORREO') ||
-        activos.find(m => m.segmento_destino === 'TODOS'  && m.canal === 'CORREO') ||
-        activos.find(m => m.segmento_destino === segmento && m.canal === 'TODOS')  ||
-        activos.find(m => m.segmento_destino === 'TODOS'  && m.canal === 'TODOS');
+        activos.find(m => m.segmento_destino === segmento  && esCorreo(m))  ||
+        activos.find(m => m.segmento_destino === 'TODOS'   && esCorreo(m))  ||
+        activos.find(m => m.segmento_destino === segmento  && esGeneral(m)) ||
+        activos.find(m => m.segmento_destino === 'TODOS'   && esGeneral(m));
       if (match) {
         subject = interpolateTemplate(match.asunto    || '', contacto, asesorNombre);
         body    = interpolateTemplate(match.mensaje   || '', contacto, asesorNombre);
