@@ -289,12 +289,39 @@ El proceso **no arranca** si falta `DATABASE_URL`, `JWT_SECRET`, o `CORS_ORIGIN`
 
 ## 7. Instalar dependencias
 
+> **Los cuatro comandos son una sola unidad. Nunca los corras sueltos.** El 2026-08-04 esta secuencia incompleta tumbó la API dos veces seguidas, con asesores trabajando.
+
 ```powershell
-Set-Location C:\crm\backend
-& "F:\node22\node.exe" --version     # confirmar >= 20.19
+# 1. F:\node22 AL FRENTE DEL PATH — sin esto npm usa C:\Program Files\nodejs (v20.18.0)
+$env:PATH = "F:\node22;$env:PATH"
+Set-Location F:\crm-backend\app\backend
+
+node -v                              # debe decir v22.x, NO v20.18.0
+
+# 2. Instalar
 npm ci --omit=dev
-npx prisma generate
+
+# 3. Regenerar el cliente Prisma — npm ci lo borró
+& "F:\node22\node.exe" node_modules\prisma\build\index.js generate
+
+# 4. Recién ahora, reiniciar
+pm2 restart crm-backend --update-env
 ```
+
+**Por qué cada paso importa:**
+
+- **Sin el `$env:PATH`**, `npm` resuelve al Node v20.18.0 de `C:\Program Files\nodejs`. Prisma 7.9 exige `^20.19 || ^22.12 || >=24` y su script de *preinstall* aborta — pero `npm ci` **ya borró `node_modules` antes de fallar**, y el backend queda sin poder rearrancar. Verificar `node -v` no alcanza si después se invoca `npm` del PATH: comprobá la versión **después** de ajustar el PATH.
+- **Sin `prisma generate`**, el proceso muere al arrancar con `MODULE_NOT_FOUND` en `@prisma/client/default.js`. El cliente es código generado y `npm ci` lo elimina al recrear `node_modules`. Se invoca con el binario de `F:\node22` por el mismo motivo del punto anterior.
+- **El reinicio va último.** El proceso que corre bajo PM2 sobrevive a todo lo anterior porque ya tiene los módulos en memoria: la caída aparece recién al reiniciar. Terminá la instalación completa antes de tocar PM2.
+
+Comprobación antes de reiniciar:
+
+```powershell
+Test-Path node_modules\@prisma\client     # True
+Test-Path node_modules\express            # True
+```
+
+Si algo falló a mitad, el arreglo es **completar la secuencia**, no volver a la rama anterior: el problema es `node_modules`, no el código.
 
 Ya no hay módulos nativos: se eliminaron `better-sqlite3`, su adapter, `@aws-sdk/*` y `socket.io`, que estaban declarados sin uso. No hace falta toolchain de compilación.
 
@@ -459,14 +486,21 @@ Flujo completo: `LoginPage.jsx:74` invoca `updater:start` tras el login → `src
 ## 14. Rollback
 
 ```powershell
-Stop-Service crm-backend
+$env:PATH = "F:\node22;$env:PATH"
+
 Set-Location F:\crm-backend\app
 git checkout <commit-anterior>
-Set-Location C:\crm\backend
+
+Set-Location F:\crm-backend\app\backend
 npm ci --omit=dev
-npx prisma generate
-Start-Service crm-backend
+& "F:\node22\node.exe" node_modules\prisma\build\index.js generate
+
+pm2 restart crm-backend --update-env
 ```
+
+Mismas reglas del paso 7: el PATH primero, `prisma generate` después de `npm ci`, y el reinicio al final. Un rollback que salte cualquiera de los tres deja la API caída igual que un despliegue mal hecho.
+
+> **El backend se gestiona con PM2, junto a `cobranza-api` y `cloudflare-tunnel`** (verificado 2026-08-04 por PID). Siempre por nombre: `pm2 restart crm-backend`. **Nunca `pm2 restart all`, `pm2 kill` ni `pm2 update`** — tumbarían el CRM de cobranza y el túnel a la vez.
 
 Restaurar la base **solo** si el paso 4 o 5 alteró el esquema:
 
