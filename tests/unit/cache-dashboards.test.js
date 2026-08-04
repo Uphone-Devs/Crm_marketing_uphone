@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 
 // El backend es CommonJS; el resto de la app es ESM.
 const require = createRequire(import.meta.url);
-const { cacheado, invalidar, purgar } = require('../../backend/src/utils/cache.js');
+const { cacheado, cacheGET, invalidar, purgar } = require('../../backend/src/utils/cache.js');
 
 // Claves unicas por test: el cache es un singleton de modulo y persiste entre casos.
 let n = 0;
@@ -74,5 +74,96 @@ describe('cache de dashboards', () => {
     let repuesto = false;
     await cacheado(clave, 10_000, async () => { repuesto = true; return 'y'; });
     expect(repuesto).toBe(true);
+  });
+});
+
+describe('cacheGET (middleware de dashboards)', () => {
+  const mkReq = (userId, url, method = 'GET') => ({ method, originalUrl: url, user: { id: userId } });
+
+  const mkRes = () => ({
+    statusCode: 200,
+    headers: {},
+    body: undefined,
+    setHeader(h, v) { this.headers[h] = v; },
+    json(b) { this.body = b; return this; },
+  });
+
+  // Simula el paso por el middleware y, si llega al handler, lo ejecuta.
+  const pasar = (mw, req, res, handler) => {
+    mw(req, res, () => handler && handler(req, res));
+    return res;
+  };
+
+  it('sirve el segundo GET del mismo usuario sin ejecutar el handler', async () => {
+    const mw = cacheGET(10_000);
+    const url = '/jefe/indicadores?fecha=2026-08-04';
+    let ejecuciones = 0;
+    const handler = (_q, r) => { ejecuciones++; r.json({ total: 42 }); };
+
+    const r1 = pasar(mw, mkReq(7, url), mkRes(), handler);
+    const r2 = pasar(mw, mkReq(7, url), mkRes(), handler);
+
+    expect(ejecuciones).toBe(1);
+    expect(r1.headers['X-Cache']).toBe('MISS');
+    expect(r2.headers['X-Cache']).toBe('HIT');
+    expect(r2.body).toEqual({ total: 42 });
+  });
+
+  it('aisla por usuario: otro supervisor no recibe el agregado del primero', async () => {
+    // El riesgo real de una clave mal armada: ver los datos del equipo de otro.
+    const mw = cacheGET(10_000);
+    const url = '/cartera-equipo';
+
+    pasar(mw, mkReq(1, url), mkRes(), (_q, r) => r.json({ equipo: 'uno' }));
+    const otro = pasar(mw, mkReq(2, url), mkRes(), (_q, r) => r.json({ equipo: 'dos' }));
+
+    expect(otro.headers['X-Cache']).toBe('MISS');
+    expect(otro.body).toEqual({ equipo: 'dos' });
+  });
+
+  it('distingue por query string: otra fecha es otra entrada', async () => {
+    const mw = cacheGET(10_000);
+    pasar(mw, mkReq(9, '/jefe/productividad?fecha=2026-08-03'), mkRes(), (_q, r) => r.json({ d: 3 }));
+    const otra = pasar(mw, mkReq(9, '/jefe/productividad?fecha=2026-08-04'), mkRes(), (_q, r) => r.json({ d: 4 }));
+
+    expect(otra.headers['X-Cache']).toBe('MISS');
+    expect(otra.body).toEqual({ d: 4 });
+  });
+
+  it('no cachea respuestas que no son 2xx', async () => {
+    // Un 500 cacheado dejaria el panel roto durante todo el TTL.
+    const mw = cacheGET(10_000);
+    const url = '/jefe/morosidad';
+    let ejecuciones = 0;
+    const handlerError = (_q, r) => { ejecuciones++; r.statusCode = 500; r.json({ error: 'boom' }); };
+
+    pasar(mw, mkReq(4, url), mkRes(), handlerError);
+    pasar(mw, mkReq(4, url), mkRes(), handlerError);
+
+    expect(ejecuciones).toBe(2);
+  });
+
+  it('recalcula cuando vence el TTL', async () => {
+    const mw = cacheGET(0);
+    const url = '/jefe/tendencia-semanal';
+    let ejecuciones = 0;
+    const handler = (_q, r) => { ejecuciones++; r.json({ n: ejecuciones }); };
+
+    pasar(mw, mkReq(5, url), mkRes(), handler);
+    pasar(mw, mkReq(5, url), mkRes(), handler);
+
+    expect(ejecuciones).toBe(2);
+  });
+
+  it('deja pasar los metodos que no son GET', async () => {
+    const mw = cacheGET(10_000);
+    let ejecuciones = 0;
+    const handler = (_q, r) => { ejecuciones++; r.json({ ok: true }); };
+
+    pasar(mw, mkReq(6, '/cartera-equipo', 'POST'), mkRes(), handler);
+    const segundo = pasar(mw, mkReq(6, '/cartera-equipo', 'POST'), mkRes(), handler);
+
+    expect(ejecuciones).toBe(2);
+    expect(segundo.headers['X-Cache']).toBeUndefined();
   });
 });

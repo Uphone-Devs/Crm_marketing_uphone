@@ -10,7 +10,13 @@ const ExcelJS = require('exceljs');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { broadcastToAll, getConnectedStats } = require('../wsServer');
-const { cacheado } = require('../utils/cache');
+const { cacheado, cacheGET } = require('../utils/cache');
+
+// TTL por debajo del intervalo de polling de los paneles (30s), asi cada refresco
+// encuentra el valor caliente sin que el dato se quede viejo mas de un ciclo.
+// Va SIEMPRE despues de requireRole: si fuera antes, un hit responderia sin haber
+// verificado el rol.
+const cacheDash = cacheGET(25_000);
 
 const router = Router();
 router.use(authMiddleware);
@@ -168,7 +174,7 @@ router.get('/asesores', async (req, res, next) => {
 // Panel "Actividad Gestores": conteo + tiempo al aire por categoría y por
 // código de tipificación, para todos los asesores activos del equipo
 // (incluidos los que tienen 0 gestiones ese día).
-router.get('/actividad-tipificacion', async (req, res, next) => {
+router.get('/actividad-tipificacion', cacheDash, async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) {
       return res.status(403).json({ error: 'Acceso denegado' });
@@ -669,7 +675,7 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
 // Camino rápido: 6 queries agrupadas (GROUP BY usuario_id) para TODO el equipo,
 // en vez de ~6 × N por asesor. Con ?campanaId cae al cálculo por asesor (el filtro
 // de mensajería por campaña no es agrupable con el mismo shape).
-router.get('/metricas-asesores-bulk', async (req, res, next) => {
+router.get('/metricas-asesores-bulk', cacheDash, async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
     const whereU = { rol: 'asesor', estado: 'activo' };
@@ -939,7 +945,7 @@ router.get('/metricas-campana/:campanaId', async (req, res, next) => {
 });
 
 // ── GET /api/metricas-equipo — Métricas agregadas del equipo ─────────────────
-router.get('/metricas-equipo', async (req, res, next) => {
+router.get('/metricas-equipo', cacheDash, async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
 
@@ -1056,7 +1062,7 @@ router.post('/config', requireRole('jefe_area', 'admin'), async (req, res, next)
 
 // ── GET /api/cartera-equipo — Cartera asignada del equipo completo ───────────
 // Devuelve array PLANO con asesor_nombre por fila (mismo formato que local SQLite).
-router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     // Scoped a los asesores del equipo del supervisor
     const whereU = { rol: 'asesor', estado: 'activo' };
@@ -1526,7 +1532,7 @@ router.get('/cartera/rotacion', async (req, res, next) => {
 });
 
 // ── GET /api/cartera/gestiones-asesores — Gestiones por asesor ───────────────
-router.get('/cartera/gestiones-asesores', async (req, res, next) => {
+router.get('/cartera/gestiones-asesores', cacheDash, async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
     const whereU = { rol: 'asesor', estado: 'activo' };
@@ -1559,7 +1565,7 @@ router.get('/cartera/gestiones-asesores', async (req, res, next) => {
 // ── GET /api/cartera/detalle-contactabilidad — CDRs por hora del equipo ───────
 // Devuelve una fila por CDR: { hora_bucket, usuario_id, categoria } para la card
 // "Contactabilidad por Hora".
-router.get('/cartera/detalle-contactabilidad', async (req, res, next) => {
+router.get('/cartera/detalle-contactabilidad', cacheDash, async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
     const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
@@ -1749,7 +1755,7 @@ router.delete('/compromisos/:id', requireRole('jefe_area', 'admin'), async (req,
 });
 
 // ── GET /api/jefe/meta-diaria-campanas ───────────────────────────────────────
-router.get('/jefe/meta-diaria-campanas', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/jefe/meta-diaria-campanas', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     const hoy = new Date();
     const inicioDia = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
@@ -1996,7 +2002,7 @@ router.post('/jefe/meta-mensual', requireRole('jefe_area', 'admin'), async (req,
 });
 
 // ── GET /api/jefe/indicadores ─────────────────────────────────────────────────
-router.get('/jefe/indicadores', async (req, res, next) => {
+router.get('/jefe/indicadores', cacheDash, async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
     const where = await resolveContactoWhere(req.query);
@@ -2091,7 +2097,7 @@ router.get('/jefe/indicadores', async (req, res, next) => {
 // Cobertura = contratos únicos con CDR / contratos únicos en apertura — NUNCA > 100%
 // Ancla AMBOS (denominador y numerador) al mismo rango de fecha_asignacion.
 // Deduplica por nro_contrato (no cédula — un cliente puede tener múltiples contratos).
-router.get('/jefe/productividad', async (req, res, next) => {
+router.get('/jefe/productividad', cacheDash, async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
     const cWhere = await resolveContactoWhere(req.query); // empresa incluida si viene en query
@@ -2188,7 +2194,7 @@ router.get('/jefe/productividad', async (req, res, next) => {
 });
 
 // ── GET /api/jefe/top-asesores ────────────────────────────────────────────────
-router.get('/jefe/top-asesores', async (req, res, next) => {
+router.get('/jefe/top-asesores', cacheDash, async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
     const limit = Math.min(parseInt(req.query.limit) || 5, 20);
@@ -2286,7 +2292,7 @@ router.get('/jefe/top-asesores', async (req, res, next) => {
 });
 
 // ── GET /api/jefe/morosidad ───────────────────────────────────────────────────
-router.get('/jefe/morosidad', async (req, res, next) => {
+router.get('/jefe/morosidad', cacheDash, async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
     const { campanaId, distribuidor: distFilt, grupo, numeroCuota } = req.query;
@@ -2341,7 +2347,7 @@ router.get('/jefe/morosidad', async (req, res, next) => {
 });
 
 // ── GET /api/jefe/tendencia-semanal ──────────────────────────────────────────
-router.get('/jefe/tendencia-semanal', async (req, res, next) => {
+router.get('/jefe/tendencia-semanal', cacheDash, async (req, res, next) => {
   if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
   try {
     const cWhere = await resolveContactoWhere(req.query);
