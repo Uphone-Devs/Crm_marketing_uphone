@@ -300,7 +300,11 @@ model MetricaDiariaAsesor {
   montoAcordado  Float    @default(0) @map("monto_acordado")
   montoRecaudado Float    @default(0) @map("monto_recaudado")
   tiempoAireSeg  Int      @default(0) @map("tiempo_aire_seg")
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+  // @updatedAt solo lo gestiona Prisma en la app: no emite DEFAULT en la base, y esta
+  // tabla tambien recibe INSERT crudos (scripts/backfill-metricas-diarias.js y el upsert
+  // de cdrs.routes.js). Sin @default(now()) el schema pedia quitar el DEFAULT que existe
+  // en produccion y cualquier INSERT que omitiera la columna violaria el NOT NULL.
+  actualizadoEn  DateTime @default(now()) @updatedAt @map("actualizado_en")
 
   @@id([asesorId, fecha])
   @@index([fecha], map: "idx_mda_fecha")
@@ -314,7 +318,9 @@ model UpdatePolicy {
   endTime          String   @default("14:00") @map("end_time")
   days             Int[]    @default([1, 2, 3, 4, 5])
   checkIntervalMin Int      @default(30) @map("check_interval_min")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  // Mismo motivo que MetricaDiariaAsesor.actualizadoEn: la tabla la crea schema-heal
+  // (index.js) con DEFAULT NOW() y se puebla por SQL crudo desde admin.routes.js.
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("update_policy")
 }
