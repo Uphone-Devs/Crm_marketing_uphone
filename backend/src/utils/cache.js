@@ -46,6 +46,53 @@ function invalidar(prefijo) {
   for (const k of _store.keys()) {
     if (k.startsWith(prefijo)) _store.delete(k);
   }
+  for (const k of _http.keys()) {
+    if (k.startsWith(prefijo)) _http.delete(k);
+  }
+}
+
+// ── Cache de respuestas HTTP ────────────────────────────────────────────────
+const _http = new Map();
+
+/**
+ * Middleware para GET de dashboards: memoriza el JSON de una respuesta 2xx durante
+ * `ttlMs` y lo sirve tal cual a los refrescos siguientes del MISMO usuario.
+ *
+ * La clave lleva `req.user.id` y la URL completa (que ya incluye fecha, campanaId y
+ * demas query params). Es deliberadamente por usuario y no por equipo: dos supervisores
+ * distintos nunca comparten entrada, asi que ninguno puede recibir el agregado del
+ * equipo de otro. Se pierde algo de reuso a cambio de que el aislamiento no dependa de
+ * construir bien la clave en cada endpoint.
+ *
+ * A diferencia de cacheado(), NO hace coalescencia de requests concurrentes: aca el
+ * valor se conoce recien cuando el handler llama a res.json(), y dejar requests
+ * esperando una promesa que el handler podria no resolver nunca (error, timeout,
+ * conexion cerrada) los colgaria. El TTL por debajo del intervalo de polling ya cubre
+ * el caso real, que es el refresco periodico y no la rafaga simultanea de un usuario.
+ *
+ * Solo cachea 2xx: un 4xx/5xx pasa de largo y no queda memorizado.
+ */
+function cacheGET(ttlMs) {
+  return function cacheGETMiddleware(req, res, next) {
+    if (req.method !== 'GET') return next();
+
+    const clave = `http:${req.user?.id ?? 'anon'}:${req.originalUrl}`;
+    const hit = _http.get(clave);
+    if (hit && Date.now() - hit.t < ttlMs) {
+      res.setHeader('X-Cache', 'HIT');
+      return res.json(hit.body);
+    }
+
+    res.setHeader('X-Cache', 'MISS');
+    const jsonOriginal = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        _http.set(clave, { t: Date.now(), body });
+      }
+      return jsonOriginal(body);
+    };
+    return next();
+  };
 }
 
 /**
@@ -58,6 +105,9 @@ function purgar(maxEdadMs = 300_000) {
   for (const [k, v] of _store) {
     if (ahora - v.t >= maxEdadMs) _store.delete(k);
   }
+  for (const [k, v] of _http) {
+    if (ahora - v.t >= maxEdadMs) _http.delete(k);
+  }
 }
 
 // El polling es continuo, asi que las claves rotan (fecha, campana, usuario) y las viejas
@@ -65,4 +115,4 @@ function purgar(maxEdadMs = 300_000) {
 const _purga = setInterval(() => purgar(), 300_000);
 if (typeof _purga.unref === 'function') _purga.unref();
 
-module.exports = { cacheado, invalidar, purgar };
+module.exports = { cacheado, cacheGET, invalidar, purgar };
