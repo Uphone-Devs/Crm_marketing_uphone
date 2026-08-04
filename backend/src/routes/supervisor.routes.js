@@ -10,6 +10,7 @@ const ExcelJS = require('exceljs');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { broadcastToAll, getConnectedStats } = require('../wsServer');
+const { cacheado } = require('../utils/cache');
 
 const router = Router();
 router.use(authMiddleware);
@@ -131,13 +132,20 @@ function buildCdrContactoRawWhere(cWhere, alias = 'c') {
 
 const DIAS_SEG_EXPR = `COALESCE(NULLIF(metadata->>'DIAS IMPAGO',''),NULLIF(metadata->>'DIAS EN MORA',''),NULLIF(metadata->>'DIAS MORA',''))`;
 
+// La composicion de un equipo cambia cuando RR.HH. reasigna un asesor, no entre dos
+// refrescos del panel. Se consultaba en CADA request de supervisor: auditoria 2026-08-03,
+// 4,6 millones de lecturas sobre una tabla de 23 filas. TTL de 60s — por encima del
+// polling de 30s de los paneles, asi que dos refrescos seguidos comparten una lectura.
 async function getAsesorIdsDelEquipo(user) {
   if (user.rol === 'admin') return null; // null = todos
-  const asesores = await db.usuario.findMany({
-    where: { supervisorId: user.id, rol: 'asesor' },
-    select: { id: true },
+  const ids = await cacheado(`equipo:${user.id}`, 60_000, async () => {
+    const asesores = await db.usuario.findMany({
+      where: { supervisorId: user.id, rol: 'asesor' },
+      select: { id: true },
+    });
+    return asesores.map(a => a.id);
   });
-  return asesores.map(a => a.id);
+  return [...ids]; // copia: el array cacheado se comparte entre requests
 }
 
 // ── GET /api/asesores — Listar asesores activos ──────────────────────────────
