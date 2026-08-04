@@ -340,30 +340,86 @@ npm run seed:catalogo
 
 ---
 
-## 9. Servicio de Windows
+## 9. Arranque — PM2, y solo PM2
 
-Hoy el backend se arranca a mano y muere al cerrar la sesión. Este paso lo convierte en servicio con arranque automático.
+> **El backend ya corre bajo PM2.** Verificado por PID el 2026-08-04. La versión anterior de este paso decía que se arrancaba a mano y proponía convertirlo en servicio con NSSM: eso no refleja la VM.
+
+```
+┌────┬───────────────────┬──────┬────────────┬─────────┐
+│ id │ name              │ mode │ interpreter│ puerto  │
+├────┼───────────────────┼──────┼────────────┼─────────┤
+│ 0  │ cobranza-api      │ fork │ nodejs v20 │ 3001    │  ← el otro CRM
+│ 1  │ cloudflare-tunnel │ fork │ —          │ —       │
+│ 2  │ crm-backend       │ fork │ F:\node22  │ 3002    │  ← este
+└────┴───────────────────┴──────┴────────────┴─────────┘
+```
+
+`exec cwd` de `crm-backend`: `F:\crm-backend\app\backend`. Logs en `F:\cobranza\pm2\logs\crm-backend-{out,error}.log`.
 
 ```powershell
-Set-Location F:\crm-backend\app
-.\deploy\instalar-servicio-windows.ps1 `
-  -RutaBackend 'C:\crm\backend' `
-  -NodeExe     'F:\node22\node.exe' `
-  -NssmExe     'C:\nssm\nssm.exe' `
-  -RutaLogs    'F:\logs\crm-backend'
-
-Start-Service crm-backend
-Get-Service crm-backend
-Get-Content F:\logs\crm-backend\salida.log -Tail 20
+pm2 restart crm-backend --update-env
+pm2 list
+pm2 logs crm-backend --lines 20 --nostream
 ```
 
 Esperado: `🚀 API + WebSocket escuchando en 127.0.0.1:3002 (NODE_ENV=production)`.
 
-**Por qué NSSM y no `sc.exe`:** al detener, NSSM envía Ctrl+C, que Node traduce a **SIGINT** y dispara el cierre ordenado (cierra el servidor HTTP y drena el pool de Prisma). `sc.exe` mata el proceso sin aviso y deja conexiones colgadas en `pg_stat_activity`.
+### 9.1 Nunca arranques el backend a mano
 
-> **Windows no emite SIGTERM.** El handler de `SIGTERM` del código solo actúa en Linux; aquí el que se ejecuta es el de `SIGINT`. Por eso `AppStopMethodConsole` es obligatorio en la configuración del servicio.
+**Prohibido** `node src\index.js` y `& "F:\node22\node.exe" src\index.js`, incluso "solo para probar". El proceso manual **no muere** al terminar el despliegue: queda ocupando `127.0.0.1:3002`, y a partir de ahí el proceso de PM2 no puede bindear, muere con `EADDRINUSE` y PM2 lo reintenta en bucle.
 
-El servicio depende de `postgresql-x64-16`, así que tras reiniciar la VM arranca en el orden correcto.
+Lo insidioso es que **la API sigue respondiendo** —la atiende el proceso huérfano, con el código viejo—, así que el despliegue parece aplicado y no lo está. El 2026-08-04 esto costó 132 reinicios y una medición de rendimiento entera hecha sobre el código anterior.
+
+### 9.2 Detectar un crash loop
+
+En `pm2 list`, la columna **`↺` subiendo entre dos invocaciones es un crash loop**, aunque el estado diga `online` — ese `online` es la ventana entre dos caídas. El `uptime` en `0s` o `1s` de forma persistente es la otra señal.
+
+```powershell
+pm2 list
+Start-Sleep -Seconds 10
+pm2 list     # si ↺ subio, esta reiniciando en bucle
+```
+
+Recuperación:
+
+```powershell
+pm2 stop crm-backend
+
+$ocupantes = Get-NetTCPConnection -LocalPort 3002 -State Listen -ErrorAction SilentlyContinue
+foreach ($o in $ocupantes) {
+  $pidOcup = $o.OwningProcess
+  $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$pidOcup").CommandLine
+  "PID $pidOcup -> $cmd"
+  if ($cmd -like "*crm-backend*index.js*") { Stop-Process -Id $pidOcup -Force }
+  else { "  NO SE TOCA: no es crm-backend" }
+}
+
+pm2 start crm-backend
+pm2 reset crm-backend      # deja ↺ en 0 para que vuelva a servir de señal
+```
+
+**Nunca mates un PID sin ver antes su `CommandLine`.** El del 3001 es `cobranza-api` y detenerlo deja a otro equipo sin sistema.
+
+### 9.3 Apagado ordenado — pendiente
+
+PM2 en Windows corre en modo fork y **no emite señales POSIX**: `process.kill()` equivale a SIGKILL, así que los handlers de `SIGTERM`/`SIGINT` de `src/index.js:134-135` no se ejecutan. El camino real es el mensaje IPC `shutdown` (`src/index.js:141`), que PM2 solo envía si la app se arrancó con **`--shutdown-with-message`**.
+
+Hoy no está puesto, así que cada `pm2 restart` mata el proceso sin drenar el pool de Prisma y deja conexiones colgadas en `pg_stat_activity`. Para corregirlo hay que rearrancar la app con el flag —`pm2 restart` **conserva los flags viejos**, no alcanza—:
+
+```powershell
+pm2 delete crm-backend
+Set-Location F:\crm-backend\app\backend
+pm2 start src/index.js --name crm-backend --shutdown-with-message --kill-timeout 15000
+pm2 save
+```
+
+`--kill-timeout 15000` le da margen al temporizador de respaldo de 10 s del propio código (`src/index.js:113`); el default de PM2 es 1,6 s y lo corta antes.
+
+**`pm2 save` es obligatorio** tras cualquier `pm2 delete`/`start`: es lo que hace que la app sobreviva al reinicio de la VM. Sin eso, PM2 levanta vacío y el backend no vuelve.
+
+### 9.4 NSSM: no aplicado
+
+`deploy\instalar-servicio-windows.ps1` sigue en el repo y registra el backend como servicio con NSSM (que al detener envía Ctrl+C → SIGINT → cierre ordenado, a diferencia de `sc.exe`). **No se usó.** Migrar de PM2 a NSSM daría a este backend un ciclo de vida propio, independiente del otro CRM, pero es una decisión abierta: hoy conviven los tres en la misma instancia de PM2 y el riesgo se gestiona con la regla de operar siempre por nombre.
 
 ---
 
@@ -435,15 +491,16 @@ $HOST_PUB = 'https://crm.tu-dominio.com'
 | 6 | WS sin autenticar | conectar y enviar `{"tipo":"ESTADO_ASESOR"}` | `{"tipo":"ERROR","mensaje":"No autenticado"}` |
 | 7 | WS con token válido | enviar `{"tipo":"IDENTIFICAR","rol":"ASESOR","token":"..."}` | no cierra la conexión |
 | 8 | Migraciones al día | `npx prisma migrate status` | `Database schema is up to date` |
-| 9 | Cierre ordenado | `Restart-Service crm-backend` y revisar el log | `[APP] SIGINT recibido` y `[APP] Cierre limpio`, sin `Cierre forzado` |
+| 9 | Cierre ordenado | `pm2 restart crm-backend` y revisar el log | `[APP] shutdown (PM2) recibido` y `[APP] Cierre limpio`. **Hoy falla**: requiere `--shutdown-with-message` (ver 9.3) |
 | 10 | Sin conexiones colgadas | `psql -c "SELECT count(1) FROM pg_stat_activity WHERE datname='crm_marketing';"` | vuelve al valor previo |
 | 11 | Puerto no expuesto | `Get-NetTCPConnection -LocalPort 3002 -State Listen` | solo `127.0.0.1` |
 | 12 | Escalada de privilegios cerrada | con token `jefe_area`: `POST /api/admin/users` con `"rol":"admin"`, y `PUT /api/admin/users/<id-admin>` con `"rol":"asesor"` | `403` en ambos |
 | 13 | Auto-update apagado | `psql -c "SELECT enabled, start_time, end_time, days FROM update_policy;"` | `enabled = f` |
 | 14 | Columnas de mensajería | `psql -c "\d mensajes_broadcast"` | aparecen `canal`, `asunto`, `imagen_url` |
-| 15 | Arranque automatico | `Restart-Computer`, y al volver `Get-Service crm-backend` | `Running` sin intervencion |
+| 15 | Arranque automatico | `Restart-Computer`, y al volver `pm2 list` | los tres procesos en `online` sin intervencion |
+| 16 | Sin crash loop | `pm2 list`, esperar 30s, `pm2 list` de nuevo | `↺` igual en ambas y `uptime` creciendo (ver 9.2) |
 
-> La verificacion 15 **reinicia toda la VM y con ella el CRM de flujo**. Coordinar ventana con quien lo opere, y comprobar que ambos sistemas vuelven.
+> La verificacion 15 **reinicia toda la VM y con ella el CRM de flujo**. Coordinar ventana con quien lo opere, y comprobar que ambos sistemas vuelven. Depende de que se haya corrido `pm2 save`: sin eso PM2 levanta vacio tras el reinicio.
 
 **El punto 9 no se había podido probar hasta ahora**: el entorno de desarrollo es Windows y no emite SIGTERM. Aquí se verifica el camino real, que es SIGINT vía NSSM.
 
@@ -505,14 +562,16 @@ Mismas reglas del paso 7: el PATH primero, `prisma generate` después de `npm ci
 Restaurar la base **solo** si el paso 4 o 5 alteró el esquema:
 
 ```powershell
-Stop-Service crm-backend
+pm2 stop crm-backend
 $env:PGPASSWORD = 'PASSWORD_DE_POSTGRES'
 $PG = 'C:\Program Files\PostgreSQL\16\bin'
 & "$PG\dropdb.exe"   -U postgres -h 127.0.0.1 $DB
 & "$PG\createdb.exe" -U postgres -h 127.0.0.1 $DB
 & "$PG\pg_restore.exe" -U postgres -h 127.0.0.1 -d $DB F:\backups\<archivo>.dump
-Start-Service crm-backend
+pm2 start crm-backend
 ```
+
+`dropdb` falla si queda una sola conexión abierta contra la base — por eso el `pm2 stop` va primero y no un `restart`.
 
 Volver a un commit anterior al endurecimiento reabre agujeros ya cerrados (rutas de admin, DDL por HTTP). Si hace falta, detener también `cloudflared` hasta reponer la versión corregida.
 
