@@ -5,9 +5,23 @@
 const { Router } = require('express');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
+const { cacheado } = require('../utils/cache');
 
 const router = Router();
 router.use(authMiddleware);
+
+// Catalogo de tipificaciones: 26 filas estaticas que se siembran con `npm run
+// seed:catalogo`. El upsert de metricas de mas abajo lo consultaba en CADA PATCH con
+// tipificacion — auditoria 2026-08-03: 62 millones de lecturas acumuladas sobre una
+// tabla de 26 filas. Se resuelve una vez cada 5 min para todo el proceso.
+function tipificacionPorId(id) {
+  return cacheado('catalogo:tipificaciones', 300_000, async () => {
+    const filas = await db.tipificacion.findMany({
+      select: { id: true, categoria: true, codigo: true },
+    });
+    return new Map(filas.map((t) => [t.id, t]));
+  }).then((mapa) => mapa.get(id));
+}
 
 // POST /api/cdrs — Crear CDR (al iniciar gestión)
 router.post('/', async (req, res, next) => {
@@ -75,10 +89,7 @@ router.patch('/:id', async (req, res, next) => {
     if (data.tipificacionId != null && updated?.timestampInicio) {
       (async () => {
         try {
-          const t = await db.tipificacion.findUnique({
-            where: { id: data.tipificacionId },
-            select: { categoria: true, codigo: true },
-          });
+          const t = await tipificacionPorId(data.tipificacionId);
           const cat = t?.categoria || '';
           const esEf   = ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'].includes(cat) ? 1 : 0;
           const esNe   = ['CONTACTO_NEUTRO', 'CONTACTO NEUTRO'].includes(cat) ? 1 : 0;
