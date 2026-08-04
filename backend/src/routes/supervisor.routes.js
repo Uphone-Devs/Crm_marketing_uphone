@@ -12,11 +12,16 @@ const { authMiddleware, requireRole } = require('../middleware/auth.middleware')
 const { broadcastToAll, getConnectedStats } = require('../wsServer');
 const { cacheado, cacheGET } = require('../utils/cache');
 
-// TTL por debajo del intervalo de polling de los paneles (30s), asi cada refresco
-// encuentra el valor caliente sin que el dato se quede viejo mas de un ciclo.
+// TTL POR ENCIMA del intervalo de polling de los paneles (30s), no por debajo.
+// La primera version usaba 25s con la idea de que el dato no envejeciera; el efecto
+// real era que cada refresco llegaba con la entrada ya vencida y ningun request
+// llegaba a ser HIT. Como la clave es por usuario, para que un mismo cliente reutilice
+// el valor el TTL tiene que sobrevivir a su propio ciclo de polling. Medido con la
+// cabecera X-Cache.
+//
 // Va SIEMPRE despues de requireRole: si fuera antes, un hit responderia sin haber
 // verificado el rol.
-const cacheDash = cacheGET(25_000);
+const cacheDash = cacheGET(60_000);
 
 const router = Router();
 router.use(authMiddleware);
@@ -660,7 +665,7 @@ async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
   };
 }
 
-router.get('/metricas/:usuario_id', async (req, res, next) => {
+router.get('/metricas/:usuario_id', cacheDash, async (req, res, next) => {
   try {
     const targetId = parseInt(req.params.usuario_id);
     if (req.user.rol === 'asesor' && req.user.id !== targetId) {
@@ -1176,7 +1181,7 @@ router.get('/asesores/:id/progreso', async (req, res, next) => {
 });
 
 // ── GET /api/validacion/historial — Historial real desde validacion_pagos ─────
-router.get('/validacion/historial', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/validacion/historial', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     let teamFilter = Prisma.empty;
     if (req.user.rol !== 'admin') {
@@ -1204,7 +1209,7 @@ router.get('/validacion/historial', requireRole('jefe_area', 'admin'), async (re
 });
 
 // ── GET /api/validacion/sesiones ──────────────────────────────────────────────
-router.get('/validacion/sesiones', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/validacion/sesiones', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     const rows = await db.$queryRaw`
       SELECT vs.id, vs.creado_en, vs.n_pagado, vs.n_excedente, vs.n_abono,
@@ -1223,7 +1228,7 @@ router.get('/validacion/sesiones', requireRole('jefe_area', 'admin'), async (req
 });
 
 // ── GET /api/validacion/metricas — Métricas de recuperación de cartera ────────
-router.get('/validacion/metricas', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/validacion/metricas', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     const contactoWhere = {};
     const sesionWhere = {};
@@ -1606,7 +1611,7 @@ router.get('/cartera/detalle-contactabilidad', cacheDash, async (req, res, next)
 });
 
 // ── GET /api/pagos-verificados — Contactos con pago validado del equipo ───────
-router.get('/pagos-verificados', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/pagos-verificados', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     const where = { validadoPago: true };
     if (req.user.rol !== 'admin') {
@@ -1629,7 +1634,7 @@ router.get('/pagos-verificados', requireRole('jefe_area', 'admin'), async (req, 
 });
 
 // ── GET /api/compromisos-equipo — CDRs de compromisos del equipo ──────────────
-router.get('/compromisos-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+router.get('/compromisos-equipo', requireRole('jefe_area', 'admin'), cacheDash, async (req, res, next) => {
   try {
     const fechaStr = req.query.fecha || new Date().toISOString().slice(0, 10);
     const asesorIdParam = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
@@ -2582,7 +2587,7 @@ router.post('/marcar-lote-enviado', async (req, res, next) => {
 });
 
 // ── GET /api/cartera?campanaId=X ─────────────────────────────────────────────
-router.get('/cartera', async (req, res, next) => {
+router.get('/cartera', cacheDash, async (req, res, next) => {
   try {
     const asesorId  = req.user.id;
     const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
@@ -2771,7 +2776,7 @@ router.get('/bitacora/refs', async (req, res, next) => {
 });
 
 // ── GET /api/ranking-general?fecha=YYYY-MM-DD ─────────────────────────────────
-router.get('/ranking-general', async (req, res, next) => {
+router.get('/ranking-general', cacheDash, async (req, res, next) => {
   try {
     const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
 
@@ -2862,7 +2867,7 @@ router.get('/ranking-general', async (req, res, next) => {
 });
 
 // ── GET /api/proyeccion-mensual ───────────────────────────────────────────────
-router.get('/proyeccion-mensual', async (req, res, next) => {
+router.get('/proyeccion-mensual', cacheDash, async (req, res, next) => {
   try {
     const metaRow = await db.$queryRaw`
       SELECT valor FROM config WHERE clave = 'meta_mensual_usd' LIMIT 1
@@ -2893,7 +2898,7 @@ router.get('/proyeccion-mensual', async (req, res, next) => {
 });
 
 // ── GET /api/indicadores-cobranza ─────────────────────────────────────────────
-router.get('/indicadores-cobranza', async (req, res, next) => {
+router.get('/indicadores-cobranza', cacheDash, async (req, res, next) => {
   try {
     const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
     const campanaFilter = campanaId ? Prisma.sql`WHERE campana_id = ${campanaId}` : Prisma.empty;

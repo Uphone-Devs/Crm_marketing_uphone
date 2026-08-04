@@ -155,6 +155,29 @@ describe('cacheGET (middleware de dashboards)', () => {
     expect(ejecuciones).toBe(2);
   });
 
+  it('con TTL menor al intervalo de polling nunca hay HIT', async () => {
+    // Documenta el error de la primera version: TTL de 25s contra un polling de 30s.
+    // La clave es por usuario, asi que cada refresco llegaba con la entrada vencida y
+    // el cache no ahorraba una sola query. El TTL tiene que sobrevivir al ciclo del
+    // cliente, no quedar por debajo.
+    const pollingMs = 30;
+    const url = '/metricas/7';
+    const handler = (_q, r) => r.json({ ok: true });
+    const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const corto = cacheGET(pollingMs - 10);
+    pasar(corto, mkReq(7, url), mkRes(), handler);
+    await esperar(pollingMs);
+    const conTtlCorto = pasar(corto, mkReq(7, url), mkRes(), handler);
+    expect(conTtlCorto.headers['X-Cache']).toBe('MISS');
+
+    const largo = cacheGET(pollingMs * 4);
+    pasar(largo, mkReq(8, url), mkRes(), handler);
+    await esperar(pollingMs);
+    const conTtlLargo = pasar(largo, mkReq(8, url), mkRes(), handler);
+    expect(conTtlLargo.headers['X-Cache']).toBe('HIT');
+  });
+
   it('deja pasar los metodos que no son GET', async () => {
     const mw = cacheGET(10_000);
     let ejecuciones = 0;
