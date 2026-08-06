@@ -533,23 +533,25 @@ async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
   const montoComprometido  = Number(A.monto_comprometido) || 0;
 
   // Query B: UNA pasada sobre contactos — cartera (gestionados/asignados/mora)
-  // + mensajería (6 counts). msgCond replica el msgWhere anterior.
-  const msgCond = campanaId
-    ? Prisma.sql`c.campana_id = ${campanaId}`
-    : Prisma.sql`c.asignado_a = ${targetId}`;
+  // + mensajería (6 counts). Cuando campanaId está presente, todos los counts se
+  // acotan a esa campaña Y a este asesor — evita inflar gestionados/total con
+  // contactos de otras campañas y evita mezclar mensajes de otros asesores.
+  const campFilter = campanaId
+    ? Prisma.sql`AND c.campana_id = ${campanaId}`
+    : Prisma.empty;
   const ctRows = await db.$queryRaw`
     SELECT
-      COUNT(*) FILTER (WHERE c.asignado_a = ${targetId} AND c.estado_marcacion IN ('GESTIONADO','YA_PAGO'))::int AS gestionados,
-      COUNT(*) FILTER (WHERE c.asignado_a = ${targetId})::int AS total_asignados,
-      COALESCE(SUM(c.monto_deuda) FILTER (WHERE c.asignado_a = ${targetId}), 0)::float AS mora_base,
-      COUNT(*) FILTER (WHERE ${msgCond} AND c.whatsapp_status = 'ENVIADO')::int AS wsp_env,
-      COUNT(*) FILTER (WHERE ${msgCond} AND c.rcs_status      = 'ENVIADO')::int AS rcs_env,
-      COUNT(*) FILTER (WHERE ${msgCond} AND c.correo_status   = 'ENVIADO')::int AS correo_env,
-      COUNT(*) FILTER (WHERE ${msgCond} AND c.whatsapp_status = 'ACTIVO')::int  AS wsp_act,
-      COUNT(*) FILTER (WHERE ${msgCond} AND c.rcs_status      = 'ACTIVO')::int  AS rcs_act,
-      COUNT(*) FILTER (WHERE ${msgCond} AND c.correo_status   = 'ACTIVO')::int  AS correo_act
+      COUNT(*) FILTER (WHERE c.estado_marcacion IN ('GESTIONADO','YA_PAGO'))::int AS gestionados,
+      COUNT(*)::int AS total_asignados,
+      COALESCE(SUM(c.monto_deuda), 0)::float AS mora_base,
+      COUNT(*) FILTER (WHERE c.whatsapp_status = 'ENVIADO')::int AS wsp_env,
+      COUNT(*) FILTER (WHERE c.rcs_status      = 'ENVIADO')::int AS rcs_env,
+      COUNT(*) FILTER (WHERE c.correo_status   = 'ENVIADO')::int AS correo_env,
+      COUNT(*) FILTER (WHERE c.whatsapp_status = 'ACTIVO')::int  AS wsp_act,
+      COUNT(*) FILTER (WHERE c.rcs_status      = 'ACTIVO')::int  AS rcs_act,
+      COUNT(*) FILTER (WHERE c.correo_status   = 'ACTIVO')::int  AS correo_act
     FROM contactos c
-    WHERE c.asignado_a = ${targetId} OR ${msgCond}
+    WHERE c.asignado_a = ${targetId} ${campFilter}
   `.catch(err => { console.error('[METRICAS_CT_AGG]', err); return [{}]; });
   const B = ctRows[0] || {};
   const gestionados    = Number(B.gestionados)     || 0;
@@ -597,11 +599,11 @@ async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
     ) = 1 THEN 1 ELSE 0 END`);
   const msgDiaRows = await db.$queryRaw`
     SELECT canal, seg, COUNT(*)::int AS n FROM (
-      SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = ${targetId} AND c.wsp_enviado_fecha = ${ymd}
+      SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.wsp_enviado_fecha = ${ymd}
       UNION ALL
-      SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} AND c.rcs_enviado_fecha = ${ymd}
+      SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.rcs_enviado_fecha = ${ymd}
       UNION ALL
-      SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} AND c.correo_enviado_fecha = ${ymd}
+      SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.correo_enviado_fecha = ${ymd}
     ) x GROUP BY canal, seg
   `.catch(() => []);
   const msgDia = { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } };
@@ -3481,8 +3483,9 @@ async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titul
 
 router.get('/reports/gestiones_equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const empresa     = req.query.empresa || '';
     const campanaId   = req.query.campana_id || req.query.campanaId || null;
     const equipoIds = (await db.usuario.findMany({
@@ -3500,8 +3503,9 @@ router.get('/reports/gestiones_equipo', requireRole('supervisor', 'jefe_area', '
 
 router.get('/reports/gestiones', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
     const empresa     = req.query.empresa || '';
     const campanaId   = req.query.campana_id || req.query.campanaId || null;
@@ -3681,8 +3685,9 @@ function _buildOperativoWb(dataEquipo, titulo) {
 
 router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const empresa     = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : null;
     const campanaId   = req.query.campana_id || req.query.campanaId || null;
     const inicio = new Date(fechaInicio + 'T00:00:00.000Z');
@@ -3721,8 +3726,9 @@ router.get('/reports/equipo', requireRole('supervisor', 'jefe_area', 'admin'), a
 
 router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const asesorId    = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
     const empresa     = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : null;
     const campanaId   = req.query.campana_id || req.query.campanaId || null;
@@ -3769,12 +3775,13 @@ router.get('/reports/diario', requireRole('supervisor', 'jefe_area', 'admin'), a
 // ── GET /api/reports/vencimientos_gestiones ────────────────────────────────
 router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
       return res.status(400).json({ error: 'Parámetro de fecha inválido' });
     }
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const startTs = new Date(`${fechaInicio}T00:00:00.000Z`);
     const endTs   = new Date(`${fechaFin}T23:59:59.999Z`);
     const _ve = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
@@ -4087,12 +4094,13 @@ router.get('/reports/vencimientos_gestiones', requireRole('supervisor', 'jefe_ar
 // ── GET /api/reports/indicadores_compromisos ───────────────────────────────
 router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
       return res.status(400).json({ error: 'Parámetro de fecha inválido' });
     }
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const startTs = new Date(`${fechaInicio}T00:00:00.000Z`);
     const endTs   = new Date(`${fechaFin}T23:59:59.999Z`);
     const _ic = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';
@@ -4244,12 +4252,13 @@ router.get('/reports/indicadores_compromisos', requireRole('supervisor', 'jefe_a
 // ── GET /api/reports/gestor_marketing ──────────────────────────────────────
 router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
-    const fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
+    let fechaInicio = req.query.fechaInicio || req.query.fecha || new Date().toISOString().slice(0, 10);
+    let fechaFin    = req.query.fechaFin    || req.query.fecha_hasta || fechaInicio;
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     if (!dateRe.test(fechaInicio) || !dateRe.test(fechaFin)) {
       return res.status(400).json({ error: 'Parámetro de fecha inválido' });
     }
+    if (fechaInicio > fechaFin) [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
     const startTs = new Date(`${fechaInicio}T00:00:00.000Z`);
     const endTs   = new Date(`${fechaFin}T23:59:59.999Z`);
     const _gm = ['TEC_SAS', 'SCC', 'CREDI_TV', 'UPHONE'].includes(req.query.empresa) ? req.query.empresa : '';

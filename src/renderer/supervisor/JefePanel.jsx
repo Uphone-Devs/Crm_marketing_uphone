@@ -975,11 +975,26 @@ export default function JefePanel({ usuario, onLogout }) {
             : reporteTipo === 'gestiones'
               ? (reporteFiltros.asesor_id ? 'gestiones' : 'gestiones_equipo')
               : (reporteFiltros.asesor_id ? 'diario' : 'equipo');
+
+      // Validar rango de fechas — swap automático si están invertidas
+      let fechaInicio = reporteFiltros.fechaInicio;
+      let fechaFin    = reporteFiltros.fechaFin || fechaInicio;
+      if (!fechaInicio) {
+        showToast('Selecciona una fecha de inicio', 'error');
+        return;
+      }
+      if (fechaInicio > fechaFin) {
+        showToast(`Fechas invertidas (${fechaInicio} → ${fechaFin}). Se corrigió el rango automáticamente.`, 'warning');
+        [fechaInicio, fechaFin] = [fechaFin, fechaInicio];
+      }
+
       if (isRemote) {
         const params = new URLSearchParams({
           ...reporteFiltros,
-          fecha:       reporteFiltros.fechaInicio,
-          fecha_hasta: reporteFiltros.fechaFin || reporteFiltros.fechaInicio,
+          fechaInicio,
+          fechaFin,
+          fecha:       fechaInicio,
+          fecha_hasta: fechaFin,
         });
         const url = `${apiBase}/reports/${tipo}?${params}`;
         const res = await fetch(url, {
@@ -1004,8 +1019,10 @@ export default function JefePanel({ usuario, onLogout }) {
       } else {
         const result = await window.api.invoke('reports:generate', tipo, {
           ...reporteFiltros,
-          fecha:    reporteFiltros.fechaInicio,
-          fechaFin: reporteFiltros.fechaFin || reporteFiltros.fechaInicio,
+          fechaInicio,
+          fechaFin,
+          fecha:    fechaInicio,
+          fechaFin: fechaFin,
         });
         if (result.success) {
           showToast(`Reporte generado: ${result.archivo.split('\\').pop()}`, 'success');
