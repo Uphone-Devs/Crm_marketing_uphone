@@ -2823,7 +2823,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                   //  - pagados (ya_pago/validado/estado YA_PAGO)
                   //  - compromiso de pago VIGENTE (agendamiento cuya hora aún no pasa)
                   // Al pasar la hora, el compromiso vence → vuelve a contar y requiere gestión.
-                  const pagado = c.ya_pago === 1 || c.validado_pago === 1 || c.estado_marcacion === 'YA_PAGO';
+                  const pagado = c.ya_pago === 1 || c.estado_marcacion === 'YA_PAGO';
                   // Solo excluir si AGENDADO (esperando cita) — si ya está GESTIONADO, cuenta aunque tenga fecha futura
                   const compromisoVigente = c.estado_marcacion === 'AGENDADO'
                     && c.agendamiento_fecha_hora
@@ -3146,7 +3146,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 // aún sin validación bancaria del supervisor. Fuera de la cola activa.
                 // "Ya pagó" = declarado por asesor (ya_pago) o validado por supervisor (validado_pago).
                 // Salen de la cartera activa → apartado propio (botón KPI "Ya pagó").
-                const esYaPago = (c) => c.ya_pago === 1 || c.validado_pago === 1;
+                const esYaPago = (c) => c.ya_pago === 1;
                 const yaPagoList = filtrados.filter(esYaPago);
                 let activos = filtrados.filter(c => !esYaPago(c));
 
@@ -3185,7 +3185,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const turnoMap = new Map();
                 let __t = 0;
                 cartera.forEach(c => {
-                  if (c.validado_pago === 1) return;
+                  if (c.ya_pago === 1) return;
                   const enCola =
                     c.estado_marcacion === 'EN_INTENTOS' ||
                     c.estado_marcacion === 'PENDIENTE' ||
@@ -3415,7 +3415,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                             const d=String(m['DIAS IMPAGO']||m['DIAS EN MORA']||m['DIAS EN INPAGO']||m['DIAS MORA']||'0');
                             const s=_seg[d]; if(!s) return; // solo '0','1','2' son buckets válidos
                             // Excluir pagados y compromisos vigentes (misma regla que las cards de segmento)
-                            const _pagado=ct.ya_pago===1||ct.validado_pago===1||ct.estado_marcacion==='YA_PAGO';
+                            const _pagado=ct.ya_pago===1||ct.estado_marcacion==='YA_PAGO';
                             const _compVig=ct.estado_marcacion==='AGENDADO'&&ct.agendamiento_fecha_hora&&ct.agendamiento_fecha_hora.slice(0,19)>_nowWall2;
                             if(_pagado||_compVig) return;
                             s.t++; if(_esTrab(ct)) s.g++;
@@ -3496,6 +3496,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       {c.agendamiento_hora && c.agendamiento_hora !== '-'
                                         ? c.agendamiento_hora.slice(0, 5)
                                         : (c.ultima_tip_codigo === 'PMP' ? 'PMP' : '—')}
+                                    </span>
+                                  )}
+                                  {c.validado_pago === 1 && c.ya_pago !== 1 && (
+                                    <span style={{
+                                      fontSize: 10, fontWeight: 800, padding: '1px 6px', borderRadius: 99,
+                                      background: 'rgba(33,150,243,0.18)', color: '#90caf9',
+                                      border: '1px solid rgba(33,150,243,0.4)',
+                                      display: 'inline-flex', alignItems: 'center', gap: 2,
+                                    }} title="Abono parcial validado por supervisor">
+                                      <span className="material-symbols-outlined" style={{ fontSize: 10 }}>payments</span>
+                                      Abono parcial
                                     </span>
                                   )}
                                   {(() => {
