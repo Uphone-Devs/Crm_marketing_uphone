@@ -1009,11 +1009,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
         if (msg.tipo === 'PAGO_VALIDADO') {
           const pagadosIds = new Set((msg.contactoIds || []).map(Number));
           const abonoIds   = new Set((msg.abonoIds   || []).map(Number));
+          const saldoMap   = new Map((msg.abonoSaldos || []).map(a => [Number(a.id), a.saldo]));
           if (pagadosIds.size || abonoIds.size) {
             setCartera(prev => prev.map(c => {
               const n = Number(c.id);
               if (pagadosIds.has(n)) return { ...c, validado_pago: 1, ya_pago: 1, estado_marcacion: 'YA_PAGO' };
-              if (abonoIds.has(n))   return { ...c, validado_pago: 1 };
+              if (abonoIds.has(n))   return { ...c, validado_pago: 1, monto_deuda: saldoMap.get(n) ?? c.monto_deuda };
               return c;
             }));
           }
