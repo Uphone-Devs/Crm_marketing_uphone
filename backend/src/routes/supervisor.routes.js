@@ -9,7 +9,7 @@ const { Prisma } = require('@prisma/client');
 const ExcelJS = require('exceljs');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
-const { broadcastToAll, getConnectedStats } = require('../wsServer');
+const { broadcastToAll, broadcastToJefeTeam, getConnectedStats } = require('../wsServer');
 
 const router = Router();
 router.use(authMiddleware);
@@ -1430,7 +1430,13 @@ router.post('/validacion/confirmar', requireRole('jefe_area', 'admin'), async (r
     }
 
     // Notificar asesores en tiempo real
-    broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: excluir, abonoIds: abonos });
+    const abonoSaldos = matchesSel
+      .filter(m => m.estadoPago === 'ABONO_PARCIAL')
+      .map(m => ({
+        id: m.contactoId,
+        saldo: parseFloat(Math.max(0, parseFloat(m.valorEnMora || 0) - parseFloat(m.montoPagado || 0)).toFixed(2)),
+      }));
+    broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: excluir, abonoIds: abonos, abonoSaldos });
 
     res.json({ success: true, updated: excluir.length });
   } catch (err) { next(err); }
@@ -2409,13 +2415,37 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
 // Usa SQL crudo para no depender de la versión del Prisma client generado en la VM.
 router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
   try {
-    const rows = await db.$queryRaw`
-      SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
-             mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
-      FROM mensajes_broadcast mb
-      LEFT JOIN usuarios u ON u.id = mb.supervisor_id
-      ORDER BY mb.creado_en DESC
-    `;
+    let rows;
+    if (req.user.rol === 'asesor') {
+      // Solo mensajes del jefe asignado al asesor
+      rows = await db.$queryRaw`
+        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+               mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
+        FROM mensajes_broadcast mb
+        LEFT JOIN usuarios u ON u.id = mb.supervisor_id
+        WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
+        ORDER BY mb.creado_en DESC
+      `;
+    } else if (req.user.rol === 'jefe_area') {
+      // Solo los mensajes del propio jefe
+      rows = await db.$queryRaw`
+        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+               mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
+        FROM mensajes_broadcast mb
+        LEFT JOIN usuarios u ON u.id = mb.supervisor_id
+        WHERE mb.supervisor_id = ${req.user.id}
+        ORDER BY mb.creado_en DESC
+      `;
+    } else {
+      // admin: ver todos
+      rows = await db.$queryRaw`
+        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+               mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
+        FROM mensajes_broadcast mb
+        LEFT JOIN usuarios u ON u.id = mb.supervisor_id
+        ORDER BY mb.creado_en DESC
+      `;
+    }
     res.json(rows.map(m => ({
       id:                Number(m.id),
       mensaje:           m.mensaje,
@@ -2457,7 +2487,7 @@ router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req
       creado_en:         m.creado_en,
       pagos_posteriores: 0,
     };
-    broadcastToAll({ tipo: 'NUEVO_MENSAJE_BROADCAST', mensaje: payload });
+    broadcastToJefeTeam(req.user.id, { tipo: 'NUEVO_MENSAJE_BROADCAST', mensaje: payload });
     res.status(201).json(payload);
   } catch (err) { next(err); }
 });
@@ -2466,7 +2496,11 @@ router.delete('/mensajes-broadcast/:id', requireRole('jefe_area', 'admin'), asyn
   try {
     const id = parseInt(req.params.id);
     await db.mensajeBroadcast.update({ where: { id }, data: { activo: false } });
-    broadcastToAll({ tipo: 'MENSAJE_BROADCAST_DESACTIVADO', id });
+    if (req.user.rol === 'admin') {
+      broadcastToAll({ tipo: 'MENSAJE_BROADCAST_DESACTIVADO', id });
+    } else {
+      broadcastToJefeTeam(req.user.id, { tipo: 'MENSAJE_BROADCAST_DESACTIVADO', id });
+    }
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
