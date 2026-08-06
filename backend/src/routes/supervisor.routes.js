@@ -232,14 +232,16 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
             COUNT(DISTINCT CASE WHEN has_cdr = 1 THEN COALESCE(co.clave_gestion, co.id::text) END)::int AS gestionados
           FROM (
             SELECT co.id, co.asignado_a, co.clave_gestion, ${segExpr} AS seg,
-              CASE WHEN EXISTS (
-                SELECT 1 FROM cdrs cr2
-                WHERE cr2.contacto_id = co.id
-                  AND cr2.timestamp_inicio >= ${inicio}
-                  AND cr2.timestamp_inicio <= ${fin}
-                  ${apoyoSql}
-              ) THEN 1 ELSE 0 END AS has_cdr
+              CASE WHEN cr2.hit IS NOT NULL THEN 1 ELSE 0 END AS has_cdr
             FROM contactos co
+            LEFT JOIN LATERAL (
+              SELECT 1 AS hit FROM cdrs cr2
+              WHERE cr2.contacto_id = co.id
+                AND cr2.timestamp_inicio >= ${inicio}
+                AND cr2.timestamp_inicio <= ${fin}
+                ${apoyoSql}
+              LIMIT 1
+            ) cr2 ON true
             WHERE co.asignado_a IN (${Prisma.join(asesorIdList)})
               ${campSql}
               ${empSql}
@@ -1139,11 +1141,19 @@ router.post('/cartera/reordenar', requireRole('jefe_area', 'admin'), async (req,
     if (!asesorId || !Array.isArray(contactoIdsEnOrden)) {
       return res.status(400).json({ error: 'asesorId y contactoIdsEnOrden[] requeridos' });
     }
-    const updates = contactoIdsEnOrden.map((id, i) =>
-      db.contacto.update({ where: { id: Number(id) }, data: { ordenMarcacion: i + 1 } })
-    );
-    await db.$transaction(updates);
-    res.json({ ok: true, updated: updates.length });
+    const ids     = contactoIdsEnOrden.map(id => Number(id));
+    const ordenes = contactoIdsEnOrden.map((_, i) => i + 1);
+    const affected = await db.$executeRaw`
+      UPDATE contactos AS co
+      SET orden_marcacion = v.orden
+      FROM (
+        SELECT UNNEST(${ids}::int[]) AS id,
+               UNNEST(${ordenes}::int[]) AS orden
+      ) v
+      WHERE co.id = v.id
+        AND co.asignado_a = ${parseInt(asesorId)}
+    `;
+    res.json({ ok: true, updated: Number(affected) });
   } catch (err) { next(err); }
 });
 
@@ -2688,7 +2698,7 @@ router.get('/cartera', async (req, res, next) => {
 router.get('/bitacora', async (req, res, next) => {
   try {
     const asesorId = req.user.id;
-    const limite   = parseInt(req.query.limite) || 500;
+    const limite   = Math.min(parseInt(req.query.limite) || 500, 500);
 
     const cdrs = await db.cdr.findMany({
       where: { usuarioId: asesorId, tipificacionId: { not: null } },

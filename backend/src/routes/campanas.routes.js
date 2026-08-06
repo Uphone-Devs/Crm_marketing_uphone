@@ -276,20 +276,26 @@ router.delete('/:id/asesores/:asesorId', requireRole('admin', 'jefe_area'), asyn
     const campanaId = parseInt(req.params.id);
     const asesorId = parseInt(req.params.asesorId);
 
-    const contactosIds = (await db.contacto.findMany({
-      where: { campanaId, asignadoA: asesorId },
-      select: { id: true },
-    })).map(c => c.id);
+    const deleted = await db.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        DELETE FROM agendamientos
+        WHERE contacto_id IN (
+          SELECT id FROM contactos WHERE campana_id = ${campanaId} AND asignado_a = ${asesorId}
+        )
+      `;
+      await tx.$executeRaw`
+        DELETE FROM cdrs
+        WHERE contacto_id IN (
+          SELECT id FROM contactos WHERE campana_id = ${campanaId} AND asignado_a = ${asesorId}
+        )
+      `;
+      const r = await tx.$executeRaw`
+        DELETE FROM contactos WHERE campana_id = ${campanaId} AND asignado_a = ${asesorId}
+      `;
+      return Number(r);
+    });
 
-    if (!contactosIds.length) return res.json({ success: true, deleted: 0 });
-
-    await db.$transaction([
-      db.agendamiento.deleteMany({ where: { contactoId: { in: contactosIds } } }),
-      db.cdr.deleteMany({ where: { contactoId: { in: contactosIds } } }),
-      db.contacto.deleteMany({ where: { id: { in: contactosIds } } }),
-    ]);
-
-    res.json({ success: true, deleted: contactosIds.length });
+    res.json({ success: true, deleted });
   } catch (err) { next(err); }
 });
 
