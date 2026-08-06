@@ -1007,13 +1007,15 @@ export default function AsesorPanel({ usuario, onLogout }) {
         }
 
         if (msg.tipo === 'PAGO_VALIDADO') {
-          const confirmedIds = new Set([...(msg.contactoIds || []), ...(msg.abonoIds || [])].map(Number));
-          if (confirmedIds.size) {
-            setCartera(prev => prev.map(c =>
-              confirmedIds.has(Number(c.id))
-                ? { ...c, validado_pago: 1, ya_pago: 1, estado_marcacion: 'YA_PAGO' }
-                : c
-            ));
+          const pagadosIds = new Set((msg.contactoIds || []).map(Number));
+          const abonoIds   = new Set((msg.abonoIds   || []).map(Number));
+          if (pagadosIds.size || abonoIds.size) {
+            setCartera(prev => prev.map(c => {
+              const n = Number(c.id);
+              if (pagadosIds.has(n)) return { ...c, validado_pago: 1, ya_pago: 1, estado_marcacion: 'YA_PAGO' };
+              if (abonoIds.has(n))   return { ...c, validado_pago: 1 };
+              return c;
+            }));
           }
           fetchMetricasRef.current?.(); // refresca montoRecaudadoDB desde CDRs validados
           setDashRefreshTrigger(p => p + 1);
@@ -1607,6 +1609,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
     const cargarCartera = useCallback(async () => {
     if (!usuario?.id) return;
+    if (!campVista) return; // sin campaña seleccionada no hay qué filtrar → evita cargar cartera global
     setCarteraLoading(true);
     carteraLastLoadRef.current = Date.now();
     try {
@@ -4960,6 +4963,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
         onSelect={handleSelectCampaign}
         usuarioId={usuario.id}
         callApi={callApi}
+        onLogout={onLogout}
       />
 
       {/* TipificacionDialog modal para cartera y otras páginas (no dashboard) */}
