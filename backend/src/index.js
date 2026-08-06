@@ -52,6 +52,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // ── Servir archivos de grabaciones — requiere JWT válido ──────
 app.use('/uploads', authMiddleware, express.static(path.join(__dirname, '../uploads')));
 
+// ── Auto-update: artefactos públicos (latest.yml + .exe) ──────
+app.use('/updates', express.static(path.join(__dirname, '../updates')));
+
 // ── Rutas REST ────────────────────────────────────────────────
 app.use('/api/auth',      require('./routes/auth.routes'));
 app.use('/api/campanas',  require('./routes/campanas.routes'));
@@ -84,10 +87,20 @@ const monitorWss = setupWsServer(server);
 
 // ── Error handling middleware ─────────────────────────────────
 app.use((err, req, res, next) => {
+  // Socket already closed (request aborted) — don't try to respond, it would crash Node.
+  if (res.headersSent || req.socket?.destroyed) return;
   console.error('[Error]', err.stack);
   const status = err.status || err.statusCode || 500;
   const safeMsg = status < 500 ? err.message : 'Error interno del servidor';
-  res.status(status).json({ error: safeMsg });
+  try { res.status(status).json({ error: safeMsg }); } catch (_) { /* socket closed mid-response */ }
+});
+
+// ── Guard against unhandled errors crashing the process ───────
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason);
 });
 
 // ── Server startup — schema-heal ANTES de aceptar requests ───
