@@ -94,7 +94,11 @@ CREATE INDEX IF NOT EXISTS idx_vp_fecha
   ON validacion_pagos (DATE(validado_en AT TIME ZONE 'America/Guayaquil'));
 ```
 
-**Sin migración Prisma** — script SQL suelto: `backend/scripts/setup-bi-readonly.sql`.
+**Migración Prisma oficial** — `backend/prisma/migrations/20260814000000_bi_readonly_setup/migration.sql`
+
+Todo el SQL (usuario, grants, vista, índices) va en esa migración. `prisma migrate deploy` en el VM la aplica igual que las 15 migraciones anteriores — nada queda suelto fuera del sistema de migraciones.
+
+> ⚠️ El password de `bi_readonly` NO va en la migración. La migración crea el usuario con un placeholder; el DBA lo cambia con `ALTER USER bi_readonly PASSWORD '...'` fuera de git.
 
 ---
 
@@ -162,12 +166,13 @@ Documentar: siempre aplicar filtro de fecha o campaña antes de cruzar tablas gr
 
 | # | Paso | Estado |
 |---|------|--------|
-| 1 | Crear `backend/scripts/setup-bi-readonly.sql` | pendiente |
-| 2 | Ejecutar script en VM: `psql crm_marketing < setup-bi-readonly.sql` | pendiente |
-| 3 | En Gateway (ya instalado): agregar fuente de datos PostgreSQL con `bi_readonly` | pendiente |
-| 4 | Instalar npgsql en PC dev → conectar Power BI Desktop → validar todas las tablas | pendiente |
-| 5 | Publicar dataset a Power BI Service → vincular al Gateway existente | pendiente |
-| 6 | Definir roles RLS en dataset → asignar usuarios → validar aislamiento jefe_area | pendiente |
+| 1 | Crear migración Prisma `20260814000000_bi_readonly_setup/migration.sql` | pendiente |
+| 2 | `prisma migrate deploy` en VM → aplica usuario + grants + vista + índices | pendiente |
+| 3 | DBA cambia password: `ALTER USER bi_readonly PASSWORD '...'` en VM | pendiente |
+| 4 | En Gateway (ya instalado): agregar fuente de datos PostgreSQL con `bi_readonly` | pendiente |
+| 5 | Instalar npgsql en PC dev → conectar Power BI Desktop → validar todas las tablas | pendiente |
+| 6 | Publicar dataset a Power BI Service → vincular al Gateway existente | pendiente |
+| 7 | Definir roles RLS en dataset → asignar usuarios → validar aislamiento jefe_area | pendiente |
 
 ---
 
