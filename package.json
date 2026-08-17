@@ -62,7 +62,7 @@
     "electron": "^42.4.1",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
-    "esbuild": "^0.28.1",
+    "esbuild": "^0.28.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "supertest": "^7.2.2",
