@@ -481,112 +481,17 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
 async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
   const { inicio, fin, ymd } = _gyeDayBounds(fechaStr);
   const campanaId = campanaIdInput ? parseInt(campanaIdInput) : null;
-  // Query A: UNA pasada sobre cdrs del día — reemplaza 12 counts + segRows + aggregate.
-  // Semántica idéntica a los counts Prisma anteriores (mismos filtros, mismos nombres).
-  // Fallback 0: contactos sin metadata de mora (Credi TV, etc.) cuentan como S0
+
   const segCase = Prisma.raw(`COALESCE(
     CASE WHEN c.metadata->>'DIAS IMPAGO'  ~ '^[0-9]+$' THEN (c.metadata->>'DIAS IMPAGO')::int END,
     CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
     CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END,
     0
   )`);
-  const cdrAggRows = await db.$queryRaw`
-    SELECT
-      COUNT(*)::int AS cdrs_hoy,
-      COUNT(*) FILTER (WHERE cd.tipificacion_id IS NOT NULL)::int AS con_tipif,
-      COUNT(*) FILTER (WHERE ${segCase} = 0)::int AS s0,
-      COUNT(*) FILTER (WHERE ${segCase} = 1)::int AS s1,
-      COUNT(*) FILTER (WHERE ${segCase} >= 2)::int AS s2,
-      COUNT(*) FILTER (WHERE cd.resultado = 'COMP_CUM')::int AS comp_cumpl,
-      COUNT(*) FILTER (WHERE cd.resultado = 'REAG')::int   AS comp_reag,
-      COUNT(*) FILTER (WHERE cd.resultado = 'INCUMP')::int AS comp_incump,
-      COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_EFECTIVO','CONTACTO EXITOSO'))::int AS efectivos,
-      COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_NEUTRO','CONTACTO NEUTRO'))::int   AS neutros,
-      COUNT(*) FILTER (WHERE t.categoria IN ('NO_CONTACTADO','NO CONTACTADO'))::int       AS no_contact,
-      COUNT(*) FILTER (WHERE t.codigo = 'PMP')::int AS pmp,
-      COUNT(*) FILTER (WHERE t.codigo IN ('PMP','PAGO_REAL','AB_PARC','PEND_COMP')
-        AND NOT EXISTS (
-          SELECT 1 FROM validacion_pagos vp
-          WHERE vp.contacto_id = cd.contacto_id
-            AND vp.validado_en >= ${inicio} AND vp.validado_en <= ${fin}
-        ))::int AS compromisos,
-      COALESCE(SUM(cd.monto_acordado), 0)::float AS monto_comprometido
-    FROM cdrs cd
-    JOIN contactos c ON c.id = cd.contacto_id
-    LEFT JOIN tipificaciones t ON t.id = cd.tipificacion_id
-    WHERE cd.usuario_id = ${targetId}
-      AND cd.timestamp_inicio >= ${inicio}
-      AND cd.timestamp_inicio <= ${fin}
-  `.catch(err => { console.error('[METRICAS_CDR_AGG]', err); return [{}]; });
-  const A = cdrAggRows[0] || {};
-  const cdrsHoy           = Number(A.cdrs_hoy)   || 0;
-  const cdrsConTipifAsesor = Number(A.con_tipif) || 0;
-  const cdrS0 = Number(A.s0) || 0;
-  const cdrS1 = Number(A.s1) || 0;
-  const cdrS2 = Number(A.s2) || 0;
-  const compCumpl  = Number(A.comp_cumpl)  || 0;
-  const compReag   = Number(A.comp_reag)   || 0;
-  const compIncump = Number(A.comp_incump) || 0;
-  const cdrsEfectivos      = Number(A.efectivos)  || 0;
-  const cdrsNeutros        = Number(A.neutros)    || 0;
-  const cdrsNoContactados  = Number(A.no_contact) || 0;
-  const pmpHoy             = Number(A.pmp)        || 0;
-  const cdrsConTipif       = Number(A.compromisos) || 0;
-  const montoComprometido  = Number(A.monto_comprometido) || 0;
 
-  // Query B: UNA pasada sobre contactos — cartera (gestionados/asignados/mora)
-  // + mensajería (6 counts). Cuando campanaId está presente, todos los counts se
-  // acotan a esa campaña Y a este asesor — evita inflar gestionados/total con
-  // contactos de otras campañas y evita mezclar mensajes de otros asesores.
   const campFilter = campanaId
     ? Prisma.sql`AND c.campana_id = ${campanaId}`
     : Prisma.empty;
-  const ctRows = await db.$queryRaw`
-    SELECT
-      COUNT(*) FILTER (WHERE c.estado_marcacion IN ('GESTIONADO','YA_PAGO'))::int AS gestionados,
-      COUNT(*)::int AS total_asignados,
-      COALESCE(SUM(c.monto_deuda), 0)::float AS mora_base,
-      COUNT(*) FILTER (WHERE c.whatsapp_status = 'ENVIADO')::int AS wsp_env,
-      COUNT(*) FILTER (WHERE c.rcs_status      = 'ENVIADO')::int AS rcs_env,
-      COUNT(*) FILTER (WHERE c.correo_status   = 'ENVIADO')::int AS correo_env,
-      COUNT(*) FILTER (WHERE c.whatsapp_status = 'ACTIVO')::int  AS wsp_act,
-      COUNT(*) FILTER (WHERE c.rcs_status      = 'ACTIVO')::int  AS rcs_act,
-      COUNT(*) FILTER (WHERE c.correo_status   = 'ACTIVO')::int  AS correo_act
-    FROM contactos c
-    WHERE c.asignado_a = ${targetId} ${campFilter}
-  `.catch(err => { console.error('[METRICAS_CT_AGG]', err); return [{}]; });
-  const B = ctRows[0] || {};
-  const gestionados    = Number(B.gestionados)     || 0;
-  const totalAsignados = Number(B.total_asignados) || 0;
-  const moraTotalBase  = Number(B.mora_base)       || 0;
-  const wspEnv       = Number(B.wsp_env)    || 0;
-  const rcsEnv       = Number(B.rcs_env)    || 0;
-  const correoEnv    = Number(B.correo_env) || 0;
-  const wspActivo    = Number(B.wsp_act)    || 0;
-  const rcsActivo    = Number(B.rcs_act)    || 0;
-  const correoActivo = Number(B.correo_act) || 0;
-
-  // Queries restantes — independientes, en paralelo
-  const [agendados, tiemposEstado, aggRecaudadoRaw] = await Promise.all([
-    db.agendamiento.count({ where: { asesorId: targetId, creadoEn: { gte: inicio, lte: fin } } }).catch(() => 0),
-    db.evento.groupBy({
-      by: ['estadoId'],
-      where: { usuarioId: targetId, tipo: 'ESTADO', timestamp: { gte: inicio, lte: fin }, duracionSeg: { not: null } },
-      _sum: { duracionSeg: true },
-    }).catch(err => { console.error('[EVENTO_GROUPBY]', err); return []; }),
-    db.$queryRaw`
-      SELECT COALESCE(SUM(vp.monto_pagado), 0) AS total
-      FROM validacion_pagos vp
-      JOIN contactos c ON c.id = vp.contacto_id
-      WHERE c.asignado_a = ${targetId}
-    `.catch(() => [{ total: 0 }]),
-  ]);
-
-  const tiempoAlAire = Number(tiemposEstado.find(e => e.estadoId === 1)?._sum?.duracionSeg || 0);
-  const tiempoMuerto = tiemposEstado
-    .filter(e => e.estadoId !== 1)
-    .reduce((acc, e) => acc + Number(e._sum?.duracionSeg || 0), 0);
-  const montoRecaudado = Number(aggRecaudadoRaw[0]?.total || 0);
 
   const _segExpr = Prisma.raw(`CASE
     WHEN COALESCE(
@@ -599,15 +504,123 @@ async function _calcMetricasAsesor(targetId, fechaStr, campanaIdInput) {
       CASE WHEN c.metadata->>'DIAS EN MORA' ~ '^[0-9]+$' THEN (c.metadata->>'DIAS EN MORA')::int END,
       CASE WHEN c.metadata->>'DIAS MORA'    ~ '^[0-9]+$' THEN (c.metadata->>'DIAS MORA')::int END, 0
     ) = 1 THEN 1 ELSE 0 END`);
-  const msgDiaRows = await db.$queryRaw`
-    SELECT canal, seg, COUNT(*)::int AS n FROM (
-      SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.wsp_enviado_fecha = ${ymd}
-      UNION ALL
-      SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.rcs_enviado_fecha = ${ymd}
-      UNION ALL
-      SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.correo_enviado_fecha = ${ymd}
-    ) x GROUP BY canal, seg
-  `.catch(() => []);
+
+  const [
+    cdrAggRows,
+    ctRows,
+    agendados,
+    tiemposEstado,
+    aggRecaudadoRaw,
+    msgDiaRows,
+  ] = await Promise.all([
+    // Query A: cdrs del día — LEFT JOIN reemplaza NOT EXISTS correlacionado
+    db.$queryRaw`
+      SELECT
+        COUNT(*)::int AS cdrs_hoy,
+        COUNT(*) FILTER (WHERE cd.tipificacion_id IS NOT NULL)::int AS con_tipif,
+        COUNT(*) FILTER (WHERE ${segCase} = 0)::int AS s0,
+        COUNT(*) FILTER (WHERE ${segCase} = 1)::int AS s1,
+        COUNT(*) FILTER (WHERE ${segCase} >= 2)::int AS s2,
+        COUNT(*) FILTER (WHERE cd.resultado = 'COMP_CUM')::int AS comp_cumpl,
+        COUNT(*) FILTER (WHERE cd.resultado = 'REAG')::int   AS comp_reag,
+        COUNT(*) FILTER (WHERE cd.resultado = 'INCUMP')::int AS comp_incump,
+        COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_EFECTIVO','CONTACTO EXITOSO'))::int AS efectivos,
+        COUNT(*) FILTER (WHERE t.categoria IN ('CONTACTO_NEUTRO','CONTACTO NEUTRO'))::int   AS neutros,
+        COUNT(*) FILTER (WHERE t.categoria IN ('NO_CONTACTADO','NO CONTACTADO'))::int       AS no_contact,
+        COUNT(*) FILTER (WHERE t.codigo = 'PMP')::int AS pmp,
+        COUNT(*) FILTER (WHERE t.codigo IN ('PMP','PAGO_REAL','AB_PARC','PEND_COMP') AND vp_hoy.contacto_id IS NULL)::int AS compromisos,
+        COALESCE(SUM(cd.monto_acordado), 0)::float AS monto_comprometido
+      FROM cdrs cd
+      JOIN contactos c ON c.id = cd.contacto_id
+      LEFT JOIN tipificaciones t ON t.id = cd.tipificacion_id
+      LEFT JOIN (
+        SELECT DISTINCT contacto_id FROM validacion_pagos
+        WHERE validado_en >= ${inicio} AND validado_en <= ${fin}
+      ) vp_hoy ON vp_hoy.contacto_id = cd.contacto_id
+      WHERE cd.usuario_id = ${targetId}
+        AND cd.timestamp_inicio >= ${inicio}
+        AND cd.timestamp_inicio <= ${fin}
+    `.catch(err => { console.error('[METRICAS_CDR_AGG]', err); return [{}]; }),
+
+    // Query B: contactos — cartera + mensajería
+    db.$queryRaw`
+      SELECT
+        COUNT(*) FILTER (WHERE c.estado_marcacion IN ('GESTIONADO','YA_PAGO'))::int AS gestionados,
+        COUNT(*)::int AS total_asignados,
+        COALESCE(SUM(c.monto_deuda), 0)::float AS mora_base,
+        COUNT(*) FILTER (WHERE c.whatsapp_status = 'ENVIADO')::int AS wsp_env,
+        COUNT(*) FILTER (WHERE c.rcs_status      = 'ENVIADO')::int AS rcs_env,
+        COUNT(*) FILTER (WHERE c.correo_status   = 'ENVIADO')::int AS correo_env,
+        COUNT(*) FILTER (WHERE c.whatsapp_status = 'ACTIVO')::int  AS wsp_act,
+        COUNT(*) FILTER (WHERE c.rcs_status      = 'ACTIVO')::int  AS rcs_act,
+        COUNT(*) FILTER (WHERE c.correo_status   = 'ACTIVO')::int  AS correo_act
+      FROM contactos c
+      WHERE c.asignado_a = ${targetId} ${campFilter}
+    `.catch(err => { console.error('[METRICAS_CT_AGG]', err); return [{}]; }),
+
+    // agendamiento
+    db.agendamiento.count({ where: { asesorId: targetId, creadoEn: { gte: inicio, lte: fin } } }).catch(() => 0),
+
+    // eventos de estado
+    db.evento.groupBy({
+      by: ['estadoId'],
+      where: { usuarioId: targetId, tipo: 'ESTADO', timestamp: { gte: inicio, lte: fin }, duracionSeg: { not: null } },
+      _sum: { duracionSeg: true },
+    }).catch(err => { console.error('[EVENTO_GROUPBY]', err); return []; }),
+
+    // monto recaudado
+    db.$queryRaw`
+      SELECT COALESCE(SUM(vp.monto_pagado), 0) AS total
+      FROM validacion_pagos vp
+      JOIN contactos c ON c.id = vp.contacto_id
+      WHERE c.asignado_a = ${targetId}
+    `.catch(() => [{ total: 0 }]),
+
+    // mensajes enviados hoy por canal y segmento
+    db.$queryRaw`
+      SELECT canal, seg, COUNT(*)::int AS n FROM (
+        SELECT 'wsp' AS canal, ${_segExpr} AS seg FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.wsp_enviado_fecha = ${ymd}
+        UNION ALL
+        SELECT 'rcs', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.rcs_enviado_fecha = ${ymd}
+        UNION ALL
+        SELECT 'correo', ${_segExpr} FROM contactos c WHERE c.asignado_a = ${targetId} ${campFilter} AND c.correo_enviado_fecha = ${ymd}
+      ) x GROUP BY canal, seg
+    `.catch(() => []),
+  ]);
+
+  const A = cdrAggRows[0] || {};
+  const cdrsHoy            = Number(A.cdrs_hoy)          || 0;
+  const cdrsConTipifAsesor = Number(A.con_tipif)         || 0;
+  const cdrS0 = Number(A.s0) || 0;
+  const cdrS1 = Number(A.s1) || 0;
+  const cdrS2 = Number(A.s2) || 0;
+  const compCumpl  = Number(A.comp_cumpl)  || 0;
+  const compReag   = Number(A.comp_reag)   || 0;
+  const compIncump = Number(A.comp_incump) || 0;
+  const cdrsEfectivos     = Number(A.efectivos)         || 0;
+  const cdrsNeutros       = Number(A.neutros)           || 0;
+  const cdrsNoContactados = Number(A.no_contact)        || 0;
+  const pmpHoy            = Number(A.pmp)               || 0;
+  const cdrsConTipif      = Number(A.compromisos)       || 0;
+  const montoComprometido = Number(A.monto_comprometido) || 0;
+
+  const B = ctRows[0] || {};
+  const gestionados    = Number(B.gestionados)     || 0;
+  const totalAsignados = Number(B.total_asignados) || 0;
+  const moraTotalBase  = Number(B.mora_base)       || 0;
+  const wspEnv       = Number(B.wsp_env)    || 0;
+  const rcsEnv       = Number(B.rcs_env)    || 0;
+  const correoEnv    = Number(B.correo_env) || 0;
+  const wspActivo    = Number(B.wsp_act)    || 0;
+  const rcsActivo    = Number(B.rcs_act)    || 0;
+  const correoActivo = Number(B.correo_act) || 0;
+
+  const tiempoAlAire = Number(tiemposEstado.find(e => e.estadoId === 1)?._sum?.duracionSeg || 0);
+  const tiempoMuerto = tiemposEstado
+    .filter(e => e.estadoId !== 1)
+    .reduce((acc, e) => acc + Number(e._sum?.duracionSeg || 0), 0);
+  const montoRecaudado = Number(aggRecaudadoRaw[0]?.total || 0);
+
   const msgDia = { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } };
   for (const r of msgDiaRows) {
     const canal = r.canal, seg = Number(r.seg), n = Number(r.n);
@@ -2637,6 +2650,7 @@ router.get('/cartera', async (req, res, next) => {
         { ordenMarcacion: { sort: 'asc', nulls: 'last' } },
         { id: 'asc' },
       ],
+      take: 500,
     });
 
     // Última tipificación por contacto — DISTINCT ON evita cargar todos los CDRs
@@ -2732,7 +2746,7 @@ router.get('/cartera', async (req, res, next) => {
 router.get('/bitacora', async (req, res, next) => {
   try {
     const asesorId = req.user.id;
-    const limite   = Math.min(parseInt(req.query.limite) || 500, 500);
+    const limite   = Math.min(parseInt(req.query.limite) || 200, 500);
 
     const cdrs = await db.cdr.findMany({
       where: { usuarioId: asesorId, tipificacionId: { not: null } },
