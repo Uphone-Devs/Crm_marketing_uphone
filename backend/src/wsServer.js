@@ -10,15 +10,28 @@ const db = require('./config/db');
 // Memoria volátil para estados y métricas en vivo
 const estadosAsesores = {}; // asesorId -> { data, socket, supervisorId }
 const metricasAsesores = {}; // id -> { metrics }
-// Map supervisorUserId → ws para enrutar AUDIO_CHUNK solo al supervisor del asesor
-const supervisores = new Map(); // supervisorUserId -> ws
+// Map supervisorUserId → { ws, rol } para enrutar eventos solo al área correcta
+const supervisores = new Map(); // supervisorUserId -> { ws, rol }
 
 let dialingMode = 'MANUAL';
 
 function setupWsServer(httpServer) {
     const wss = new WebSocketServer({ noServer: true });
 
+    // Heartbeat: evita que el túnel/proxy cierre conexiones inactivas por timeout.
+    // El flag isAlive detecta zombies: si no responde al ping anterior, se termina.
+    const heartbeat = setInterval(() => {
+        wss.clients.forEach(ws => {
+            if (!ws.isAlive) { ws.terminate(); return; }
+            ws.isAlive = false;
+            ws.ping();
+        });
+    }, 30_000);
+    wss.on('close', () => clearInterval(heartbeat));
+
     wss.on('connection', (ws, req) => {
+        ws.isAlive = true;
+        ws.on('pong', () => { ws.isAlive = true; });
         // Pre-extraer token desde URL query string (clientes lo envían como ?token=...)
         // para que IDENTIFICAR no necesite reenviarlo en el body.
         if (req) {
@@ -28,7 +41,7 @@ function setupWsServer(httpServer) {
             } catch { ws._urlToken = null; }
         }
 
-        let clientInfo = { rol: null, id: null, nombre: null, autenticado: false };
+        let clientInfo = { rol: null, rolJwt: null, id: null, nombre: null, autenticado: false };
 
         ws.on('message', async (message) => {
             try {
@@ -60,6 +73,7 @@ function setupWsServer(httpServer) {
                         clientInfo.id          = decoded.id;
                         clientInfo.nombre      = decoded.nombre;
                         clientInfo.rol         = rolWs;
+                        clientInfo.rolJwt      = rolJwt;
 
                         if (rolWs === 'ASESOR') {
                             // Obtener supervisorId del asesor desde DB (best-effort, no bloquea)
@@ -85,24 +99,34 @@ function setupWsServer(httpServer) {
 
                             console.log(`[WS] Asesor conectado: ${clientInfo.nombre} (${clientInfo.id})`);
 
-                            // Notificar a supervisores de la nueva conexión
-                            broadcastToSupervisors({
+                            // Notificar solo al jefe del asesor (o a admins)
+                            broadcastToJefeOf(clientInfo.id, {
                                 tipo: 'ESTADO_ASESOR',
                                 ...estadosAsesores[clientInfo.id]
                             });
 
                         } else { // SUPERVISOR (jefe_area o admin)
-                            supervisores.set(clientInfo.id, ws);
+                            supervisores.set(clientInfo.id, { ws, rol: rolJwt });
                             console.log(`[WS] Jefe de Área conectado: ${clientInfo.nombre}`);
 
+                            const isAdmin = rolJwt === 'admin';
+                            const jefeId  = clientInfo.id;
+                            const estadosFiltrados = Object.keys(estadosAsesores).reduce((acc, id) => {
+                                const { socket, ...data } = estadosAsesores[id];
+                                if (isAdmin || data.supervisorId === jefeId) acc[id] = data;
+                                return acc;
+                            }, {});
+                            const metricasFiltradas = isAdmin
+                                ? metricasAsesores
+                                : Object.fromEntries(
+                                    Object.entries(metricasAsesores).filter(
+                                        ([id]) => estadosAsesores[id]?.supervisorId === jefeId
+                                    )
+                                );
                             ws.send(JSON.stringify({
                                 tipo: 'SNAPSHOT_ESTADOS',
-                                estados: Object.keys(estadosAsesores).reduce((acc, id) => {
-                                    const { socket, ...data } = estadosAsesores[id];
-                                    acc[id] = data;
-                                    return acc;
-                                }, {}),
-                                metricas: metricasAsesores,
+                                estados: estadosFiltrados,
+                                metricas: metricasFiltradas,
                                 dialing_mode: dialingMode
                             }));
                         }
@@ -124,27 +148,27 @@ function setupWsServer(httpServer) {
                                 nombre_estado: msg.nombre_estado,
                                 timestamp: new Date().toISOString()
                             };
-                            broadcastToSupervisors(msg);
+                            broadcastToJefeOf(clientInfo.id, msg);
                         }
                         break;
 
                     case 'METRICAS_ASESOR':
                         if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
                             metricasAsesores[clientInfo.id] = msg;
-                            broadcastToSupervisors(msg);
+                            broadcastToJefeOf(clientInfo.id, msg);
                         }
                         break;
 
                     case 'TIPIFICACION_REALIZADA':
                         if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
-                            broadcastToSupervisors({ ...msg, asesor_id: clientInfo.id });
+                            broadcastToJefeOf(clientInfo.id, { ...msg, asesor_id: clientInfo.id });
                         }
                         break;
 
                     case 'RITMO_BAJO':
                     case 'RITMO_OK':
                         if (clientInfo.rol === 'ASESOR') {
-                            broadcastToSupervisors({
+                            broadcastToJefeOf(clientInfo.id, {
                                 ...msg,
                                 asesor_id: clientInfo.id,
                                 nombre: clientInfo.nombre,
@@ -157,8 +181,8 @@ function setupWsServer(httpServer) {
                         // Solo enviar al supervisor asignado a este asesor
                         const asesorEntry = estadosAsesores[clientInfo.id];
                         if (asesorEntry?.supervisorId) {
-                            const supWs = supervisores.get(asesorEntry.supervisorId);
-                            if (supWs) safeSend(supWs, JSON.stringify({ ...msg, asesor_id: clientInfo.id }));
+                            const supEntry = supervisores.get(asesorEntry.supervisorId);
+                            if (supEntry) safeSend(supEntry.ws, JSON.stringify({ ...msg, asesor_id: clientInfo.id }));
                         }
                         break;
                     }
@@ -193,19 +217,25 @@ function setupWsServer(httpServer) {
         ws.on('close', () => {
             if (clientInfo.rol === 'SUPERVISOR') {
                 // Solo eliminar si este socket sigue siendo el registrado (evita race condition en reconexión)
-                if (supervisores.get(clientInfo.id) === ws) {
+                if (supervisores.get(clientInfo.id)?.ws === ws) {
                     supervisores.delete(clientInfo.id);
                     console.log(`[WS] Jefe de Área desconectado: ${clientInfo.nombre}`);
                 }
             } else if (clientInfo.rol === 'ASESOR' && clientInfo.id) {
-                if (estadosAsesores[clientInfo.id]?.socket === ws) {
+                const asesorEntry = estadosAsesores[clientInfo.id];
+                const savedSupId  = asesorEntry?.supervisorId; // guardar antes de borrar
+                if (asesorEntry?.socket === ws) {
                     delete estadosAsesores[clientInfo.id];
                     console.log(`[WS] Asesor desconectado: ${clientInfo.nombre}`);
                 }
-                broadcastToSupervisors({
+                // Notificar solo al jefe del asesor (y admins)
+                const disconnectPayload = JSON.stringify({
                     tipo: 'ASESOR_DESCONECTADO',
                     asesor_id: clientInfo.id,
                     nombre: clientInfo.nombre
+                });
+                supervisores.forEach(({ ws: supWs, rol }, supervisorId) => {
+                    if (rol === 'admin' || supervisorId === savedSupId) safeSend(supWs, disconnectPayload);
                 });
             }
         });
@@ -229,12 +259,31 @@ function safeSend(socket, payload) {
 
 function broadcastToSupervisors(data) {
     const payload = JSON.stringify(data);
-    supervisores.forEach(ws => safeSend(ws, payload));
+    supervisores.forEach(({ ws }) => safeSend(ws, payload));
+}
+
+// Envía solo al jefe asignado al asesor (+ admins conectados)
+function broadcastToJefeOf(asesorId, data) {
+    const supId  = estadosAsesores[asesorId]?.supervisorId;
+    const payload = JSON.stringify(data);
+    supervisores.forEach(({ ws, rol }, supervisorId) => {
+        if (rol === 'admin' || supervisorId === supId) safeSend(ws, payload);
+    });
+}
+
+// Envía al jefe y a todos sus asesores conectados
+function broadcastToJefeTeam(jefeId, data) {
+    const payload = JSON.stringify(data);
+    const supEntry = supervisores.get(jefeId);
+    if (supEntry) safeSend(supEntry.ws, payload);
+    Object.values(estadosAsesores).forEach(a => {
+        if (a.supervisorId === jefeId) safeSend(a.socket, payload);
+    });
 }
 
 function broadcastToAll(data) {
     const payload = JSON.stringify(data);
-    supervisores.forEach(ws => safeSend(ws, payload));
+    supervisores.forEach(({ ws }) => safeSend(ws, payload));
     Object.values(estadosAsesores).forEach(a => safeSend(a.socket, payload));
 }
 
@@ -251,5 +300,6 @@ function getConnectedStats() {
 }
 
 module.exports = setupWsServer;
-module.exports.getConnectedStats = getConnectedStats;
-module.exports.broadcastToAll = broadcastToAll;
+module.exports.getConnectedStats   = getConnectedStats;
+module.exports.broadcastToAll      = broadcastToAll;
+module.exports.broadcastToJefeTeam = broadcastToJefeTeam;
