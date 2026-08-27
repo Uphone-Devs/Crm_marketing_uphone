@@ -110,10 +110,12 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 async function schemaHeal() {
   // Cada sentencia por separado: si una falla, las demás siguen. Log del error real.
+  // NOTA: ALTER TABLE mensajes_broadcast requiere ser dueño de la tabla.
+  // Correr una vez como superuser en prod:
+  //   ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS canal      VARCHAR(20) NOT NULL DEFAULT 'TODOS';
+  //   ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS asunto     VARCHAR(255);
+  //   ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS imagen_url TEXT;
   const stmts = [
-    [`mb.canal`,      `ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS canal      VARCHAR(20) NOT NULL DEFAULT 'TODOS'`],
-    [`mb.asunto`,     `ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS asunto     VARCHAR(255)`],
-    [`mb.imagen_url`, `ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS imagen_url TEXT`],
     [`metricas_diarias_asesor`, `
       CREATE TABLE IF NOT EXISTS metricas_diarias_asesor (
         asesor_id       INTEGER          NOT NULL,
