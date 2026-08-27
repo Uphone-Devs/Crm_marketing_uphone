@@ -2626,32 +2626,39 @@ router.post('/marcar-lote-enviado', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// ── GET /api/cartera?campanaId=X ─────────────────────────────────────────────
+// ── GET /api/cartera?campanaId=X&take=N&skip=N ───────────────────────────────
+const CARTERA_MAX_TAKE = 500;
 router.get('/cartera', async (req, res, next) => {
   try {
     const asesorId  = req.user.id;
     const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
+    const take      = Math.min(Math.max(1, parseInt(req.query.take) || CARTERA_MAX_TAKE), CARTERA_MAX_TAKE);
+    const skip      = Math.max(0, parseInt(req.query.skip) || 0);
 
     const where = { asignadoA: asesorId };
     if (campanaId) where.campanaId = campanaId;
 
-    const contactos = await db.contacto.findMany({
-      where,
-      include: {
-        campana: { select: { nombre: true } },
-        agendamientos: {
-          where: { estado: { notIn: ['cancelado', 'ejecutado'] } },
-          select: { fechaHora: true, tipo: true },
-          orderBy: { id: 'desc' },
-          take: 1,
+    const [total, contactos] = await Promise.all([
+      db.contacto.count({ where }),
+      db.contacto.findMany({
+        where,
+        include: {
+          campana: { select: { nombre: true } },
+          agendamientos: {
+            where: { estado: { notIn: ['cancelado', 'ejecutado'] } },
+            select: { fechaHora: true, tipo: true },
+            orderBy: { id: 'desc' },
+            take: 1,
+          },
         },
-      },
-      orderBy: [
-        { ordenMarcacion: { sort: 'asc', nulls: 'last' } },
-        { id: 'asc' },
-      ],
-      take: 500,
-    });
+        orderBy: [
+          { ordenMarcacion: { sort: 'asc', nulls: 'last' } },
+          { id: 'asc' },
+        ],
+        skip,
+        take,
+      }),
+    ]);
 
     // Última tipificación por contacto — DISTINCT ON evita cargar todos los CDRs
     const contactoIds = contactos.map(c => c.id);
@@ -2693,6 +2700,8 @@ router.get('/cartera', async (req, res, next) => {
 
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
 
+    res.set('X-Cartera-Total',   String(total));
+    res.set('X-Cartera-HasMore', String(skip + contactos.length < total));
     res.json(contactos.map(ct => {
       // Status mensajería: solo cuenta como ENVIADO si fue enviado hoy
       const wspStatus = ct.whatsappStatus === 'ENVIADO'
