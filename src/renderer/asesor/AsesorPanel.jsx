@@ -196,7 +196,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // ── Campaña y Contacto ──
   const [rankingRefresh, setRankingRefresh] = useState(0);
   const [rankingData, setRankingData] = useState(null);
-  const prevRankingLeaderRef = useRef(null);
   const [campana, setCampana] = useState(() => {
     try { const s = sessionStorage.getItem('active_campaign:v1'); return s ? JSON.parse(s) : null; }
     catch { return null; }
@@ -1029,6 +1028,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           setDashRefreshTrigger(p => p + 1);
           setCompromisoRefresh(p => p + 1);
           setRankingRefresh(p => p + 1);
+          playRankingChime();
         }
 
         if (msg.tipo === 'META_ACTUALIZADA') {
@@ -1764,17 +1764,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   useEffect(() => {
     if (!campana?.id) return;
     callApi('db:getRankingApertura', campana.id)
-      .then(d => {
-        if (!d) return;
-        const prev = prevRankingLeaderRef.current;
-        if (prev !== null) {
-          const cambioRecaudado = d.recaudado?.nombre !== prev.recaudado;
-          const cambioUnidades  = d.unidades?.nombre  !== prev.unidades;
-          if (cambioRecaudado || cambioUnidades) playRankingChime();
-        }
-        prevRankingLeaderRef.current = { recaudado: d.recaudado?.nombre ?? null, unidades: d.unidades?.nombre ?? null };
-        setRankingData(d);
-      })
+      .then(d => { if (d) setRankingData(d); })
       .catch(() => {});
   }, [campana?.id, rankingRefresh]);
 
