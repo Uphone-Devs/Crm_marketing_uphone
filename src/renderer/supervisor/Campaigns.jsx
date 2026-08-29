@@ -1130,7 +1130,7 @@ export default function Campaigns({ asesores: asesoresProp, usuario, estadosWS =
             let prev = null;
             for (const row of existingCampaigns) {
               if (!prev || prev.id !== row.id) {
-                prev = { id: row.id, nombre: row.nombre, fecha_inicio: row.fecha_inicio, supervisor_nombre: row.supervisor_nombre, filas: [] };
+                prev = { id: row.id, nombre: row.nombre, empresa: row.empresa ?? null, fecha_inicio: row.fecha_inicio, supervisor_nombre: row.supervisor_nombre, filas: [] };
                 grupos.push(prev);
               }
               prev.filas.push(row);
