@@ -10,6 +10,7 @@ const ExcelJS = require('exceljs');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { broadcastToAll, broadcastToJefeTeam, getConnectedStats } = require('../wsServer');
+const cache = require('../utils/cache');
 
 const router = Router();
 router.use(authMiddleware);
@@ -669,7 +670,11 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
     if (req.user.rol === 'asesor' && req.user.id !== targetId) {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
+    const ck = `metricas:${targetId}:${req.query.fecha || 'hoy'}:${req.query.campanaId || ''}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     const data = await _calcMetricasAsesor(targetId, req.query.fecha, req.query.campanaId);
+    cache.set(ck, data, 30_000);
     res.json(data);
   } catch (err) { next(err); }
 });
@@ -870,6 +875,9 @@ router.get('/metricas-campana/:campanaId', async (req, res, next) => {
   try {
     const campanaId = parseInt(req.params.campanaId);
     if (!campanaId || isNaN(campanaId)) return res.status(400).json({ error: 'campanaId inválido' });
+    const ck = `metricas-campana:${campanaId}:${req.user.id}:${req.query.usuario_id || ''}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     // asesor → solo su propia data; supervisor → puede especificar usuario_id (o todos)
     let targetId = req.user.id;
     if (req.user.rol !== 'asesor') {
@@ -943,7 +951,9 @@ router.get('/metricas-campana/:campanaId', async (req, res, next) => {
       compromisos_reagendados: Number(agg.reagendados || 0),
       compromisos_incumplidos: Number(agg.incumplidos || 0),
       msg_acumulado: msg,
-    });
+    };
+    cache.set(ck, result, 30_000);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
@@ -1450,6 +1460,9 @@ router.post('/validacion/confirmar', requireRole('jefe_area', 'admin'), async (r
         saldo: parseFloat(Math.max(0, parseFloat(m.valorEnMora || 0) - parseFloat(m.montoPagado || 0)).toFixed(2)),
       }));
     broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: excluir, abonoIds: abonos, abonoSaldos });
+    cache.invalidate('ranking-apertura:');
+    cache.invalidate('metricas-campana:');
+    cache.invalidate('indicadores-cobranza:');
 
     res.json({ success: true, updated: excluir.length });
   } catch (err) { next(err); }
@@ -2428,6 +2441,9 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
 // Usa SQL crudo para no depender de la versión del Prisma client generado en la VM.
 router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
   try {
+    const ck = `mensajes:${req.user.id}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     let rows;
     if (req.user.rol === 'asesor') {
       // Solo mensajes del jefe asignado al asesor
@@ -2459,7 +2475,7 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
         ORDER BY mb.creado_en DESC
       `;
     }
-    res.json(rows.map(m => ({
+    const result = rows.map(m => ({
       id:                Number(m.id),
       mensaje:           m.mensaje,
       segmento_destino:  m.segmento_destino,
@@ -2471,7 +2487,9 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
       supervisor_nombre: m.supervisor_nombre ?? null,
       creado_en:         m.creado_en,
       pagos_posteriores: 0,
-    })));
+    }));
+    cache.set(ck, result, 120_000);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
@@ -2505,6 +2523,7 @@ router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req
       creado_en:         m.creado_en,
       pagos_posteriores: 0,
     };
+    cache.invalidate('mensajes:');
     broadcastToJefeTeam(req.user.id, { tipo: 'NUEVO_MENSAJE_BROADCAST', mensaje: payload });
     res.status(201).json(payload);
   } catch (err) { next(err); }
@@ -2514,6 +2533,7 @@ router.delete('/mensajes-broadcast/:id', requireRole('jefe_area', 'admin'), asyn
   try {
     const id = parseInt(req.params.id);
     await db.mensajeBroadcast.update({ where: { id }, data: { activo: false } });
+    cache.invalidate('mensajes:');
     if (req.user.rol === 'admin') {
       broadcastToAll({ tipo: 'MENSAJE_BROADCAST_DESACTIVADO', id });
     } else {
@@ -2834,6 +2854,9 @@ router.get('/bitacora/refs', async (req, res, next) => {
 router.get('/ranking-general', async (req, res, next) => {
   try {
     const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+    const ck = `ranking-general:${fecha}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
 
     // Solo asesores actualmente conectados por WS
     const { asesores: conectados } = getConnectedStats();
@@ -2917,6 +2940,7 @@ router.get('/ranking-general', async (req, res, next) => {
       } catch {}
     }
 
+    cache.set(ck, ranking, 20_000);
     res.json(ranking);
   } catch (err) { next(err); }
 });
@@ -2956,6 +2980,9 @@ router.get('/proyeccion-mensual', async (req, res, next) => {
 router.get('/indicadores-cobranza', async (req, res, next) => {
   try {
     const campanaId = req.query.campana_id ? parseInt(req.query.campana_id) : null;
+    const ck = `indicadores-cobranza:${campanaId || 'global'}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     const campanaFilter = campanaId ? Prisma.sql`WHERE campana_id = ${campanaId}` : Prisma.empty;
 
     const global = await db.$queryRaw(Prisma.sql`
@@ -3043,7 +3070,7 @@ router.get('/indicadores-cobranza', async (req, res, next) => {
       };
     }
 
-    res.json({
+    const result = {
       global: {
         valor_vencido: gVen,
         valor_cobrado: gCob,
@@ -3055,7 +3082,9 @@ router.get('/indicadores-cobranza', async (req, res, next) => {
         pct_recuperacion_und: gUVen > 0 ? Math.round((gUCob / gUVen) * 10000) / 100 : 0,
       },
       segmentos,
-    });
+    };
+    cache.set(ck, result, 60_000);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
@@ -4506,6 +4535,9 @@ router.get('/ranking-apertura/:campanaId', async (req, res, next) => {
   try {
     const campanaId = parseInt(req.params.campanaId, 10);
     if (!campanaId || isNaN(campanaId)) return res.status(400).json({ error: 'campanaId inválido' });
+    const ck = `ranking-apertura:${campanaId}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
 
     const recaudadoRows = await db.$queryRaw`
       SELECT u.nombre, COALESCE(SUM(vp.monto_pagado), 0)::float AS monto
@@ -4533,14 +4565,16 @@ router.get('/ranking-apertura/:campanaId', async (req, res, next) => {
       LIMIT 1
     `;
 
-    res.json({
+    const result = {
       recaudado: recaudadoRows[0]
         ? { nombre: recaudadoRows[0].nombre, monto: Number(recaudadoRows[0].monto) }
         : null,
       unidades: unidadesRows[0]
         ? { nombre: unidadesRows[0].nombre, count: Number(unidadesRows[0].count) }
         : null,
-    });
+    };
+    cache.set(ck, result, 30_000);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
