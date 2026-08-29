@@ -938,7 +938,17 @@ router.get('/metricas-campana/:campanaId', async (req, res, next) => {
     `.catch(() => [{}]);
     const camp = await db.campana.findUnique({ where: { id: campanaId }, select: { nombre: true } }).catch(() => null);
 
-    res.json({
+    // Monto real recaudado: suma de validacion_pagos.monto_pagado filtrado por campaña (y asesor si aplica)
+    const userFilterVp = scopeAsesor ? Prisma.sql`AND c.asignado_a = ${targetId}` : Prisma.empty;
+    const vpRows = await db.$queryRaw`
+      SELECT COALESCE(SUM(vp.monto_pagado), 0)::float AS total
+      FROM validacion_pagos vp
+      JOIN contactos c ON c.id = vp.contacto_id
+      WHERE c.campana_id = ${campanaId} ${userFilterVp}
+    `.catch(() => [{ total: 0 }]);
+    const montoRecaudado = Number(vpRows[0]?.total || 0);
+
+    const result = {
       campana_id: campanaId,
       campana_nombre: camp?.nombre || null,
       usuario_id: targetId,
@@ -951,6 +961,7 @@ router.get('/metricas-campana/:campanaId', async (req, res, next) => {
       compromisos_reagendados: Number(agg.reagendados || 0),
       compromisos_incumplidos: Number(agg.incumplidos || 0),
       msg_acumulado: msg,
+      monto_recaudado: montoRecaudado,
     };
     cache.set(ck, result, 30_000);
     res.json(result);
