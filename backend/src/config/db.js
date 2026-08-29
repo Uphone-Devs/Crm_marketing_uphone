@@ -22,7 +22,7 @@ const pool = new Pool({
   connectionString,
   max: 30,                    // 100 max_connections − 70 reserva
   idleTimeoutMillis: 30_000,  // liberar conexiones inactivas después de 30s
-  connectionTimeoutMillis: 5_000, // fallar rápido si no hay conexión disponible
+  connectionTimeoutMillis: 15_000, // 15s — más margen en picos de reconexión simultánea
   allowExitOnIdle: true,
 });
 
