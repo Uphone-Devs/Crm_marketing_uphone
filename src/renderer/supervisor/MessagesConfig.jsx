@@ -279,6 +279,7 @@ export default function MessagesConfig() {
 
   const [filtroCanal,    setFiltroCanal]    = useState('');
   const [filtroSegmento, setFiltroSegmento] = useState('');
+  const [filtroEmpresa,  setFiltroEmpresa]  = useState('');
   const [filtroFecha,    setFiltroFecha]    = useState('');
 
   const canalMeta    = CANALES.find(c => c.id === canal)    || CANALES[0];
@@ -293,6 +294,11 @@ export default function MessagesConfig() {
     // canal='TODOS' aparece en cualquier filtro de canal (mensajes globales)
     if (filtroCanal && m.canal !== filtroCanal && m.canal !== 'TODOS') return false;
     if (filtroSegmento && m.segmento_destino !== filtroSegmento && m.segmento_destino !== 'TODOS') return false;
+    if (filtroEmpresa) {
+      // 'TODAS' = mostrar null (wildcard); 'UPHONE'/'CREDI_TV' = filtro exacto
+      if (filtroEmpresa === 'TODAS') { if (m.empresa !== null && m.empresa !== undefined) return false; }
+      else if ((m.empresa ?? null) !== filtroEmpresa) return false;
+    }
     if (filtroFecha) {
       const fechaMsg = String(m.creado_en).slice(0, 10);
       if (fechaMsg !== filtroFecha) return false;
@@ -553,11 +559,18 @@ export default function MessagesConfig() {
                   <option value="">Segmento</option>
                   {SEGMENTOS.map(s => <option key={s.id} value={s.id} style={{ background: '#1a1f2b' }}>{s.label}</option>)}
                 </select>,
+                <select key="emp" value={filtroEmpresa} onChange={e => setFiltroEmpresa(e.target.value)}
+                  style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroEmpresa ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, cursor: 'pointer', colorScheme: 'dark' }}>
+                  <option value="">Empresa</option>
+                  <option value="UPHONE"   style={{ background: '#1a1f2b' }}>Uphone activos</option>
+                  <option value="CREDI_TV" style={{ background: '#1a1f2b' }}>Credi TV activos</option>
+                  <option value="TODAS"    style={{ background: '#1a1f2b' }}>Todas (wildcard)</option>
+                </select>,
                 <input key="fecha" type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)}
                   style={{ background: '#1a1f2b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '4px 8px', color: filtroFecha ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)', fontSize: 12, colorScheme: 'dark' }} />,
               ]}
-              {(filtroCanal || filtroSegmento || filtroFecha) && (
-                <button type="button" onClick={() => { setFiltroCanal(''); setFiltroSegmento(''); setFiltroFecha(''); }}
+              {(filtroCanal || filtroSegmento || filtroEmpresa || filtroFecha) && (
+                <button type="button" onClick={() => { setFiltroCanal(''); setFiltroSegmento(''); setFiltroEmpresa(''); setFiltroFecha(''); }}
                   style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, padding: '4px 6px', font: 'inherit' }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 13 }}>close</span>limpiar
                 </button>
