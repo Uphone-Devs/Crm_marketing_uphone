@@ -13,6 +13,12 @@ const CANALES = [
   { id: 'COMPROMISOS',  label: 'Compromisos',   icon: 'handshake',    color: '#ffb74d' },
 ];
 
+const EMPRESAS = [
+  { id: null,        label: 'Todas',    color: '#90a4ae' },
+  { id: 'UPHONE',   label: 'Uphone',   color: '#7c6af7' },
+  { id: 'CREDI_TV', label: 'Credi TV', color: '#f59e0b' },
+];
+
 const SEGMENTOS = [
   { id: 'TRAMO_0', label: 'Tramo 0', sub: '0 días',   color: '#90a4ae' },
   { id: 'TRAMO_1', label: 'Tramo 1', sub: '1 día',    color: '#ffd54f' },
@@ -63,6 +69,7 @@ function SegmentoChip({ s, active, onClick }) {
 function MensajeCard({ m, onDesactivar }) {
   const canal  = CANALES.find(c => c.id === m.canal)    || { color: '#888', icon: 'chat',  label: m.canal || 'General' };
   const seg    = SEGMENTOS.find(s => s.id === m.segmento_destino) || { color: '#888', label: m.segmento_destino };
+  const emp    = EMPRESAS.find(e => e.id === m.empresa) || null;
   const fecha  = m.creado_en ? new Date(String(m.creado_en).replace(' ', 'T').replace(/Z$/i, '').replace(/\.\d+$/, '')).toLocaleString('es-EC', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
   return (
     <div style={{
@@ -86,6 +93,13 @@ function MensajeCard({ m, onDesactivar }) {
           padding: '2px 8px', borderRadius: 20,
           background: `${seg.color}14`, color: seg.color, fontSize: 11, fontWeight: 700,
         }}>{seg.label}</span>
+        {emp && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center',
+            padding: '2px 8px', borderRadius: 20,
+            background: `${emp.color}18`, color: emp.color, fontSize: 11, fontWeight: 700,
+          }}>{emp.label}</span>
+        )}
         <span style={{ marginLeft: 'auto', color: 'rgba(255,255,255,0.25)', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 11 }}>person</span>
           {m.supervisor_nombre || 'Jefe'}
@@ -135,6 +149,7 @@ export default function MessagesConfig() {
   const [mensaje,   setMensaje]   = useState('');
   const [canal,     setCanal]     = useState('WSP');
   const [segmento,  setSegmento]  = useState('TRAMO_0');
+  const [empresa,   setEmpresa]   = useState(null);
   const [mensajes,  setMensajes]  = useState([]);
   const [asunto,    setAsunto]    = useState('');
   const [imagenUrl, setImagenUrl] = useState('');
@@ -190,8 +205,8 @@ export default function MessagesConfig() {
     return () => removeListener?.();
   }, [cargarMensajes]);
 
-  // Resetear prefill cuando supervisor cambia canal o segmento
-  useEffect(() => { prefillDoneRef.current = false; }, [canal, segmento]);
+  // Resetear prefill cuando supervisor cambia canal, segmento o empresa
+  useEffect(() => { prefillDoneRef.current = false; }, [canal, segmento, empresa]);
 
   // Pre-cargar mensaje activo — solo UNA VEZ por canal/segmento seleccionado.
   // Recargas por WS (mensajes cambia) no sobreescriben lo que el supervisor escribe.
@@ -201,13 +216,14 @@ export default function MessagesConfig() {
     const activo = mensajes.find(m =>
       (m.activo === 1 || m.activo === true) &&
       m.canal === canal &&
-      m.segmento_destino === segmento
+      m.segmento_destino === segmento &&
+      (m.empresa ?? null) === empresa
     );
     setMensaje(activo ? activo.mensaje : '');
     setAsunto(activo?.asunto || '');
     setImagenUrl(activo?.imagen_url || '');
     prefillDoneRef.current = true;
-  }, [canal, segmento, mensajes, loading]);
+  }, [canal, segmento, empresa, mensajes, loading]);
 
   async function handleEnviar() {
     if (!mensaje.trim()) { showToast('Escribe el mensaje antes de enviar', 'warning'); return; }
@@ -223,6 +239,7 @@ export default function MessagesConfig() {
             mensaje:         mensaje.trim(),
             segmento_destino: segmento,
             canal,
+            empresa:         empresa || null,
             asunto:          canal === 'CORREO' ? asunto.trim() || null : null,
             imagen_url:      (canal === 'CORREO' || canal === 'RCS') ? imagenUrl.trim() || null : null,
           }),
@@ -268,7 +285,8 @@ export default function MessagesConfig() {
   const segmentoMeta = SEGMENTOS.find(s => s.id === segmento) || SEGMENTOS[0];
   const activoActual = mensajes.find(m =>
     (m.activo === 1 || m.activo === true) &&
-    m.canal === canal && m.segmento_destino === segmento
+    m.canal === canal && m.segmento_destino === segmento &&
+    (m.empresa ?? null) === empresa
   );
 
   const aplicarFiltros = (lista) => lista.filter(m => {
@@ -374,6 +392,28 @@ export default function MessagesConfig() {
                   <span style={{ fontSize: 12, fontWeight: active ? 800 : 500, color: active ? s.color : 'rgba(255,255,255,0.35)', lineHeight: 1.2 }}>{s.label}</span>
                   <span style={{ fontSize: 9, color: active ? s.color : 'rgba(255,255,255,0.2)', marginTop: 1, opacity: active ? 0.75 : 1 }}>{s.sub}</span>
                 </button>
+              );
+            })}
+          </div>
+
+          {/* Empresa — selector */}
+          <div style={{
+            display: 'flex', background: 'rgba(255,255,255,0.04)',
+            borderRadius: 10, padding: 3, border: '1px solid rgba(255,255,255,0.07)', gap: 2,
+          }}>
+            {EMPRESAS.map(e => {
+              const active = empresa === e.id;
+              return (
+                <button key={String(e.id)} type="button" onClick={() => setEmpresa(e.id)}
+                  style={{
+                    flex: 1, padding: '7px 4px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: active ? `${e.color}18` : 'transparent', font: 'inherit',
+                    outline: active ? `1px solid ${e.color}44` : 'none',
+                    color: active ? e.color : 'rgba(255,255,255,0.35)',
+                    fontSize: 12, fontWeight: active ? 800 : 500,
+                    transition: 'all 0.12s',
+                  }}
+                >{e.label}</button>
               );
             })}
           </div>

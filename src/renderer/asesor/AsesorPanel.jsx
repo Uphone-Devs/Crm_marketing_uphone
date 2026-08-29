@@ -1793,11 +1793,23 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const segmento = dias === 0 ? 'TRAMO_0' : dias === 1 ? 'TRAMO_1' : 'TRAMO_2';
     if (!mensajesBroadcast.length) return { mensaje: '', asunto: '', imagenUrl: '' };
     const activos = mensajesBroadcast.filter(m => m.activo === 1 || m.activo === true);
-    const match =
-      activos.find(m => m.segmento_destino === segmento  && m.canal === canal)   ||
-      activos.find(m => m.segmento_destino === segmento  && m.canal === 'TODOS') ||
-      activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === canal)   ||
-      activos.find(m => m.segmento_destino === 'TODOS'   && m.canal === 'TODOS');
+    // Normalizar empresa del contacto al grupo del mensaje (TEC_SAS/SCC/UPHONE → UPHONE)
+    const empC = contacto.empresa;
+    const empGrupo = (empC === 'TEC_SAS' || empC === 'SCC' || empC === 'UPHONE') ? 'UPHONE'
+      : empC === 'CREDI_TV' ? 'CREDI_TV'
+      : null;
+    // Busca el mejor match dentro de un nivel de empresa
+    const findBest = (empFilter) => {
+      const f = empFilter === null
+        ? (m) => !m.empresa
+        : (m) => m.empresa === empFilter;
+      return activos.find(m => f(m) && m.segmento_destino === segmento && m.canal === canal)
+          || activos.find(m => f(m) && m.segmento_destino === segmento && m.canal === 'TODOS')
+          || activos.find(m => f(m) && m.segmento_destino === 'TODOS'  && m.canal === canal)
+          || activos.find(m => f(m) && m.segmento_destino === 'TODOS'  && m.canal === 'TODOS');
+    };
+    // Empresa específica primero → wildcard (null) como fallback
+    const match = (empGrupo ? findBest(empGrupo) : null) || findBest(null);
     if (!match) return { mensaje: '', asunto: '', imagenUrl: '' };
     let metaC = {};
     try { metaC = typeof contacto.metadata === 'string' ? JSON.parse(contacto.metadata || '{}') : (contacto.metadata || {}); } catch (_) {}

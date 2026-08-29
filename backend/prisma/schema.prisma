@@ -204,6 +204,7 @@ model MensajeBroadcast {
   mensaje         String
   segmentoDestino String   @default("TODOS") @map("segmento_destino")
   canal           String   @default("TODOS") @map("canal")
+  empresa         String?  @map("empresa")
   asunto          String?  @map("asunto")
   imagenUrl       String?  @map("imagen_url")
   creadoEn        DateTime @default(now()) @map("creado_en")

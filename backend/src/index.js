@@ -116,6 +116,9 @@ async function schemaHeal() {
   //   ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS asunto     VARCHAR(255);
   //   ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS imagen_url TEXT;
   const stmts = [
+    [`mensajes_broadcast_empresa`, `
+      ALTER TABLE mensajes_broadcast ADD COLUMN IF NOT EXISTS empresa VARCHAR(20)
+    `],
     [`metricas_diarias_asesor`, `
       CREATE TABLE IF NOT EXISTS metricas_diarias_asesor (
         asesor_id       INTEGER          NOT NULL,
