@@ -12,6 +12,7 @@ import AsesorCompromisos from './AsesorCompromisos';
 import AsesorMensajes from './AsesorMensajes';
 import IndicadoresPanel from './IndicadoresPanel';
 import DashboardProductividad from './DashboardProductividad';
+import RankingLideres from './RankingLideres';
 import { nowLocalISO, todayLocalISO } from '../shared/timeUtils';
 import { assertChannelAllowedLocal, handleAuthStatus } from '../shared/apiClient';
 
@@ -193,6 +194,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   const [navCollapsed, setNavCollapsed] = useState(true);
 
   // ── Campaña y Contacto ──
+  const [rankingRefresh, setRankingRefresh] = useState(0);
   const [campana, setCampana] = useState(() => {
     try { const s = sessionStorage.getItem('active_campaign:v1'); return s ? JSON.parse(s) : null; }
     catch { return null; }
@@ -556,6 +558,9 @@ export default function AsesorPanel({ usuario, onLogout }) {
           break;
         case 'db:getRankingGeneralAsesores':
           url = `${apiBase}/ranking-general?fecha=${args[0] || ''}`;
+          break;
+        case 'db:getRankingApertura':
+          url = `${apiBase}/ranking-apertura/${args[0]}`;
           break;
         case 'db:getProyeccionMensual':
           url = `${apiBase}/proyeccion-mensual`;
@@ -1021,6 +1026,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           fetchMetricasRef.current?.(); // refresca montoRecaudadoDB desde CDRs validados
           setDashRefreshTrigger(p => p + 1);
           setCompromisoRefresh(p => p + 1);
+          setRankingRefresh(p => p + 1);
         }
 
         if (msg.tipo === 'META_ACTUALIZADA') {
@@ -4194,6 +4200,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
             <div className="asesor-layout-grid">
               <div className="asesor-main-column">
                 {!contactoActual ? (
+                  <>
+                  {campana?.id && (
+                    <RankingLideres
+                      campanaId={campana.id}
+                      callApi={callApi}
+                      refreshSignal={rankingRefresh}
+                    />
+                  )}
                   <DashboardProductividad
                     usuario={usuario}
                     callApi={callApi}
@@ -4204,6 +4218,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                     tiempoProductivoSeg={tiempoTotalProductivo}
                     tiempoImproductivoSeg={tiempoTotalImproductivo}
                   />
+                  </>
                 ) : (
                 <div className="widget-card customer-card">
                   <div className="widget-header">
