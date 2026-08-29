@@ -4496,4 +4496,43 @@ router.get('/reports/gestor_marketing', requireRole('supervisor', 'jefe_area', '
   } catch (err) { next(err); }
 });
 
+// ── GET /api/ranking-apertura/:campanaId — Líder recaudado y unidades ──
+router.get('/ranking-apertura/:campanaId', async (req, res, next) => {
+  try {
+    const campanaId = parseInt(req.params.campanaId, 10);
+    if (!campanaId || isNaN(campanaId)) return res.status(400).json({ error: 'campanaId inválido' });
+
+    const recaudadoRows = await db.$queryRaw`
+      SELECT u.nombre, COALESCE(SUM(vp.monto_pagado), 0)::float AS monto
+      FROM validacion_pagos vp
+      JOIN contactos c ON c.id = vp.contacto_id
+      JOIN usuarios u ON u.id = c.asignado_a
+      WHERE c.campana_id = ${campanaId}
+      GROUP BY u.id, u.nombre
+      ORDER BY monto DESC
+      LIMIT 1
+    `;
+
+    const unidadesRows = await db.$queryRaw`
+      SELECT u.nombre, COUNT(*)::int AS count
+      FROM contactos c
+      JOIN usuarios u ON u.id = c.asignado_a
+      WHERE c.campana_id = ${campanaId}
+        AND c.ya_pago = true
+      GROUP BY u.id, u.nombre
+      ORDER BY count DESC
+      LIMIT 1
+    `;
+
+    res.json({
+      recaudado: recaudadoRows[0]
+        ? { nombre: recaudadoRows[0].nombre, monto: Number(recaudadoRows[0].monto) }
+        : null,
+      unidades: unidadesRows[0]
+        ? { nombre: unidadesRows[0].nombre, count: Number(unidadesRows[0].count) }
+        : null,
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;
