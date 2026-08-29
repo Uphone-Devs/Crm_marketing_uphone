@@ -5,6 +5,7 @@
 const { Router } = require('express');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
+const cache = require('../utils/cache');
 
 const router = Router();
 router.use(authMiddleware);
@@ -13,6 +14,9 @@ router.use(authMiddleware);
 // DEBE ir antes de /:id para evitar que 'dashboard' sea tratado como id
 router.get('/dashboard', async (req, res, next) => {
   try {
+    const ck = `campanas-dashboard:${req.user?.id || 'all'}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     const rows = await db.$queryRaw`
       SELECT
         c.id,
@@ -31,6 +35,7 @@ router.get('/dashboard', async (req, res, next) => {
       GROUP BY c.id, c.nombre, c.empresa, c.fecha_inicio, u_sup.nombre, cont.asignado_a, u_as.nombre
       ORDER BY c.id DESC, u_as.nombre ASC
     `;
+    cache.set(ck, rows, 30_000);
     res.json(rows);
   } catch (err) { next(err); }
 });
@@ -80,6 +85,7 @@ router.post('/', requireRole('admin', 'jefe_area'), async (req, res, next) => {
         empresa: empresa && DIMS.includes(empresa) ? empresa : null,
       },
     });
+    cache.invalidate('campanas-dashboard:');
     res.json({ success: true, id: campana.id, ...campana });
   } catch (err) { next(err); }
 });
@@ -209,6 +215,7 @@ router.post('/:id/contactos', requireRole('admin', 'jefe_area'), async (req, res
       };
     });
     const result = await db.contacto.createMany({ data });
+    cache.invalidate('campanas-dashboard:');
     res.json({ success: true, count: result.count, ocultos });
   } catch (err) { next(err); }
 });
