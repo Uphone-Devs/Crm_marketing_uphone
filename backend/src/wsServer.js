@@ -100,9 +100,10 @@ function setupWsServer(httpServer) {
                             console.log(`[WS] Asesor conectado: ${clientInfo.nombre} (${clientInfo.id})`);
 
                             // Notificar solo al jefe del asesor (o a admins)
+                            const { socket: _s, ...asesorData } = estadosAsesores[clientInfo.id];
                             broadcastToJefeOf(clientInfo.id, {
                                 tipo: 'ESTADO_ASESOR',
-                                ...estadosAsesores[clientInfo.id]
+                                ...asesorData
                             });
 
                         } else { // SUPERVISOR (jefe_area o admin)
