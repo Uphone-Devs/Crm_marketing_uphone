@@ -3101,12 +3101,13 @@ router.get('/indicadores-cobranza', async (req, res, next) => {
 // ── GET /api/tipificaciones ───────────────────────────────────────────────────
 router.get('/tipificaciones', async (req, res, next) => {
   try {
+    const ck = 'tipificaciones:all';
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     const tips = await db.tipificacion.findMany({ orderBy: { id: 'asc' } });
-    // Normalizar a snake_case para compatibilidad con frontend (usa requiere_agd)
-    res.json(tips.map(t => ({
-      ...t,
-      requiere_agd: t.requiereAgd,
-    })));
+    const result = tips.map(t => ({ ...t, requiere_agd: t.requiereAgd }));
+    cache.set(ck, result, 300_000); // 5 min — las tipificaciones casi nunca cambian
+    res.json(result);
   } catch (err) { next(err); }
 });
 
