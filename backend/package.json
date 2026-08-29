@@ -23,7 +23,7 @@
   "license": "ISC",
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.6.0",
+    "@prisma/client": "^7.9.0",
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.0",
@@ -32,8 +32,9 @@
     "express-rate-limit": "^8.6.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "multer": "^2.3.0",
     "pg": "^8.21.0",
-    "prisma": "^7.6.0",
+    "prisma": "^7.9.0",
     "ws": "^8.20.0"
   }
 }
