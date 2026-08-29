@@ -18,7 +18,18 @@ if (!connectionString) {
   process.exit(1);
 }
 
-const pool = new Pool({ connectionString });
+const pool = new Pool({
+  connectionString,
+  max: 30,                    // 100 max_connections − 70 reserva
+  idleTimeoutMillis: 30_000,  // liberar conexiones inactivas después de 30s
+  connectionTimeoutMillis: 5_000, // fallar rápido si no hay conexión disponible
+  allowExitOnIdle: true,
+});
+
+pool.on('error', (err) => {
+  console.error('[DB POOL] Error inesperado en cliente idle:', err.message);
+});
+
 const adapter = new PrismaPg(pool);
 
 const prisma = new PrismaClient({
