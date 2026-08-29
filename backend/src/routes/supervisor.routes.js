@@ -2432,7 +2432,7 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
     if (req.user.rol === 'asesor') {
       // Solo mensajes del jefe asignado al asesor
       rows = await db.$queryRaw`
-        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
         FROM mensajes_broadcast mb
         LEFT JOIN usuarios u ON u.id = mb.supervisor_id
@@ -2442,7 +2442,7 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
     } else if (req.user.rol === 'jefe_area') {
       // Solo los mensajes del propio jefe
       rows = await db.$queryRaw`
-        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
         FROM mensajes_broadcast mb
         LEFT JOIN usuarios u ON u.id = mb.supervisor_id
@@ -2452,7 +2452,7 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
     } else {
       // admin: ver todos
       rows = await db.$queryRaw`
-        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.asunto, mb.imagen_url,
+        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
         FROM mensajes_broadcast mb
         LEFT JOIN usuarios u ON u.id = mb.supervisor_id
@@ -2464,6 +2464,7 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
       mensaje:           m.mensaje,
       segmento_destino:  m.segmento_destino,
       canal:             m.canal ?? null,
+      empresa:           m.empresa ?? null,
       asunto:            m.asunto ?? null,
       imagen_url:        m.imagen_url ?? null,
       activo:            m.activo ? 1 : 0,
@@ -2476,16 +2477,19 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
 
 router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
-    const { mensaje, segmento_destino = 'TODOS', canal = 'TODOS', asunto, imagen_url } = req.body;
+    const { mensaje, segmento_destino = 'TODOS', canal = 'TODOS', empresa = null, asunto, imagen_url } = req.body;
     if (!mensaje?.trim()) return res.status(400).json({ error: 'Mensaje requerido' });
     const canalesValidos = ['TODOS', 'WSP', 'RCS', 'CORREO', 'COMPROMISOS'];
     if (!canalesValidos.includes(canal)) return res.status(400).json({ error: 'Canal inválido' });
+    const empresasValidas = [null, 'UPHONE', 'CREDI_TV'];
+    if (!empresasValidas.includes(empresa)) return res.status(400).json({ error: 'Empresa inválida' });
     const supervisorNombre = await db.$queryRaw`SELECT nombre FROM usuarios WHERE id = ${req.user.id}`;
+    const empVal = empresa || null;
     const rows = await db.$queryRaw`
-      INSERT INTO mensajes_broadcast (supervisor_id, mensaje, segmento_destino, canal, asunto, imagen_url)
+      INSERT INTO mensajes_broadcast (supervisor_id, mensaje, segmento_destino, canal, empresa, asunto, imagen_url)
       VALUES (${req.user.id}, ${mensaje.trim()}, ${segmento_destino}, ${canal},
-              ${asunto?.trim() || null}, ${imagen_url?.trim() || null})
-      RETURNING id, mensaje, segmento_destino, canal, asunto, imagen_url, activo, creado_en
+              ${empVal}, ${asunto?.trim() || null}, ${imagen_url?.trim() || null})
+      RETURNING id, mensaje, segmento_destino, canal, empresa, asunto, imagen_url, activo, creado_en
     `;
     const m = rows[0];
     const payload = {
@@ -2493,6 +2497,7 @@ router.post('/mensajes-broadcast', requireRole('jefe_area', 'admin'), async (req
       mensaje:           m.mensaje,
       segmento_destino:  m.segmento_destino,
       canal:             m.canal ?? null,
+      empresa:           m.empresa ?? null,
       asunto:            m.asunto ?? null,
       imagen_url:        m.imagen_url ?? null,
       activo:            1,
