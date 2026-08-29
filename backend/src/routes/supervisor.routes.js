@@ -4508,6 +4508,8 @@ router.get('/ranking-apertura/:campanaId', async (req, res, next) => {
       JOIN contactos c ON c.id = vp.contacto_id
       JOIN usuarios u ON u.id = c.asignado_a
       WHERE c.campana_id = ${campanaId}
+        AND u.rol = 'asesor'
+        AND u.estado = 'activo'
       GROUP BY u.id, u.nombre
       ORDER BY monto DESC
       LIMIT 1
@@ -4519,6 +4521,8 @@ router.get('/ranking-apertura/:campanaId', async (req, res, next) => {
       JOIN usuarios u ON u.id = c.asignado_a
       WHERE c.campana_id = ${campanaId}
         AND c.ya_pago = true
+        AND u.rol = 'asesor'
+        AND u.estado = 'activo'
       GROUP BY u.id, u.nombre
       ORDER BY count DESC
       LIMIT 1
