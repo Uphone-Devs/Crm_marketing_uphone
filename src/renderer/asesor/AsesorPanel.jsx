@@ -195,6 +195,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   // ── Campaña y Contacto ──
   const [rankingRefresh, setRankingRefresh] = useState(0);
+  const [rankingData, setRankingData] = useState(null);
   const [campana, setCampana] = useState(() => {
     try { const s = sessionStorage.getItem('active_campaign:v1'); return s ? JSON.parse(s) : null; }
     catch { return null; }
@@ -1758,6 +1759,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [campana?.id]);
 
+  // Ranking líderes — re-fetch al cambiar apertura o al validarse pagos
+  useEffect(() => {
+    if (!campana?.id) return;
+    callApi('db:getRankingApertura', campana.id)
+      .then(d => setRankingData(d))
+      .catch(() => {});
+  }, [campana?.id, rankingRefresh]);
+
   function getMensajeParaContacto(contacto, diasMoraVal, canal = 'TODOS') {
     const dias = parseInt(diasMoraVal, 10) || 0;
     const segmento = dias === 0 ? 'TRAMO_0' : dias === 1 ? 'TRAMO_1' : 'TRAMO_2';
@@ -2304,6 +2313,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
             registros: campStats?.registros ?? null,
             fechaAsignacion: campStats?.fechaAsignacion ?? null,
             onRevisionCampanaChange: (id) => setRevisionCampanaId(id === (campana?.id || null) ? null : id),
+            rankingData,
           }}
         />
 
@@ -4201,13 +4211,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
               <div className="asesor-main-column">
                 {!contactoActual ? (
                   <>
-                  {campana?.id && (
-                    <RankingLideres
-                      campanaId={campana.id}
-                      callApi={callApi}
-                      refreshSignal={rankingRefresh}
-                    />
-                  )}
                   <DashboardProductividad
                     usuario={usuario}
                     callApi={callApi}
