@@ -1120,7 +1120,6 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
         ct.telefono,
         CAST(ct.monto_deuda AS DOUBLE PRECISION) AS monto_deuda,
         ct.producto,
-        ct.metadata::text        AS metadata,
         ct.estado_marcacion,
         ct.intentos_realizados,
         ct.ya_pago,
