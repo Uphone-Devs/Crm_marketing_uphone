@@ -53,7 +53,32 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', authMiddleware, express.static(path.join(__dirname, '../uploads')));
 
 // ── Auto-update: artefactos públicos (latest.yml + .exe) ──────
-app.use('/updates', express.static(path.join(__dirname, '../updates')));
+// Cache-Control corto: los clientes deben detectar nuevas versiones rápido
+app.use('/updates', express.static(path.join(__dirname, '../updates'), {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.yml') || filePath.endsWith('.yaml')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=300'); // .exe/.blockmap: 5 min
+    }
+  },
+}));
+
+// ── CDN: assets públicos (imágenes subidas, logos, etc.) ─────
+// Cloudflare cachea según Cache-Control; max-age=31536000 = 1 año para inmutables
+app.use('/public', express.static(path.join(__dirname, '../public'), {
+  setHeaders(res, filePath) {
+    const ext = filePath.split('.').pop().toLowerCase();
+    if (['jpg','jpeg','png','gif','webp','svg','ico','woff','woff2','ttf'].includes(ext)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (ext === 'pdf') {
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 día
+    } else {
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hora resto
+    }
+    res.setHeader('Vary', 'Accept-Encoding');
+  },
+}));
 
 // ── Rutas REST ────────────────────────────────────────────────
 app.use('/api/auth',      require('./routes/auth.routes'));
@@ -61,6 +86,7 @@ app.use('/api/campanas',  require('./routes/campanas.routes'));
 app.use('/api/contactos', require('./routes/contactos.routes'));
 app.use('/api/cdrs',      require('./routes/cdrs.routes'));
 app.use('/api/admin',     require('./routes/admin.routes'));
+app.use('/api/upload',    require('./routes/upload.routes'));
 app.use('/api',           require('./routes/supervisor.routes'));
 
 // ── Liveness: responde mientras el proceso siga en pie ────────
