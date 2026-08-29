@@ -196,6 +196,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
   // ── Campaña y Contacto ──
   const [rankingRefresh, setRankingRefresh] = useState(0);
   const [rankingData, setRankingData] = useState(null);
+  const prevRankingLeaderRef = useRef(null);
   const [campana, setCampana] = useState(() => {
     try { const s = sessionStorage.getItem('active_campaign:v1'); return s ? JSON.parse(s) : null; }
     catch { return null; }
@@ -1763,9 +1764,39 @@ export default function AsesorPanel({ usuario, onLogout }) {
   useEffect(() => {
     if (!campana?.id) return;
     callApi('db:getRankingApertura', campana.id)
-      .then(d => setRankingData(d))
+      .then(d => {
+        if (!d) return;
+        const prev = prevRankingLeaderRef.current;
+        if (prev !== null) {
+          const cambioRecaudado = d.recaudado?.nombre !== prev.recaudado;
+          const cambioUnidades  = d.unidades?.nombre  !== prev.unidades;
+          if (cambioRecaudado || cambioUnidades) playRankingChime();
+        }
+        prevRankingLeaderRef.current = { recaudado: d.recaudado?.nombre ?? null, unidades: d.unidades?.nombre ?? null };
+        setRankingData(d);
+      })
       .catch(() => {});
   }, [campana?.id, rankingRefresh]);
+
+  function playRankingChime() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [523.25, 659.25, 783.99].forEach((freq, i) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        const t = ctx.currentTime + i * 0.13;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+        osc.start(t);
+        osc.stop(t + 0.45);
+      });
+    } catch {}
+  }
 
   function getMensajeParaContacto(contacto, diasMoraVal, canal = 'TODOS') {
     const dias = parseInt(diasMoraVal, 10) || 0;
@@ -2799,6 +2830,40 @@ export default function AsesorPanel({ usuario, onLogout }) {
                         {validados.length > 0 && <><Sep /><StatItem label="Recaudado"
                           value={`$${recaudado.toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
                           color="#00e676" /></>}
+                        {rankingData && (rankingData.recaudado || rankingData.unidades) && <>
+                          <Sep />
+                          {rankingData.recaudado && (
+                            <button type="button" title="Líder en recaudo de la campaña"
+                              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '4px 14px', gap: 1, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'default', font: 'inherit', color: 'inherit', flexShrink: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10 }}>🥇</span>
+                                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>Recaudo</span>
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', lineHeight: 1.15, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {rankingData.recaudado.nombre.split(' ')[0]}
+                              </span>
+                              <span style={{ fontSize: 10, opacity: 0.6 }}>
+                                ${Number(rankingData.recaudado.monto).toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                              </span>
+                            </button>
+                          )}
+                          {rankingData.recaudado && rankingData.unidades && <Sep />}
+                          {rankingData.unidades && (
+                            <button type="button" title="Líder en unidades pagadas de la campaña"
+                              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '4px 14px', gap: 1, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'default', font: 'inherit', color: 'inherit', flexShrink: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10 }}>🥇</span>
+                                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>Unidades</span>
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', lineHeight: 1.15, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {rankingData.unidades.nombre.split(' ')[0]}
+                              </span>
+                              <span style={{ fontSize: 10, opacity: 0.6 }}>
+                                {rankingData.unidades.count} pago{rankingData.unidades.count !== 1 ? 's' : ''}
+                              </span>
+                            </button>
+                          )}
+                        </>}
                       </div>
                       {/* ── Botón actualizar ── */}
                       <button type="button"
