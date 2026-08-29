@@ -151,34 +151,6 @@ export default function TopAppBar({
           </div>
         </div>
 
-        {/* Ranking líderes apertura */}
-        {asesorStats.rankingData && (asesorStats.rankingData.recaudado || asesorStats.rankingData.unidades) && (
-          <div style={{ display: 'flex', gap: 8, borderLeft: '1px solid rgba(255,255,255,0.08)', paddingLeft: 12, marginLeft: 8 }}>
-            {asesorStats.rankingData.recaudado && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 64 }}>
-                <span style={{ fontSize: 9, opacity: 0.45, letterSpacing: 1, textTransform: 'uppercase' }}>🥇 Recaudo</span>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#7c6af7', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {asesorStats.rankingData.recaudado.nombre.split(' ')[0]}
-                </span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>
-                  ${Number(asesorStats.rankingData.recaudado.monto).toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </span>
-              </div>
-            )}
-            {asesorStats.rankingData.unidades && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 64 }}>
-                <span style={{ fontSize: 9, opacity: 0.45, letterSpacing: 1, textTransform: 'uppercase' }}>🥇 Unidades</span>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#7c6af7', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {asesorStats.rankingData.unidades.nombre.split(' ')[0]}
-                </span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#fff' }}>
-                  {asesorStats.rankingData.unidades.count} pago{asesorStats.rankingData.unidades.count !== 1 ? 's' : ''}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Right: connection + status */}
         <div className="top-app-bar__right" style={{ marginLeft: 'auto', gap: 12 }}>
           <div className={`dot ${isConnected ? 'dot-primary dot-pulse' : 'dot-error'}`} style={{ width: 8, height: 8 }} />
