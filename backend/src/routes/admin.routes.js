@@ -163,8 +163,7 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), asyn
         const data = { nombre, email, rol, supervisorId: supervisor_id ?? null };
         if (estado) data.estado = estado;
         const user = await prisma.usuario.update({ where: { id }, data });
-        // empresa via raw porque el cliente Prisma puede estar sin regenerar en VM
-        await prisma.$executeRaw`UPDATE usuarios SET empresa = ${empresa ?? null} WHERE id = ${id}`;
+        await prisma.$executeRawUnsafe(`UPDATE usuarios SET empresa = $1 WHERE id = $2`, empresa || null, id);
         res.json({ success: true, id: user.id });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
