@@ -1773,7 +1773,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const play = () => {
         const master = ctx.createGain();
-        master.gain.value = 0.85;
+        master.gain.value = 1.5;
         master.connect(ctx.destination);
         // Fanfare ascendente: Do-Mi-Sol-Do(octava) + acorde final
         const notes = [523.25, 659.25, 783.99, 1046.5];
@@ -1787,7 +1787,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           const t = ctx.currentTime + i * 0.12;
           const dur = i === notes.length - 1 ? 0.8 : 0.35;
           gain.gain.setValueAtTime(0, t);
-          gain.gain.linearRampToValueAtTime(0.7, t + 0.015);
+          gain.gain.linearRampToValueAtTime(1.0, t + 0.015);
           gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
           osc.start(t); osc.stop(t + dur);
           // Armónico (octava +1, volumen bajo) para brillo
