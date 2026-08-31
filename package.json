@@ -1,6 +1,6 @@
 {
   "name": "crm-marketing-uphone",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "CRM Marketing Uphone — Plataforma de cobranza (Asesor / Supervisor / Admin)",
   "main": "out/main/index.js",
   "author": "Alexis Pillajo",
