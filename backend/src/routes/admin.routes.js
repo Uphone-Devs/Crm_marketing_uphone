@@ -74,15 +74,22 @@ router.get('/connected', authMiddleware, requireRole('admin', 'jefe_area'), (req
 
 router.get('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
-        const raw = await prisma.usuario.findMany({
-            orderBy: { nombre: 'asc' },
-            select: {
-                id: true, nombre: true, email: true, rol: true,
-                estado: true, supervisorId: true, empresa: true,
-                supervisor: { select: { id: true, nombre: true } },
-            },
-        });
-        const users = raw.map(u => ({ ...u, supervisor_id: u.supervisorId }));
+        const raw = await prisma.$queryRaw`
+            SELECT u.id, u.nombre, u.email, u.rol, u.estado, u.empresa,
+                   u.supervisor_id, u.creado_en,
+                   s.nombre AS supervisor_nombre
+            FROM usuarios u
+            LEFT JOIN usuarios s ON s.id = u.supervisor_id
+            ORDER BY u.nombre ASC
+        `;
+        const users = raw.map(u => ({
+            id: Number(u.id), nombre: u.nombre, email: u.email,
+            rol: u.rol, estado: u.estado, empresa: u.empresa ?? null,
+            supervisorId: u.supervisor_id ? Number(u.supervisor_id) : null,
+            supervisor_id: u.supervisor_id ? Number(u.supervisor_id) : null,
+            creado_en: u.creado_en,
+            supervisor: u.supervisor_nombre ? { id: Number(u.supervisor_id), nombre: u.supervisor_nombre } : null,
+        }));
         res.json(users);
     } catch (err) {
         res.status(500).json({ error: 'Error interno del servidor' });
