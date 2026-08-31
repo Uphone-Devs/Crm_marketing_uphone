@@ -555,7 +555,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
           url = `${apiBase}/cartera?campanaId=&tipo=${args[1] || ''}`;
           break;
         case 'db:getMensajesBroadcast':
-          url = `${apiBase}/mensajes-broadcast`;
+          url = `${apiBase}/mensajes-broadcast${args[0] ? `?campanaId=${args[0]}` : ''}`;
           break;
         case 'db:getRankingGeneralAsesores':
           url = `${apiBase}/ranking-general?fecha=${args[0] || ''}`;
@@ -1738,10 +1738,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
   // Cargar mensajes broadcast al montar (mensajes por segmento configurados por supervisor)
   useEffect(() => {
-    callApi('db:getMensajesBroadcast')
+    callApi('db:getMensajesBroadcast', campVista)
       .then(data => setMensajesBroadcast(data || []))
       .catch(err => console.warn('[Mensajes] Error cargando mensajes broadcast:', err?.message || err));
-  }, [callApi]);
+  }, [callApi, campVista]);
 
   // Recargar cartera al navegar a páginas que la muestran — solo si datos son viejos (>5 min)
   useEffect(() => {

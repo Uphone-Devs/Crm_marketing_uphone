@@ -2451,18 +2451,24 @@ router.get('/jefe/tendencia-semanal', async (req, res, next) => {
 // Usa SQL crudo para no depender de la versión del Prisma client generado en la VM.
 router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), async (req, res, next) => {
   try {
-    const ck = `mensajes:${req.user.id}`;
+    const campanaId = req.query.campanaId ? parseInt(req.query.campanaId) : null;
+    const ck = `mensajes:${req.user.id}:${campanaId ?? 'all'}`;
     const hit = cache.get(ck);
     if (hit) return res.json(hit);
     let rows;
     if (req.user.rol === 'asesor') {
-      // Solo mensajes del jefe asignado al asesor
+      // Solo mensajes del jefe asignado al asesor, filtrados por empresa de la campaña activa
       rows = await db.$queryRaw`
         SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
         FROM mensajes_broadcast mb
         LEFT JOIN usuarios u ON u.id = mb.supervisor_id
         WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
+          AND (
+            mb.empresa IS NULL
+            OR ${campanaId}::int IS NULL
+            OR mb.empresa = (SELECT empresa FROM campanas WHERE id = ${campanaId}::int LIMIT 1)
+          )
         ORDER BY mb.creado_en DESC
       `;
     } else if (req.user.rol === 'jefe_area') {
