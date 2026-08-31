@@ -129,8 +129,9 @@ router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (
 
         const passwordHash = await bcrypt.hash(password, 10);
         const user = await prisma.usuario.create({
-            data: { nombre, email, passwordHash, rol, supervisorId: supervisor_id ?? null, empresa: empresa ?? null },
+            data: { nombre, email, passwordHash, rol, supervisorId: supervisor_id ?? null },
         });
+        if (empresa) await prisma.$executeRaw`UPDATE usuarios SET empresa = ${empresa} WHERE id = ${user.id}`;
         res.status(201).json({ success: true, id: user.id });
     } catch (err) {
         res.status(500).json({ error: 'Error al crear usuario' });
@@ -152,9 +153,11 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), asyn
             const status = errorObjetivo === 'Usuario no encontrado' ? 404 : 403;
             return res.status(status).json({ error: errorObjetivo });
         }
-        const data = { nombre, email, rol, supervisorId: supervisor_id ?? null, empresa: empresa ?? null };
+        const data = { nombre, email, rol, supervisorId: supervisor_id ?? null };
         if (estado) data.estado = estado;
         const user = await prisma.usuario.update({ where: { id }, data });
+        // empresa via raw porque el cliente Prisma puede estar sin regenerar en VM
+        await prisma.$executeRaw`UPDATE usuarios SET empresa = ${empresa ?? null} WHERE id = ${id}`;
         res.json({ success: true, id: user.id });
     } catch (err) {
         if (err.code === 'P2025') return res.status(404).json({ error: 'Usuario no encontrado' });
