@@ -1772,19 +1772,34 @@ export default function AsesorPanel({ usuario, onLogout }) {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const play = () => {
-        [523.25, 659.25, 783.99].forEach((freq, i) => {
+        const master = ctx.createGain();
+        master.gain.value = 0.85;
+        master.connect(ctx.destination);
+        // Fanfare ascendente: Do-Mi-Sol-Do(octava) + acorde final
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((freq, i) => {
+          // Oscilador principal (triangle = más cuerpo que sine)
           const osc  = ctx.createOscillator();
           const gain = ctx.createGain();
-          osc.connect(gain);
-          gain.connect(ctx.destination);
+          osc.connect(gain); gain.connect(master);
           osc.frequency.value = freq;
-          osc.type = 'sine';
-          const t = ctx.currentTime + i * 0.13;
+          osc.type = 'triangle';
+          const t = ctx.currentTime + i * 0.12;
+          const dur = i === notes.length - 1 ? 0.8 : 0.35;
           gain.gain.setValueAtTime(0, t);
-          gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
-          osc.start(t);
-          osc.stop(t + 0.45);
+          gain.gain.linearRampToValueAtTime(0.7, t + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+          osc.start(t); osc.stop(t + dur);
+          // Armónico (octava +1, volumen bajo) para brillo
+          const osc2  = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.connect(gain2); gain2.connect(master);
+          osc2.frequency.value = freq * 2;
+          osc2.type = 'sine';
+          gain2.gain.setValueAtTime(0, t);
+          gain2.gain.linearRampToValueAtTime(0.2, t + 0.015);
+          gain2.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.6);
+          osc2.start(t); osc2.stop(t + dur);
         });
       };
       if (ctx.state === 'suspended') ctx.resume().then(play);
