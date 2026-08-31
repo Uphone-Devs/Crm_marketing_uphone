@@ -19,10 +19,15 @@ class AuthService {
       throw new Error('Email y contraseña son requeridos.');
     }
 
-    const usuario = await db.usuario.findUnique({ where: { email } });
-    if (!usuario) {
+    const rows = await db.$queryRaw`
+      SELECT id, email, password_hash AS "passwordHash", rol, nombre, estado, empresa
+      FROM usuarios WHERE email = ${email} LIMIT 1
+    `;
+    const raw = rows[0] ?? null;
+    if (!raw) {
       throw new Error('Credenciales inválidas.');
     }
+    const usuario = { ...raw, id: Number(raw.id) };
 
     if (usuario.estado !== 'activo') {
       throw new Error('Cuenta deshabilitada. Contacte al supervisor.');

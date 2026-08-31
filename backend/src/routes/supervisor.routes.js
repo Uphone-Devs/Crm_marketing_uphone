@@ -2459,17 +2459,16 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
     if (req.user.rol === 'asesor') {
       // Solo mensajes del jefe asignado al asesor, filtrados por empresa del usuario
       const userEmpresa = req.user.empresa ?? null;
+      const empresaClause = userEmpresa
+        ? Prisma.sql`AND (mb.empresa IS NULL OR mb.empresa = ${userEmpresa})`
+        : Prisma.sql``;
       rows = await db.$queryRaw`
         SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
         FROM mensajes_broadcast mb
         LEFT JOIN usuarios u ON u.id = mb.supervisor_id
         WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
-          AND (
-            mb.empresa IS NULL
-            OR ${userEmpresa}::varchar IS NULL
-            OR mb.empresa = ${userEmpresa}::varchar
-          )
+          ${empresaClause}
         ORDER BY mb.creado_en DESC
       `;
     } else if (req.user.rol === 'jefe_area') {
