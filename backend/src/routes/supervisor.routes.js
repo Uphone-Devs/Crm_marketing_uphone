@@ -2461,7 +2461,7 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
       const userEmpresa = req.user.empresa ?? null;
       const empresaClause = userEmpresa
         ? Prisma.sql`AND (mb.empresa IS NULL OR mb.empresa = ${userEmpresa})`
-        : Prisma.sql``;
+        : Prisma.sql`AND TRUE`;
       rows = await db.$queryRaw`
         SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
