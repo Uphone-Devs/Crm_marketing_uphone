@@ -1,8 +1,8 @@
-version: 3.0.1
+version: 3.0.2
 files:
-  - url: CRM Marketing Uphone Setup 3.0.1.exe
-    sha512: +BlMaKoJ206Jpovg+6Izl9s4ywGbF3zH1qJHAd0R9OYcgROEh5DiTykKENxAh3+1UHinL/PRdw9sOvGE5zxF2A==
-    size: 196430192
-path: CRM Marketing Uphone Setup 3.0.1.exe
-sha512: +BlMaKoJ206Jpovg+6Izl9s4ywGbF3zH1qJHAd0R9OYcgROEh5DiTykKENxAh3+1UHinL/PRdw9sOvGE5zxF2A==
-releaseDate: '2026-08-31T17:12:21.278Z'
+  - url: CRM Marketing Uphone Setup 3.0.2.exe
+    sha512: YZE61NN+wm6bTh5lu7CaZC8KsxoiO3Kl2weIZpjtFPbMD3c9ng/N/YTknG2ZIdHS3Fv64qqdI44nPzRLt5bQYQ==
+    size: 196430330
+path: CRM Marketing Uphone Setup 3.0.2.exe
+sha512: YZE61NN+wm6bTh5lu7CaZC8KsxoiO3Kl2weIZpjtFPbMD3c9ng/N/YTknG2ZIdHS3Fv64qqdI44nPzRLt5bQYQ==
+releaseDate: '2026-08-31T18:20:00.000Z'

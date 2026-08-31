@@ -409,6 +409,9 @@ export default function JefePanel({ usuario, onLogout }) {
         if (msg.tipo === 'NUEVO_MENSAJE_BROADCAST' || msg.tipo === 'MENSAJE_BROADCAST') {
           setMensajesRefresh(p => p + 1);
         }
+        if (msg.tipo === 'FORCE_UPDATE_CHECK') {
+          window.api?.invoke('updater:checkNow').catch(() => {});
+        }
       };
 
       socket.onclose = (e) => {

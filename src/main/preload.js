@@ -66,7 +66,7 @@ contextBridge.exposeInMainWorld('api', {
       'admin:changePassword', 'admin:openSupervisor',
       'admin:getDbConfig', 'admin:setDbConfig', 'admin:testVmConnection', 'admin:vmLogin',
       // Auto-update
-      'updater:start', 'updater:restartNow',
+      'updater:start', 'updater:restartNow', 'updater:checkNow',
     ];
     if (allowedChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);

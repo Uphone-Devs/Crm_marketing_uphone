@@ -1047,6 +1047,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
             prev.map(m => m.id === msg.id ? { ...m, activo: 0 } : m)
           );
         }
+
+        if (msg.tipo === 'FORCE_UPDATE_CHECK') {
+          window.api?.invoke('updater:checkNow').catch(() => {});
+        }
       };
 
       socket.onclose = (e) => {

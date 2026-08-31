@@ -358,13 +358,17 @@ function registerIpcHandlers() {
   });
 
   // ── Auto-update ────────────────────────────────────────
-  const { startUpdater, restartNow } = require('./updater');
+  const { startUpdater, restartNow, checkNow } = require('./updater');
   ipcMain.handle('updater:start', (_, { apiBase } = {}) => {
     try { startUpdater(apiBase); return { ok: true }; }
     catch (err) { return { error: err.message }; }
   });
   ipcMain.handle('updater:restartNow', () => {
     try { restartNow(); return { ok: true }; }
+    catch (err) { return { error: err.message }; }
+  });
+  ipcMain.handle('updater:checkNow', () => {
+    try { checkNow(); return { ok: true }; }
     catch (err) { return { error: err.message }; }
   });
 }

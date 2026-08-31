@@ -349,6 +349,9 @@ export default function SupervisorPanel({ usuario, onLogout }) {
           // Un asesor marcó un lote de campaña como enviado → refrescar métricas diarias
           cargarMetricasBulk();
         }
+        if (msg.tipo === 'FORCE_UPDATE_CHECK') {
+          window.api?.invoke('updater:checkNow').catch(() => {});
+        }
       };
 
       socket.onclose = (e) => {

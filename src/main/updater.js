@@ -84,4 +84,6 @@ function stopUpdater() {
   timer = null;
 }
 
-module.exports = { startUpdater, restartNow, stopUpdater };
+function checkNow() { tick(); }
+
+module.exports = { startUpdater, restartNow, stopUpdater, checkNow };

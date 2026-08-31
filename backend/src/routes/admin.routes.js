@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 const prisma = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
-const { getConnectedStats } = require('../wsServer');
+const { getConnectedStats, broadcastToAll } = require('../wsServer');
 
 const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 function validarPolicy(b) {
@@ -332,6 +332,11 @@ router.put('/update-policy', authMiddleware, requireRole('admin'), async (req, r
         console.error('[UPDATE-POLICY] Error guardando:', err?.message || err);
         res.status(500).json({ error: 'Error guardando política de update' });
     }
+});
+
+router.post('/force-update-check', authMiddleware, requireRole('admin'), (req, res) => {
+    broadcastToAll({ tipo: 'FORCE_UPDATE_CHECK' });
+    res.json({ ok: true, message: 'FORCE_UPDATE_CHECK broadcast enviado' });
 });
 
 module.exports = router;
