@@ -2861,7 +2861,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>Recaudo</span>
                               </div>
                               <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', lineHeight: 1.15, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {rankingData.recaudado.nombre.split(' ').slice(0,2).join(' ')}
+                                {{(n=>{const p=n.split(' ');return p.length>=3?p[2]+' '+p[0]:p.slice(0,2).join(' ');})(rankingData.recaudado.nombre)}
                               </span>
                               <span style={{ fontSize: 10, opacity: 0.6 }}>
                                 ${Number(rankingData.recaudado.monto).toLocaleString('es-EC', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
@@ -2877,7 +2877,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>Unidades</span>
                               </div>
                               <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', lineHeight: 1.15, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {rankingData.unidades.nombre.split(' ').slice(0,2).join(' ')}
+                                {(n=>{const p=n.split(' ');return p.length>=3?p[2]+' '+p[0]:p.slice(0,2).join(' ');})(rankingData.unidades.nombre)}
                               </span>
                               <span style={{ fontSize: 10, opacity: 0.6 }}>
                                 {rankingData.unidades.count} pago{rankingData.unidades.count !== 1 ? 's' : ''}
@@ -2892,7 +2892,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                 <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>Gestiones</span>
                               </div>
                               <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', lineHeight: 1.15, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {rankingData.gestiones.nombre.split(' ').slice(0,2).join(' ')}
+                                {(n=>{const p=n.split(' ');return p.length>=3?p[2]+' '+p[0]:p.slice(0,2).join(' ');})(rankingData.gestiones.nombre)}
                               </span>
                               <span style={{ fontSize: 10, opacity: 0.6 }}>
                                 {rankingData.gestiones.count} gestión{rankingData.gestiones.count !== 1 ? 'es' : ''}
