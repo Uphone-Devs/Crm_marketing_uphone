@@ -2662,7 +2662,7 @@ router.post('/marcar-lote-enviado', async (req, res, next) => {
 });
 
 // ── GET /api/cartera?campanaId=X&take=N&skip=N ───────────────────────────────
-const CARTERA_MAX_TAKE = 500;
+const CARTERA_MAX_TAKE = 5000;
 router.get('/cartera', async (req, res, next) => {
   try {
     const asesorId  = req.user.id;
