@@ -2457,7 +2457,8 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
     if (hit) return res.json(hit);
     let rows;
     if (req.user.rol === 'asesor') {
-      // Solo mensajes del jefe asignado al asesor, filtrados por empresa de la campaña activa
+      // Solo mensajes del jefe asignado al asesor, filtrados por empresa del usuario
+      const userEmpresa = req.user.empresa ?? null;
       rows = await db.$queryRaw`
         SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
                mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
@@ -2466,8 +2467,8 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
         WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
           AND (
             mb.empresa IS NULL
-            OR ${campanaId}::int IS NULL
-            OR mb.empresa = (SELECT empresa FROM campanas WHERE id = ${campanaId}::int LIMIT 1)
+            OR ${userEmpresa}::varchar IS NULL
+            OR mb.empresa = ${userEmpresa}::varchar
           )
         ORDER BY mb.creado_en DESC
       `;

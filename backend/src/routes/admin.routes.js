@@ -78,7 +78,7 @@ router.get('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (r
             orderBy: { nombre: 'asc' },
             select: {
                 id: true, nombre: true, email: true, rol: true,
-                estado: true, supervisorId: true,
+                estado: true, supervisorId: true, empresa: true,
                 supervisor: { select: { id: true, nombre: true } },
             },
         });
@@ -117,7 +117,7 @@ async function verificarObjetivo(id, caller) {
 
 router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
-        const { nombre, email, password, rol, supervisor_id } = req.body;
+        const { nombre, email, password, rol, supervisor_id, empresa } = req.body;
         if (!nombre || !email || !password || !rol) {
             return res.status(400).json({ error: 'Campos requeridos: nombre, email, password, rol' });
         }
@@ -129,7 +129,7 @@ router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (
 
         const passwordHash = await bcrypt.hash(password, 10);
         const user = await prisma.usuario.create({
-            data: { nombre, email, passwordHash, rol, supervisorId: supervisor_id ?? null },
+            data: { nombre, email, passwordHash, rol, supervisorId: supervisor_id ?? null, empresa: empresa ?? null },
         });
         res.status(201).json({ success: true, id: user.id });
     } catch (err) {
@@ -140,7 +140,7 @@ router.post('/users', authMiddleware, requireRole('admin', 'jefe_area'), async (
 router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
-        const { nombre, email, rol, estado, supervisor_id } = req.body;
+        const { nombre, email, rol, estado, supervisor_id, empresa } = req.body;
         if (!nombre || !email || !rol) {
             return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
         }
@@ -152,7 +152,7 @@ router.put('/users/:id', authMiddleware, requireRole('admin', 'jefe_area'), asyn
             const status = errorObjetivo === 'Usuario no encontrado' ? 404 : 403;
             return res.status(status).json({ error: errorObjetivo });
         }
-        const data = { nombre, email, rol, supervisorId: supervisor_id ?? null };
+        const data = { nombre, email, rol, supervisorId: supervisor_id ?? null, empresa: empresa ?? null };
         if (estado) data.estado = estado;
         const user = await prisma.usuario.update({ where: { id }, data });
         res.json({ success: true, id: user.id });

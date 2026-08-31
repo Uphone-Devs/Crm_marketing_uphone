@@ -529,7 +529,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
     <div className="page-grid">
       <Card title={`Gestión de Usuarios ${IS_VM(dbConfig) ? '— VM / PostgreSQL' : '— Local SQLite'}`} onRefresh={() => reload('userList')} className="card--full">
         <div className="users-toolbar">
-          <button type="button" className="btn btn--primary" onClick={() => { setForm({ nombre: '', email: '', password: '', rol: 'asesor', supervisor_id: null }); setMsg(''); setModal('create'); }}>
+          <button type="button" className="btn btn--primary" onClick={() => { setForm({ nombre: '', email: '', password: '', rol: 'asesor', supervisor_id: null, empresa: null }); setMsg(''); setModal('create'); }}>
             <span className="material-icons" style={{ fontSize: 16 }}>person_add</span>
             Nuevo Usuario
           </button>
@@ -557,7 +557,7 @@ function PageUsuarios({ users, dbConfig, reload }) {
                 <td className="td-date">{u.creado_en?.slice(0, 10) || '—'}</td>
                 <td>
                   <div className="action-btns">
-                    <button type="button" className="btn-icon" title="Editar" onClick={() => { setForm({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, estado: u.estado, supervisor_id: u.supervisor_id ?? null }); setMsg(''); setModal('edit'); }}>
+                    <button type="button" className="btn-icon" title="Editar" onClick={() => { setForm({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, estado: u.estado, supervisor_id: u.supervisor_id ?? null, empresa: u.empresa ?? null }); setMsg(''); setModal('edit'); }}>
                       <span className="material-icons">edit</span>
                     </button>
                     <button type="button" className="btn-icon" title="Cambiar contrasena" onClick={() => { setPwModal(u); setNewPw(''); setMsg(''); }}>
@@ -617,6 +617,13 @@ function PageUsuarios({ users, dbConfig, reload }) {
                   </select>
                 </label>
               )}
+              <label>Empresa
+                <select value={form.empresa ?? ''} onChange={e => setForm(f => ({ ...f, empresa: e.target.value || null }))}>
+                  <option value="">— Todas (sin filtro) —</option>
+                  <option value="UPHONE">Uphone</option>
+                  <option value="CREDI_TV">Credi TV</option>
+                </select>
+              </label>
               {modal === 'edit' && (
                 <label>Estado
                   <select value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>

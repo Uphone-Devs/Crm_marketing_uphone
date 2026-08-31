@@ -15,6 +15,7 @@ model Usuario {
   estado               EstadoUsuario         @default(activo)
   creadoEn             DateTime              @default(now()) @map("creado_en")
   supervisorId         Int?                  @map("supervisor_id")
+  empresa              String?
   agendamientos        Agendamiento[]
   campanasSupervisadas Campana[]             @relation("Supervisor")
   cdrs                 Cdr[]
