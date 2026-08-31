@@ -2739,6 +2739,12 @@ router.get('/cartera', async (req, res, next) => {
     const gestionesMap    = new Map(gestionesRaw.map(r => [Number(r.id), Number(r.gestiones_count ?? 0)]));
     const gestionesHoyMap = new Map(gestionesRaw.map(r => [Number(r.id), Number(r.gestiones_hoy    ?? 0)]));
 
+    // empresa via $queryRaw — Prisma client viejo puede no incluirla en findMany
+    const empresaRows = contactoIds.length > 0 ? await db.$queryRaw`
+      SELECT id, empresa FROM contactos WHERE id = ANY(${contactoIds}::int[])
+    ` : [];
+    const empresaMap = new Map(empresaRows.map(r => [Number(r.id), r.empresa ?? null]));
+
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guayaquil' });
 
     res.set('X-Cartera-Total',   String(total));
@@ -2787,6 +2793,7 @@ router.get('/cartera', async (req, res, next) => {
           ? new Date(ct.agendamientos[0].fechaHora).toISOString()
           : null,
         agendamiento_tipo: ct.agendamientos?.[0]?.tipo || null,
+        empresa: empresaMap.get(ct.id) ?? ct.empresa ?? null,
       };
     }));
   } catch (err) { next(err); }
