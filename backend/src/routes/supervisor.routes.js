@@ -3368,6 +3368,8 @@ router.post('/confirmar-pago-compromiso', async (req, res, next) => {
         data: { estado: 'ejecutado' },
       });
       broadcastToAll({ tipo: 'PAGO_VALIDADO', contactoIds: [cdr.contactoId], abonoIds: [] });
+      cache.invalidate('ranking-apertura:');
+      cache.invalidate('metricas-campana:');
     }
 
     res.json({ success: true });
