@@ -2465,7 +2465,8 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
         LEFT JOIN usuarios u ON u.id = mb.supervisor_id
         WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
           AND (
-            ${campanaId}::int IS NULL
+            mb.empresa IS NULL
+            OR ${campanaId}::int IS NULL
             OR mb.empresa = (SELECT empresa FROM campanas WHERE id = ${campanaId}::int LIMIT 1)
           )
         ORDER BY mb.creado_en DESC
