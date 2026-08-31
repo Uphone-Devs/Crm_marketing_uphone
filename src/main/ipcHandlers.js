@@ -318,6 +318,45 @@ function registerIpcHandlers() {
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
+  // ── DB: Indicadores (config + recaudo local) ───────────
+  ipcMain.handle('db:getIndicadoresConfig', () => {
+    return getLocalConfig('indicadores_config') || JSON.stringify([]);
+  });
+
+  ipcMain.handle('db:saveIndicadoresConfig', (_, cfgStr) => {
+    setLocalConfig('indicadores_config', cfgStr);
+    return { success: true };
+  });
+
+  ipcMain.handle('db:getIndicadoresRecaudo', (_, asesorId, mes, anio) => {
+    const key = `indicadores_recaudo_${asesorId}_${anio}_${mes}`;
+    const raw = getLocalConfig(key);
+    return raw ? JSON.parse(raw) : { '0': {}, '1': {}, '2': {} };
+  });
+
+  ipcMain.handle('db:saveIndicadoresRecaudo', (_, asesorId, flatData) => {
+    if (!flatData || flatData.length === 0) return { success: true };
+    // Agrupar por (anio, mes) y merge con datos existentes
+    const grouped = {};
+    flatData.forEach(({ fecha, segmento, valores }) => {
+      const [anioStr, mesStr] = fecha.split('-');
+      const monthKey = `indicadores_recaudo_${asesorId}_${anioStr}_${mesStr}`;
+      if (!grouped[monthKey]) grouped[monthKey] = {};
+      if (!grouped[monthKey][segmento]) grouped[monthKey][segmento] = {};
+      grouped[monthKey][segmento][fecha] = valores;
+    });
+    Object.entries(grouped).forEach(([monthKey, newData]) => {
+      const existing = getLocalConfig(monthKey);
+      const current = existing ? JSON.parse(existing) : { '0': {}, '1': {}, '2': {} };
+      Object.entries(newData).forEach(([seg, dates]) => {
+        if (!current[seg]) current[seg] = {};
+        Object.assign(current[seg], dates);
+      });
+      setLocalConfig(monthKey, JSON.stringify(current));
+    });
+    return { success: true };
+  });
+
   // ── Auto-update ────────────────────────────────────────
   const { startUpdater, restartNow } = require('./updater');
   ipcMain.handle('updater:start', (_, { apiBase } = {}) => {
