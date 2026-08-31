@@ -1771,20 +1771,24 @@ export default function AsesorPanel({ usuario, onLogout }) {
   function playRankingChime() {
     try {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      [523.25, 659.25, 783.99].forEach((freq, i) => {
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = freq;
-        osc.type = 'sine';
-        const t = ctx.currentTime + i * 0.13;
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
-        osc.start(t);
-        osc.stop(t + 0.45);
-      });
+      const play = () => {
+        [523.25, 659.25, 783.99].forEach((freq, i) => {
+          const osc  = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.frequency.value = freq;
+          osc.type = 'sine';
+          const t = ctx.currentTime + i * 0.13;
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+          osc.start(t);
+          osc.stop(t + 0.45);
+        });
+      };
+      if (ctx.state === 'suspended') ctx.resume().then(play);
+      else play();
     } catch {}
   }
 
@@ -2865,6 +2869,21 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               </span>
                             </button>
                           )}
+                          {rankingData.gestiones && <><Sep />
+                            <button type="button" title="Líder en gestiones de la campaña"
+                              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '4px 14px', gap: 1, borderRadius: 8, background: 'transparent', border: 'none', cursor: 'default', font: 'inherit', color: 'inherit', flexShrink: 0 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{ fontSize: 10 }}>🥇</span>
+                                <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.07em', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', lineHeight: 1 }}>Gestiones</span>
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: '#f59e0b', lineHeight: 1.15, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {rankingData.gestiones.nombre.split(' ')[0]}
+                              </span>
+                              <span style={{ fontSize: 10, opacity: 0.6 }}>
+                                {rankingData.gestiones.count} gestión{rankingData.gestiones.count !== 1 ? 'es' : ''}
+                              </span>
+                            </button>
+                          </>}
                         </>}
                       </div>
                       {/* ── Botón actualizar ── */}

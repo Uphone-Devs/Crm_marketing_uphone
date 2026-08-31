@@ -4584,12 +4584,28 @@ router.get('/ranking-apertura/:campanaId', async (req, res, next) => {
       LIMIT 1
     `;
 
+    const gestionesRows = await db.$queryRaw`
+      SELECT u.nombre, COUNT(cdr.id)::int AS count
+      FROM cdrs cdr
+      JOIN contactos c ON c.id = cdr.contacto_id
+      JOIN usuarios u ON u.id = cdr.usuario_id
+      WHERE c.campana_id = ${campanaId}
+        AND u.rol = 'asesor'
+        AND u.estado = 'activo'
+      GROUP BY u.id, u.nombre
+      ORDER BY count DESC
+      LIMIT 1
+    `;
+
     const result = {
       recaudado: recaudadoRows[0]
         ? { nombre: recaudadoRows[0].nombre, monto: Number(recaudadoRows[0].monto) }
         : null,
       unidades: unidadesRows[0]
         ? { nombre: unidadesRows[0].nombre, count: Number(unidadesRows[0].count) }
+        : null,
+      gestiones: gestionesRows[0]
+        ? { nombre: gestionesRows[0].nombre, count: Number(gestionesRows[0].count) }
         : null,
     };
     cache.set(ck, result, 30_000);
