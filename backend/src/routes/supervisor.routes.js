@@ -973,6 +973,10 @@ router.get('/metricas-equipo', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
 
+    const ck = `metricas-equipo:${req.user.id}:${req.query.fecha || 'hoy'}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
+
     const { inicio, fin } = _gyeDayBounds(req.query.fecha);
 
     const whereU = { rol: 'asesor', estado: 'activo' };
@@ -1037,7 +1041,7 @@ router.get('/metricas-equipo', async (req, res, next) => {
       ? connStats.asesores.filter(a => asesorIdSet.has(a.asesor_id))
       : connStats.asesores;
 
-    res.json({
+    const payload = {
       total_marcaciones: cdrs, gestionados, pagados, asesores: porAsesor,
       marcacionesTotales:      cdrs,
       cdrsTotalEquipo:         cdrsConTipif,
@@ -1048,7 +1052,9 @@ router.get('/metricas-equipo', async (req, res, next) => {
       totalCompromisosEquipo:  compromisos,
       moraBaseTotal:           Number(ctAgg.mora_base || 0),
       totalConectados:         connAsesores.length,
-    });
+    };
+    cache.set(ck, payload, 30_000);
+    res.json(payload);
   } catch (err) { next(err); }
 });
 
