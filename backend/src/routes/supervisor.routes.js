@@ -686,6 +686,9 @@ router.get('/metricas/:usuario_id', async (req, res, next) => {
 router.get('/metricas-asesores-bulk', async (req, res, next) => {
   try {
     if (!isSupervisor(req.user.rol)) return res.status(403).json({ error: 'Acceso denegado' });
+    const ck = `metricas-bulk:${req.user.id}:${req.query.fecha || 'hoy'}:${req.query.campanaId || ''}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
     const whereU = { rol: 'asesor', estado: 'activo' };
     if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
     const asesores = await db.usuario.findMany({
@@ -701,7 +704,9 @@ router.get('/metricas-asesores-bulk', async (req, res, next) => {
         asesores.map(a => _calcMetricasAsesor(a.id, req.query.fecha, req.query.campanaId))
       );
       const metricas = Object.fromEntries(metricasArr.map(m => [m.usuario_id, m]));
-      return res.json({ asesores: salidaAsesores, metricas });
+      const payload = { asesores: salidaAsesores, metricas };
+      cache.set(ck, payload, 30_000);
+      return res.json(payload);
     }
 
     const ids = asesores.map(a => a.id);
@@ -861,7 +866,9 @@ router.get('/metricas-asesores-bulk', async (req, res, next) => {
         msg_dia: msgBy[a.id] || { wsp: { total: 0, 0: 0, 1: 0, 2: 0 }, rcs: { total: 0, 0: 0, 1: 0, 2: 0 }, correo: { total: 0, 0: 0, 1: 0, 2: 0 } },
       };
     }
-    res.json({ asesores: salidaAsesores, metricas });
+    const result = { asesores: salidaAsesores, metricas };
+    cache.set(ck, result, 30_000);
+    res.json(result);
   } catch (err) { next(err); }
 });
 
