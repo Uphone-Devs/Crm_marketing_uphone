@@ -59,7 +59,7 @@ El AdminPanel compila correctamente (bug de curly quotes resuelto).
 
 | Cuenta | Email | Password | Rol |
 |---|---|---|---|
-| Admin sistema (SQLite local) | admin@sistema.local | ***CREDENTIAL_REMOVED*** | admin |
+| Admin sistema (SQLite local) | admin@sistema.local | [migrado a PG — cuenta obsoleta] | admin |
 | Admin app (PostgreSQL VM) | admin@uphone.local | REDACTED | admin |
 | Jefe área (PostgreSQL VM) | jefe1@uphone.local | REDACTED | jefe_area |
 | Asesores (PostgreSQL VM) | asesor1…asesor9@uphone.local | REDACTED | asesor |
