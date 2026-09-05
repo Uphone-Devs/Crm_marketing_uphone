@@ -121,3 +121,11 @@ skills-lock.json
 skills/
 
 /src/generated/prisma
+
+# Scripts de provisioning — contienen lógica de usuarios/roles, NO subir al repo.
+# Ejecutar localmente o en VM directamente. Ver AUDITORIA_VM.md A-5.
+backend/scripts/create-asesores.js
+backend/scripts/create-roles.js
+
+# Archivo temporal de reemplazos git-filter-repo
+replacements.txt
