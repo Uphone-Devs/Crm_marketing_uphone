@@ -167,6 +167,14 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
 
+    // Refetch por WS (TIPIFICACION_REALIZADA, debounce 2s) desde varios
+    // supervisores del mismo equipo dispara ~7 queries pesadas por golpe —
+    // agotaba el pool de Prisma (mismo patrón que /metricas-equipo y
+    // /metricas-asesores-bulk, ver commits 7481bac / c192ae2).
+    const ck = `actividad-tipif:${req.user.id}:${req.query.fecha || 'hoy'}:${req.query.campanaId || ''}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
+
     // Límites de día Guayaquil (naive-UTC) — ver _gyeDayBounds
     if (req.query.fecha && isNaN(new Date(req.query.fecha).getTime())) {
       return res.status(400).json({ error: 'Fecha inválida' });
@@ -473,7 +481,9 @@ router.get('/actividad-tipificacion', async (req, res, next) => {
       segmentos,
     };
 
-    res.json({ fecha: _gyeDayBounds(req.query.fecha).ymd, asesores: salida, avance_global });
+    const payload = { fecha: _gyeDayBounds(req.query.fecha).ymd, asesores: salida, avance_global };
+    cache.set(ck, payload, 30_000);
+    res.json(payload);
   } catch (err) { next(err); }
 });
 
