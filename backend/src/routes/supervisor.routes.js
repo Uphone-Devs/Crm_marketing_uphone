@@ -1107,8 +1107,55 @@ router.post('/config', requireRole('jefe_area', 'admin'), async (req, res, next)
   } catch (err) { next(err); }
 });
 
+// ── GET /api/cartera-equipo/resumen — Conteos por asesor, sin filas de cliente ─
+// Liviano: una fila por asesor. Pensado para la carga inicial del módulo
+// Carteras; el detalle completo se pide después por asesor (ver /cartera-equipo
+// más abajo). Ver .agentes/adr/20260917-limite-cartera-equipo.md.
+router.get('/cartera-equipo/resumen', requireRole('jefe_area', 'admin'), async (req, res, next) => {
+  try {
+    const whereU = { rol: 'asesor', estado: 'activo' };
+    if (req.user.rol !== 'admin') whereU.supervisorId = req.user.id;
+    const asesorRows = await db.usuario.findMany({ where: whereU, select: { id: true } });
+    const asesorIds = asesorRows.map(a => a.id);
+    if (!asesorIds.length) return res.json([]);
+
+    const ck = `cartera-equipo-resumen:${req.user.id}`;
+    const hit = cache.get(ck);
+    if (hit) return res.json(hit);
+
+    const rows = await db.$queryRaw`
+      SELECT
+        ct.asignado_a AS asesor_id,
+        u.nombre      AS asesor_nombre,
+        COUNT(*)::int AS total,
+        SUM(CASE WHEN ct.estado_marcacion = 'PENDIENTE'   THEN 1 ELSE 0 END)::int AS pendientes,
+        SUM(CASE WHEN ct.estado_marcacion = 'EN_INTENTOS' THEN 1 ELSE 0 END)::int AS en_intentos,
+        SUM(CASE WHEN ct.estado_marcacion = 'AGENDADO'    THEN 1 ELSE 0 END)::int AS agendados,
+        SUM(CASE WHEN ct.estado_marcacion = 'GESTIONADO'  THEN 1 ELSE 0 END)::int AS gestionados,
+        SUM(CASE WHEN ct.estado_marcacion = 'YA_PAGO'     THEN 1 ELSE 0 END)::int AS ya_pago
+      FROM contactos ct
+      LEFT JOIN usuarios u ON ct.asignado_a = u.id
+      WHERE ct.asignado_a = ANY(${asesorIds})
+      GROUP BY ct.asignado_a, u.nombre
+      ORDER BY u.nombre ASC NULLS LAST
+    `;
+    cache.set(ck, rows, 30_000);
+    res.json(rows);
+  } catch (err) { next(err); }
+});
+
 // ── GET /api/cartera-equipo — Cartera asignada del equipo completo ───────────
 // Devuelve array PLANO con asesor_nombre por fila (mismo formato que local SQLite).
+//
+// STOPGAP 2026-09-17: sin `asesor_id`, cada asesor aporta como máximo
+// CARTERA_EQUIPO_MAX_POR_ASESOR filas (por prioridad de marcación) en vez del
+// total — con carteras de hasta 46k contactos por asesor, la versión sin
+// límite tumbó producción (heap Node al 96%, ver incidente 2026-09-17). Esto
+// es un parche de contención, no la solución: el módulo Carteras sigue
+// cargando de un tirón un recorte del equipo entero. La solución real es que
+// el frontend llame primero a /cartera-equipo/resumen y pida el detalle
+// completo un asesor a la vez vía ?asesor_id= (sin el límite de abajo) —
+// pendiente, ver ADR.
 router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res, next) => {
   try {
     // Scoped a los asesores del equipo del supervisor
@@ -1118,6 +1165,16 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
     const asesorIds = asesorRows.map(a => a.id);
     if (!asesorIds.length) return res.json([]);
 
+    const asesorIdFiltro = req.query.asesor_id ? parseInt(req.query.asesor_id) : null;
+    if (req.query.asesor_id && (!Number.isFinite(asesorIdFiltro) || !asesorIds.includes(asesorIdFiltro))) {
+      return res.status(400).json({ error: 'asesor_id inválido o fuera del equipo' });
+    }
+    const idsQuery = asesorIdFiltro ? [asesorIdFiltro] : asesorIds;
+    // Sin asesor_id explícito: tope por asesor (ver STOPGAP arriba). Con
+    // asesor_id explícito (uso futuro del frontend lazy-load): sin tope.
+    const CARTERA_EQUIPO_MAX_POR_ASESOR = 2000;
+    const topePorAsesor = asesorIdFiltro ? null : CARTERA_EQUIPO_MAX_POR_ASESOR;
+
     // CTE con DISTINCT ON reemplaza la subquery correlated por contacto (128K→1 query)
     const rows = await db.$queryRaw`
       WITH ultima_gestion AS (
@@ -1126,58 +1183,65 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
           t.descripcion AS ultima_tipificacion
         FROM cdrs c
         LEFT JOIN tipificaciones t ON t.id = c.tipificacion_id
-        WHERE c.usuario_id = ANY(${asesorIds})
+        WHERE c.usuario_id = ANY(${idsQuery})
         ORDER BY c.contacto_id, c.id DESC
       ),
       gestiones_hoy AS (
         SELECT c.contacto_id, COUNT(*)::int AS gcount
         FROM cdrs c
-        WHERE c.usuario_id = ANY(${asesorIds})
+        WHERE c.usuario_id = ANY(${idsQuery})
           AND c.timestamp_inicio::date = CURRENT_DATE
         GROUP BY c.contacto_id
+      ),
+      ranked AS (
+        SELECT
+          ct.id,
+          ct.cedula,
+          ct.nombre_deudor,
+          ct.telefono,
+          CAST(ct.monto_deuda AS DOUBLE PRECISION) AS monto_deuda,
+          ct.producto,
+          ct.estado_marcacion,
+          ct.intentos_realizados,
+          ct.ya_pago,
+          ct.campana_id,
+          ct.asignado_a,
+          ct.whatsapp_status,
+          ct.rcs_status,
+          ct.correo_status,
+          ct.validado_pago,
+          ct.orden_marcacion,
+          ct.fecha_asignacion,
+          u.nombre                 AS asesor_nombre,
+          cmp.nombre               AS campana_nombre,
+          cmp.fecha_inicio         AS campana_fecha,
+          COALESCE(gh.gcount, 0)::int AS gestiones_count,
+          ug.ultima_tipificacion,
+          ROW_NUMBER() OVER (
+            PARTITION BY ct.asignado_a
+            ORDER BY
+              CASE WHEN ct.orden_marcacion IS NULL THEN 1 ELSE 0 END,
+              ct.orden_marcacion ASC NULLS LAST,
+              CASE ct.estado_marcacion
+                WHEN 'EN_INTENTOS' THEN 0
+                WHEN 'PENDIENTE'   THEN 1
+                WHEN 'AGENDADO'    THEN 2
+                WHEN 'GESTIONADO'  THEN 3
+                WHEN 'YA_PAGO'     THEN 4
+                ELSE 5
+              END,
+              ct.id ASC
+          ) AS rn
+        FROM contactos ct
+        LEFT JOIN usuarios u        ON ct.asignado_a = u.id
+        LEFT JOIN campanas cmp      ON ct.campana_id  = cmp.id
+        LEFT JOIN ultima_gestion ug ON ug.contacto_id = ct.id
+        LEFT JOIN gestiones_hoy gh  ON gh.contacto_id = ct.id
+        WHERE ct.asignado_a = ANY(${idsQuery})
       )
-      SELECT
-        ct.id,
-        ct.cedula,
-        ct.nombre_deudor,
-        ct.telefono,
-        CAST(ct.monto_deuda AS DOUBLE PRECISION) AS monto_deuda,
-        ct.producto,
-        ct.estado_marcacion,
-        ct.intentos_realizados,
-        ct.ya_pago,
-        ct.campana_id,
-        ct.asignado_a,
-        ct.whatsapp_status,
-        ct.rcs_status,
-        ct.correo_status,
-        ct.validado_pago,
-        ct.orden_marcacion,
-        ct.fecha_asignacion,
-        u.nombre                 AS asesor_nombre,
-        cmp.nombre               AS campana_nombre,
-        cmp.fecha_inicio         AS campana_fecha,
-        COALESCE(gh.gcount, 0)::int AS gestiones_count,
-        ug.ultima_tipificacion
-      FROM contactos ct
-      LEFT JOIN usuarios u        ON ct.asignado_a = u.id
-      LEFT JOIN campanas cmp      ON ct.campana_id  = cmp.id
-      LEFT JOIN ultima_gestion ug ON ug.contacto_id = ct.id
-      LEFT JOIN gestiones_hoy gh  ON gh.contacto_id = ct.id
-      WHERE ct.asignado_a = ANY(${asesorIds})
-      ORDER BY
-        u.nombre ASC NULLS LAST,
-        CASE WHEN ct.orden_marcacion IS NULL THEN 1 ELSE 0 END,
-        ct.orden_marcacion ASC NULLS LAST,
-        CASE ct.estado_marcacion
-          WHEN 'EN_INTENTOS' THEN 0
-          WHEN 'PENDIENTE'   THEN 1
-          WHEN 'AGENDADO'    THEN 2
-          WHEN 'GESTIONADO'  THEN 3
-          WHEN 'YA_PAGO'     THEN 4
-          ELSE 5
-        END,
-        ct.id ASC
+      SELECT * FROM ranked
+      WHERE ${topePorAsesor}::int IS NULL OR rn <= ${topePorAsesor}::int
+      ORDER BY asesor_nombre ASC NULLS LAST, rn ASC
     `;
 
     res.json(rows.map(r => ({
