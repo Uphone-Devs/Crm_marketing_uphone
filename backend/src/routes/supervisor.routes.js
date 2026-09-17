@@ -1231,7 +1231,7 @@ router.get('/cartera-equipo', requireRole('jefe_area', 'admin'), async (req, res
                 ELSE 5
               END,
               ct.id ASC
-          ) AS rn
+          )::int AS rn
         FROM contactos ct
         LEFT JOIN usuarios u        ON ct.asignado_a = u.id
         LEFT JOIN campanas cmp      ON ct.campana_id  = cmp.id
