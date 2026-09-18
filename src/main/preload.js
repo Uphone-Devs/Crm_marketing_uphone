@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('api', {
       'db:getCampaignSummary', 'db:getCampanasDashboard', 'db:deleteCampana', 'db:deleteContactosPorAsesor', 'db:getProgresoCampana',
       'db:incrementarIntentoContacto', 'db:resetearIntentosContacto',
       // DB: CDRs
-      'db:insertCdr', 'db:updateCdr', 'db:marcarContactoGestionado', 'db:marcarYaPago', 'db:getCdrs', 'db:getCdrsByContacto', 'db:getSubGestionesByAsesor', 'db:getBitacoraAsesor', 'db:getRefsBitacora', 'db:getCarteraAsesor', 'db:getCarteraFiltradaAsesor', 'db:getCarteraEquipo', 'cartera:reordenar', 'db:insertSubGestion', 'db:getSubGestionesByContacto', 'db:buscarContactoPorCedula', 'db:getAllReferencias', 'db:getAllCdrs',
+      'db:insertCdr', 'db:updateCdr', 'db:marcarContactoGestionado', 'db:marcarYaPago', 'db:getCdrs', 'db:getCdrsByContacto', 'db:getSubGestionesByAsesor', 'db:getBitacoraAsesor', 'db:getRefsBitacora', 'db:getCarteraAsesor', 'db:getCarteraFiltradaAsesor', 'db:getCarteraEquipo', 'db:getCarteraEquipoResumen', 'cartera:reordenar', 'db:insertSubGestion', 'db:getSubGestionesByContacto', 'db:buscarContactoPorCedula', 'db:getAllReferencias', 'db:getAllCdrs',
       'db:toggleContactoMensajeria', 'db:getLoteMensajeria', 'db:marcarLoteEnviado',
       // DB: Tipificaciones
       'db:getTipificaciones',

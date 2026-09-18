@@ -1532,7 +1532,12 @@ export default function SupervisorPanel({ usuario, onLogout }) {
           {activePage === 'carteras' && (
             <CarterasEquipo callApi={async (ch, ...args) => {
               if (!isRemote) return window.api.invoke(ch, ...args);
-              if (ch === 'db:getCarteraEquipo') return vmFetch(apiBase, authToken, '/cartera-equipo');
+              if (ch === 'db:getCarteraEquipoResumen') return vmFetch(apiBase, authToken, '/cartera-equipo/resumen');
+              if (ch === 'db:getCarteraEquipo') {
+                const [asesorId] = args;
+                const qp = asesorId ? `?asesor_id=${encodeURIComponent(asesorId)}` : '';
+                return vmFetch(apiBase, authToken, `/cartera-equipo${qp}`);
+              }
               if (ch === 'cartera:reordenar') {
                 const [asesorId, contactoIdsEnOrden] = args;
                 return vmFetch(apiBase, authToken, '/cartera/reordenar', { method: 'POST', body: JSON.stringify({ asesorId, contactoIdsEnOrden }) });

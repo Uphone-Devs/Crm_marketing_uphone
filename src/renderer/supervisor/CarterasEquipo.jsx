@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { todayLocalISO } from '../shared/timeUtils';
+import { estaEnCola, aplicarFiltrosFila, sumarResumen } from './carterasEquipoUtils';
 
 const ESTADO_STYLE = {
   PENDIENTE:   { bg: 'rgba(255,152,0,0.15)',  fg: '#ffb74d', label: 'Pendiente'   },
@@ -14,16 +15,6 @@ const ESTADO_STYLE_YA_PAGO_DECL = {
   bg: 'rgba(255,193,7,0.15)', fg: '#ffd54f', label: 'Ya pagó (s/validar)',
 };
 
-// Cola de marcación: PENDIENTE/EN_INTENTOS por defecto. Cualquier otro estado
-// (GESTIONADO, AGENDADO, YA_PAGO declarado) entra si el supervisor le asignó
-// orden_marcacion explícito. Solo YA_PAGO validado bancariamente queda blindado.
-function estaEnCola(r) {
-  if (r.validado_pago === 1) return false;
-  if (r.estado_marcacion === 'EN_INTENTOS' || r.estado_marcacion === 'PENDIENTE') return true;
-  if (r.orden_marcacion != null) return true;
-  return false;
-}
-
 const fmtFecha = (raw) => {
   if (!raw) return '—';
   try {
@@ -35,8 +26,16 @@ const fmtFecha = (raw) => {
 };
 
 export default function CarterasEquipo({ callApi, refreshSignal }) {
-  const [registros, setRegistros] = useState([]);
-  const [cargando, setCargando] = useState(false);
+  // resumen = conteos por asesor (GET /cartera-equipo/resumen) — siempre liviano,
+  // se carga entero de una. El detalle fila-por-fila de cada asesor se pide
+  // aparte, bajo demanda, para no repetir el crash de heap del 2026-09-17
+  // (equipo entero de un tirón). Ver .agentes/adr/20260917-limite-cartera-equipo.md.
+  const [resumen, setResumen] = useState([]);
+  const [cargandoResumen, setCargandoResumen] = useState(false);
+  // detalle[asesorId] = { cargando, rows, error }
+  const [detalle, setDetalle] = useState({});
+  const [modoCompleto, setModoCompleto] = useState(false); // opt-in explícito: cartera de todo el equipo
+  const [cargandoCompleto, setCargandoCompleto] = useState(false);
   const [filtroAsesor, setFiltroAsesor] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('TODOS');
   const [filtroTexto, setFiltroTexto] = useState('');
@@ -45,83 +44,138 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
   const [agrupar, setAgrupar] = useState(true);
   const [expandidos, setExpandidos] = useState(new Set());
 
-  const cargar = async () => {
-    setCargando(true);
+  // Espejo de `detalle` accesible desde closures viejas (intervalo de polling
+  // con deps [] — mismo patrón ya usado por el efecto original de este archivo).
+  const detalleRef = React.useRef({});
+  useEffect(() => { detalleRef.current = detalle; }, [detalle]);
+
+  const cargarResumen = async () => {
+    setCargandoResumen(true);
     try {
-      const data = await callApi('db:getCarteraEquipo');
-      setRegistros(Array.isArray(data) ? data : []);
+      const data = await callApi('db:getCarteraEquipoResumen');
+      setResumen(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('[CARTERAS_EQ]', err);
-      setRegistros([]);
+      console.error('[CARTERAS_EQ] resumen', err);
+      setResumen([]);
     } finally {
-      setCargando(false);
+      setCargandoResumen(false);
     }
   };
 
-  // Carga inicial + polling 30s
+  // Carga el detalle de un asesor. Por defecto reusa cache si ya está cargado
+  // y sin error; force=true (polling / botón Recargar) ignora la cache.
+  const cargarDetalleAsesor = async (asesorId, force = false) => {
+    if (!force) {
+      const cached = detalle[asesorId];
+      if (cached && cached.rows && !cached.error && !cached.cargando) return;
+    }
+    setDetalle(prev => ({ ...prev, [asesorId]: { ...(prev[asesorId] || {}), cargando: true, error: null } }));
+    try {
+      const data = await callApi('db:getCarteraEquipo', asesorId);
+      setDetalle(prev => ({ ...prev, [asesorId]: { cargando: false, rows: Array.isArray(data) ? data : [], error: null } }));
+    } catch (err) {
+      console.error('[CARTERAS_EQ] detalle asesor', asesorId, err);
+      setDetalle(prev => ({ ...prev, [asesorId]: { cargando: false, rows: prev[asesorId]?.rows || null, error: err.message || String(err) } }));
+    }
+  };
+
+  const cargarEquipoCompleto = async () => {
+    setModoCompleto(true);
+    setCargandoCompleto(true);
+    try {
+      await Promise.all(resumen.map(a => cargarDetalleAsesor(a.asesor_id)));
+    } finally {
+      setCargandoCompleto(false);
+    }
+  };
+
+  // Carga inicial + polling 30s del resumen y de los asesores ya cargados
   useEffect(() => {
-    cargar();
-    const iv = setInterval(cargar, 30000);
+    cargarResumen();
+    const iv = setInterval(() => {
+      cargarResumen();
+      Object.keys(detalleRef.current).forEach(id => cargarDetalleAsesor(Number(id), true));
+    }, 30000);
     return () => clearInterval(iv);
   /* eslint-disable-next-line */ }, []);
 
-  // Refresh en PAGO_VALIDADO / TIPIFICACION_REALIZADA (debounce 1.5s)
+  // Refresh en PAGO_VALIDADO / TIPIFICACION_REALIZADA (debounce 1.5s) —
+  // idem: resumen + solo los asesores que ya están cargados en pantalla.
   useEffect(() => {
     if (!refreshSignal) return;
-    const t = setTimeout(cargar, 1500);
+    const t = setTimeout(() => {
+      cargarResumen();
+      Object.keys(detalleRef.current).forEach(id => cargarDetalleAsesor(Number(id), true));
+    }, 1500);
     return () => clearTimeout(t);
   /* eslint-disable-next-line */ }, [refreshSignal]);
 
-  const asesores = useMemo(() => {
-    const set = new Map();
-    registros.forEach(r => {
-      if (r.asesor_nombre && !set.has(r.asignado_a)) set.set(r.asignado_a, r.asesor_nombre);
-    });
-    return Array.from(set.entries()).map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre));
-  }, [registros]);
+  // Lista de asesores para el filtro/dropdown: viene del resumen (siempre
+  // completa e inmediata, no depende de qué detalle ya se cargó).
+  const asesores = useMemo(() =>
+    resumen
+      .map(a => ({ id: a.asesor_id, nombre: a.asesor_nombre || 'Sin asignar' }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre)),
+  [resumen]);
+
+  const asesorIdsCargados = useMemo(
+    () => Object.keys(detalle).filter(id => detalle[id]?.rows),
+    [detalle]
+  );
+
+  // Filas actualmente disponibles en memoria (unión de los asesores cargados).
+  const registrosCargados = useMemo(() => {
+    const out = [];
+    for (const id of asesorIdsCargados) out.push(...(detalle[id].rows || []));
+    return out;
+  }, [detalle, asesorIdsCargados]);
+
+  const filtrosActivos = { filtroEstado, filtroTexto, filtroDesde, filtroHasta };
+  const hayFiltroLibre = !!(filtroTexto.trim() || filtroEstado !== 'TODOS' || filtroDesde || filtroHasta);
+  // "Sin filtros": mostramos KPIs de equipo completo desde /resumen (exactos,
+  // sin depender de qué se cargó). Con cualquier filtro activo, mostramos
+  // KPIs de lo efectivamente cargado + filtrado (puede ser parcial).
+  const sinFiltrosActivos = !filtroAsesor && !hayFiltroLibre;
+  const vistaParcial = hayFiltroLibre && !filtroAsesor && !modoCompleto && asesorIdsCargados.length < resumen.length;
 
   const filtrados = useMemo(() => {
-    const txt = filtroTexto.trim().toLowerCase();
-    const extraerFechaIso = (raw) => {
-      if (!raw || typeof raw !== 'string') return '';
-      // Acepta 'YYYY-MM-DD' o 'YYYY-MM-DD HH:MM:SS' — slice los primeros 10 chars
-      return raw.length >= 10 ? raw.slice(0, 10) : '';
-    };
-    return registros.filter(r => {
-      if (filtroAsesor && String(r.asignado_a) !== String(filtroAsesor)) return false;
-      if (filtroEstado !== 'TODOS' && r.estado_marcacion !== filtroEstado) return false;
-      if (filtroDesde || filtroHasta) {
-        const f = extraerFechaIso(r.fecha_asignacion);
-        if (filtroDesde && (!f || f < filtroDesde)) return false;
-        if (filtroHasta && (!f || f > filtroHasta)) return false;
-      }
-      if (!txt) return true;
-      let meta = {};
-      try { meta = JSON.parse(r.metadata || '{}'); } catch (_) {}
-      const hay = [
-        r.nombre_deudor, r.cedula, r.telefono, r.producto,
-        r.asesor_nombre, r.campana_nombre,
-        meta['Nº CONTRATO'], meta['CONTRATO'], meta['EMPRESA'],
-      ].filter(Boolean).join(' ').toLowerCase();
-      return hay.includes(txt);
-    });
-  }, [registros, filtroAsesor, filtroEstado, filtroTexto, filtroDesde, filtroHasta]);
+    const base = filtroAsesor
+      ? registrosCargados.filter(r => String(r.asignado_a) === String(filtroAsesor))
+      : registrosCargados;
+    return aplicarFiltrosFila(base, filtrosActivos);
+  /* eslint-disable-next-line */ }, [registrosCargados, filtroAsesor, filtroEstado, filtroTexto, filtroDesde, filtroHasta]);
 
-  // KPIs globales sobre filtrados
-  const cnt = (e) => filtrados.filter(r => r.estado_marcacion === e).length;
-  const totalAsesores = new Set(filtrados.map(r => r.asignado_a)).size;
+  // KPIs: equipo completo (desde /resumen) si no hay filtros; si no, sobre lo cargado+filtrado.
+  const kpisEquipo = useMemo(() => sumarResumen(resumen), [resumen]);
+  const cnt = (e) => sinFiltrosActivos
+    ? (kpisEquipo[({ PENDIENTE: 'pendientes', EN_INTENTOS: 'en_intentos', AGENDADO: 'agendados', GESTIONADO: 'gestionados', YA_PAGO: 'ya_pago' }[e])] || 0)
+    : filtrados.filter(r => r.estado_marcacion === e).length;
+  const totalRegistros = sinFiltrosActivos ? kpisEquipo.total : filtrados.length;
+  const totalAsesores = sinFiltrosActivos ? kpisEquipo.asesores : new Set(filtrados.map(r => r.asignado_a)).size;
 
-  // Agrupado por asesor
+  // Agrupado por asesor: una fila por asesor del resumen (conteos siempre
+  // exactos), con el detalle cargado (si lo hay) filtrado en cliente.
   const grupos = useMemo(() => {
     if (!agrupar) return null;
-    const map = new Map();
-    for (const r of filtrados) {
-      const key = r.asignado_a;
-      if (!map.has(key)) map.set(key, { id: key, nombre: r.asesor_nombre || 'Sin asignar', items: [] });
-      map.get(key).items.push(r);
-    }
-    return Array.from(map.values()).sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
-  }, [filtrados, agrupar]);
+    const base = filtroAsesor
+      ? resumen.filter(a => String(a.asesor_id) === String(filtroAsesor))
+      : resumen;
+    return base
+      .map(a => {
+        const cache = detalle[a.asesor_id];
+        const items = cache?.rows ? aplicarFiltrosFila(cache.rows, filtrosActivos) : [];
+        return {
+          id: a.asesor_id,
+          nombre: a.asesor_nombre || 'Sin asignar',
+          conteos: a,
+          items,
+          cargado: !!cache?.rows,
+          cargando: !!cache?.cargando,
+          error: cache?.error || null,
+        };
+      })
+      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+  /* eslint-disable-next-line */ }, [agrupar, resumen, detalle, filtroAsesor, filtroEstado, filtroTexto, filtroDesde, filtroHasta]);
 
   // Reorden manual: persiste el orden de marcación del asesor en BD.
   // Solo permitido en modo agrupado (1 asesor a la vez).
@@ -130,7 +184,7 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
       const res = await callApi('cartera:reordenar', asesorId, contactoIdsEnOrden);
       if (res && res.error) throw new Error(res.error);
       // Refresca para reflejar el nuevo orden_marcacion desde BD
-      await cargar();
+      await cargarDetalleAsesor(asesorId, true);
       return true;
     } catch (err) {
       console.error('[CARTERAS_EQ] Reorden:', err.message || err);
@@ -140,11 +194,26 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
   };
 
   const toggleColapso = (id) => {
+    const seVaAExpandir = !expandidos.has(id);
     setExpandidos(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+    // Lazy-load: recién pedimos el detalle la primera vez que se expande.
+    if (seVaAExpandir) cargarDetalleAsesor(id);
+  };
+
+  const seleccionarFiltroAsesor = (v) => {
+    setFiltroAsesor(v);
+    if (v) cargarDetalleAsesor(Number(v));
+  };
+
+  // Recargar: resumen + los asesores que ya estén cargados en pantalla
+  // (no dispara una carga completa del equipo si no se pidió explícitamente).
+  const recargarTodo = () => {
+    cargarResumen();
+    Object.keys(detalleRef.current).forEach(id => cargarDetalleAsesor(Number(id), true));
   };
 
   const exportarCsv = () => {
@@ -223,19 +292,29 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
             </span>
             {agrupar ? 'Plana' : 'Agrupar'}
           </button>
-          <button type="button" onClick={cargar} className="btn btn-outline btn-sm" style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}>
+          <button type="button" onClick={recargarTodo} className="btn btn-outline btn-sm" style={{ padding: '4px 10px', fontSize: 12, height: 'auto' }}>
             <span className="material-symbols-outlined" style={{ fontSize: 14 }}>refresh</span>
             Recargar
           </button>
-
-
+          <button type="button"
+            onClick={cargarEquipoCompleto}
+            disabled={cargandoCompleto || (modoCompleto && asesorIdsCargados.length >= resumen.length)}
+            title="Carga la cartera completa de todos los asesores del equipo — puede ser pesado con equipos grandes"
+            className="btn btn-outline btn-sm"
+            style={{ padding: '4px 10px', fontSize: 12, height: 'auto', opacity: cargandoCompleto ? 0.6 : 1 }}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+              {cargandoCompleto ? 'sync' : 'groups'}
+            </span>
+            {cargandoCompleto ? 'Cargando equipo…' : 'Cargar equipo completo'}
+          </button>
         </div>
       </div>
 
       {/* ── KPIs ── */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <Kpi label="Asesores" value={totalAsesores} color="#64b5f6" />
-        <Kpi label="Total" value={filtrados.length} color="var(--color-primary)" />
+        <Kpi label="Total" value={totalRegistros} color="var(--color-primary)" />
         <Kpi label="Pendientes" value={cnt('PENDIENTE')} color="#ffb74d" />
         <Kpi label="En intentos" value={cnt('EN_INTENTOS')} color="#fbc02d" />
         <Kpi label="Agendados" value={cnt('AGENDADO')} color="#64b5f6" />
@@ -270,7 +349,7 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
           <span style={{ fontSize: 12, opacity: 0.5 }}>Asesor</span>
           <select
             value={filtroAsesor}
-            onChange={(e) => setFiltroAsesor(e.target.value)}
+            onChange={(e) => seleccionarFiltroAsesor(e.target.value)}
             style={{
               padding: '5px 8px', fontSize: 12,
               background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.08)',
@@ -341,24 +420,37 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
         )}
       </div>
 
+      {/* ── Aviso de vista parcial (filtro libre sin cargar todo el equipo) ── */}
+      {vistaParcial && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', marginBottom: 12,
+          borderRadius: 8, background: 'rgba(255,193,7,0.08)', border: '1px solid rgba(255,193,7,0.2)',
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: '#ffd54f' }}>info</span>
+          <span style={{ fontSize: 12, opacity: 0.85 }}>
+            Buscando solo en {asesorIdsCargados.length} de {resumen.length} asesores cargados.
+            Expandí más asesores o <button type="button" onClick={cargarEquipoCompleto}
+              style={{ background: 'none', border: 'none', padding: 0, color: '#ffd54f', textDecoration: 'underline', cursor: 'pointer', fontSize: 12 }}
+            >cargá el equipo completo</button> para incluir a todos.
+          </span>
+        </div>
+      )}
+
       {/* ── Contenido ── */}
-      {cargando ? (
+      {cargandoResumen && resumen.length === 0 ? (
         <div style={{ padding: '40px 0', textAlign: 'center', opacity: 0.5 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 32 }}>sync</span>
           <p className="text-body-sm" style={{ marginTop: 8 }}>Cargando...</p>
         </div>
-      ) : filtrados.length === 0 ? (
+      ) : resumen.length === 0 ? (
         <div style={{ padding: '40px 0', textAlign: 'center', opacity: 0.4 }}>
           <span className="material-symbols-outlined" style={{ fontSize: 36 }}>folder_off</span>
-          <p className="text-body-sm" style={{ marginTop: 8 }}>
-            {registros.length === 0 ? 'Sin carteras asignadas' : 'Sin clientes para los filtros aplicados'}
-          </p>
+          <p className="text-body-sm" style={{ marginTop: 8 }}>Sin carteras asignadas</p>
         </div>
       ) : agrupar ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {grupos.map(g => {
             const isCol = !expandidos.has(g.id);
-            const cntEst = (e) => g.items.filter(r => r.estado_marcacion === e).length;
             return (
               <div key={`gr-${g.id}`} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.07)' }}>
                 <div
@@ -374,25 +466,60 @@ export default function CarterasEquipo({ callApi, refreshSignal }) {
                     <span className="material-symbols-outlined" style={{ fontSize: 16, transition: 'transform 0.2s', transform: isCol ? 'none' : 'rotate(90deg)' }}>chevron_right</span>
                     <span className="material-symbols-outlined" style={{ fontSize: 16, opacity: 0.6 }}>person</span>
                     <span style={{ fontSize: 13, fontWeight: 700 }}>{g.nombre}</span>
-                    <span style={{ fontSize: 12, opacity: 0.5 }}>{g.items.length} clientes</span>
+                    <span style={{ fontSize: 12, opacity: 0.5 }}>
+                      {g.conteos.total} clientes
+                      {hayFiltroLibre && g.cargado && ` · ${g.items.length} coinciden`}
+                    </span>
+                    {g.cargando && <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.5 }}>sync</span>}
                   </div>
                   <div style={{ display: 'flex', gap: 6, fontSize: 12 }}>
-                    {cntEst('PENDIENTE') > 0 && <Chip n={cntEst('PENDIENTE')} c="#ffb74d" l="P" t="Pendientes" />}
-                    {cntEst('EN_INTENTOS') > 0 && <Chip n={cntEst('EN_INTENTOS')} c="#fbc02d" l="I" t="En intentos" />}
-                    {cntEst('AGENDADO') > 0 && <Chip n={cntEst('AGENDADO')} c="#64b5f6" l="A" t="Agendados" />}
-                    {cntEst('GESTIONADO') > 0 && <Chip n={cntEst('GESTIONADO')} c="var(--color-primary)" l="G" t="Gestionados" />}
-                    {cntEst('YA_PAGO') > 0 && <Chip n={cntEst('YA_PAGO')} c="#ce93d8" l="$" t="Ya pagó" />}
+                    {g.conteos.pendientes > 0 && <Chip n={g.conteos.pendientes} c="#ffb74d" l="P" t="Pendientes" />}
+                    {g.conteos.en_intentos > 0 && <Chip n={g.conteos.en_intentos} c="#fbc02d" l="I" t="En intentos" />}
+                    {g.conteos.agendados > 0 && <Chip n={g.conteos.agendados} c="#64b5f6" l="A" t="Agendados" />}
+                    {g.conteos.gestionados > 0 && <Chip n={g.conteos.gestionados} c="var(--color-primary)" l="G" t="Gestionados" />}
+                    {g.conteos.ya_pago > 0 && <Chip n={g.conteos.ya_pago} c="#ce93d8" l="$" t="Ya pagó" />}
                   </div>
                 </div>
                 {!isCol && (
-                  <TablaItems
-                    items={g.items}
-                    onReorder={(ids) => reordenarAsesor(g.id, ids)}
-                  />
+                  g.cargando ? (
+                    <div style={{ padding: '18px 0', textAlign: 'center', opacity: 0.5 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 20 }}>sync</span>
+                      <p className="text-body-sm" style={{ marginTop: 6, fontSize: 12 }}>Cargando cartera de {g.nombre}...</p>
+                    </div>
+                  ) : g.error ? (
+                    <div style={{ padding: '16px', textAlign: 'center' }}>
+                      <p className="text-body-sm" style={{ fontSize: 12, color: '#ff8080' }}>Error al cargar: {g.error}</p>
+                      <button type="button" onClick={() => cargarDetalleAsesor(g.id, true)}
+                        className="btn btn-outline btn-sm" style={{ marginTop: 6, fontSize: 12, padding: '3px 10px', height: 'auto' }}
+                      >Reintentar</button>
+                    </div>
+                  ) : !g.cargado ? (
+                    <div style={{ padding: '16px', textAlign: 'center', opacity: 0.4 }}>
+                      <p className="text-body-sm" style={{ fontSize: 12 }}>Sin cargar</p>
+                    </div>
+                  ) : g.items.length === 0 ? (
+                    <div style={{ padding: '16px', textAlign: 'center', opacity: 0.4 }}>
+                      <p className="text-body-sm" style={{ fontSize: 12 }}>Sin clientes para los filtros aplicados</p>
+                    </div>
+                  ) : (
+                    <TablaItems
+                      items={g.items}
+                      onReorder={(ids) => reordenarAsesor(g.id, ids)}
+                    />
+                  )
                 )}
               </div>
             );
           })}
+        </div>
+      ) : filtrados.length === 0 ? (
+        <div style={{ padding: '40px 0', textAlign: 'center', opacity: 0.4 }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 36 }}>folder_off</span>
+          <p className="text-body-sm" style={{ marginTop: 8 }}>
+            {registrosCargados.length === 0
+              ? 'Nada cargado aún — expandí un asesor en modo Agrupar o usá "Cargar equipo completo".'
+              : 'Sin clientes para los filtros aplicados'}
+          </p>
         </div>
       ) : (
         <TablaItems items={filtrados} mostrarAsesor />
