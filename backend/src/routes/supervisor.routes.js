@@ -2874,8 +2874,11 @@ router.get('/cartera', async (req, res, next) => {
         ultima_tipificacion: tip?.descripcion || null,
         gestiones_count: gestionesMap.get(ct.id) ?? 0,
         gestiones_hoy: gestionesHoyMap.get(ct.id) ?? 0,
+        // HH:MM de los digitos guardados (hora Guayaquil). NO usar
+        // toLocaleTimeString: formatea con la zona horaria del proceso y
+        // devolvia 5h menos cuando la VM dejo de correr en UTC.
         agendamiento_hora: ct.agendamientos?.[0]?.fechaHora
-          ? new Date(ct.agendamientos[0].fechaHora).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', hour12: false })
+          ? new Date(ct.agendamientos[0].fechaHora).toISOString().slice(11, 16)
           : null,
         // Datetime crudo del compromiso vigente → excluir de vueltas hasta que pase la hora
         agendamiento_fecha_hora: ct.agendamientos?.[0]?.fechaHora
@@ -3648,8 +3651,12 @@ async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titul
     const cid = c.contacto ? c.contacto.nombreDeudor + '|' + (c.contacto.cedula || '') : '';
     const numGestiones = gestionesPorContacto.get(cid) || 1;
 
+    // Los digitos guardados ya son hora Guayaquil: se formatean tal cual.
+    // toLocaleString los reinterpretaba con la zona del proceso (-5h).
+    const aTextoGye = (v) => (v ? new Date(v).toISOString().slice(0, 16).replace('T', ' ') : '');
+
     const row = ws.addRow([
-      c.timestampInicio ? new Date(c.timestampInicio).toLocaleString('es-EC') : '',
+      aTextoGye(c.timestampInicio),
       c.usuario?.nombre || '',
       c.contacto?.nombreDeudor || '',
       c.contacto?.cedula || '',
@@ -3658,7 +3665,7 @@ async function _buildGestionesXlsx(res, { asesorId, fechaInicio, fechaFin, titul
       contrato || '',
       c.tipificacion?.descripcion || c.tipificacion?.codigo || '',
       c.montoAcordado != null ? Number(c.montoAcordado) : '',
-      fechaPromesa ? new Date(fechaPromesa).toLocaleString('es-EC') : '',
+      aTextoGye(fechaPromesa),
       mora != null ? mora : '',
       diasMora != null ? diasMora : '',
       c.notas || '',

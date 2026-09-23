@@ -1,43 +1,36 @@
 /**
  * tests/unit/tipificacionEstado.test.js
  *
- * decidirEstadoTrasTipificacion() es la lógica pura que reemplaza la cadena
- * incrementarIntentoContacto().then(marcarContactoGestionado()) del cliente
- * Electron — esa cadena forzaba SIEMPRE 'GESTIONADO' al final, sin importar
- * el código de tipificación, pisando el 'EN_INTENTOS' que el propio conteo
- * de intentos acababa de fijar. Esta función es la fuente única de verdad
- * para el nuevo endpoint transaccional (PATCH /api/cdrs/:id/tipificar).
+ * Regla de negocio confirmada con la operación el 2026-09-23: si el asesor
+ * llamó y tipificó, la gestión cuenta — el contacto queda GESTIONADO con
+ * cualquier código. Una versión anterior dejaba NC y BUZON en EN_INTENTOS y
+ * eso dejó gestiones reales sin contabilizar en producción.
  */
-const { decidirEstadoTrasTipificacion, CODIGOS_REINTENTABLES } = require('../../backend/src/domain/tipificacionEstado');
+const { decidirEstadoTrasTipificacion } = require('../../backend/src/domain/tipificacionEstado');
 
 describe('decidirEstadoTrasTipificacion', () => {
-  it('código no reintentable (ej. contacto efectivo) → GESTIONADO de una', () => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'PMP', intentosActuales: 0, maxIntentos: 3 });
-    expect(r).toEqual({ estadoMarcacion: 'GESTIONADO', intentosRealizados: 1 });
-  });
+  const CODIGOS = ['NC', 'BUZON', 'PMP', 'PAGO_REAL', 'AB_PARC', 'VOL_CALL', 'INCUMP'];
 
-  it('el intento se cuenta siempre, tambien en codigos no reintentables (paridad con /intentar)', () => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'PAGO_REAL', intentosActuales: 4, maxIntentos: 3 });
-    expect(r.intentosRealizados).toBe(5);
+  it.each(CODIGOS)('con código %s el contacto queda GESTIONADO', (codigo) => {
+    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: codigo, intentosActuales: 0 });
     expect(r.estadoMarcacion).toBe('GESTIONADO');
   });
 
-  it('código reintentable (NC) bajo el máximo → EN_INTENTOS, incrementa intentos', () => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'NC', intentosActuales: 0, maxIntentos: 3 });
-    expect(r).toEqual({ estadoMarcacion: 'EN_INTENTOS', intentosRealizados: 1 });
+  it('cuenta el intento realizado', () => {
+    expect(decidirEstadoTrasTipificacion({ intentosActuales: 0 }).intentosRealizados).toBe(1);
+    expect(decidirEstadoTrasTipificacion({ intentosActuales: 4 }).intentosRealizados).toBe(5);
   });
 
-  it('código reintentable (BUZON) al alcanzar el máximo → GESTIONADO', () => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'BUZON', intentosActuales: 2, maxIntentos: 3 });
-    expect(r).toEqual({ estadoMarcacion: 'GESTIONADO', intentosRealizados: 3 });
+  it('sin intentosActuales arranca en 1', () => {
+    expect(decidirEstadoTrasTipificacion({})).toEqual({ estadoMarcacion: 'GESTIONADO', intentosRealizados: 1 });
   });
 
-  it('código reintentable sin maxIntentos configurado → nunca fuerza GESTIONADO, sigue EN_INTENTOS', () => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'NC', intentosActuales: 50, maxIntentos: undefined });
-    expect(r).toEqual({ estadoMarcacion: 'EN_INTENTOS', intentosRealizados: 51 });
+  it('sin argumentos no revienta (el endpoint siempre pasa el contacto, pero no debe romper)', () => {
+    expect(decidirEstadoTrasTipificacion()).toEqual({ estadoMarcacion: 'GESTIONADO', intentosRealizados: 1 });
   });
 
-  it('CODIGOS_REINTENTABLES expone exactamente NC y BUZON (contrato con el frontend)', () => {
-    expect(CODIGOS_REINTENTABLES).toEqual(['NC', 'BUZON']);
+  it('maxIntentos ya no influye en el estado — nunca deja el contacto sin gestionar', () => {
+    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'NC', intentosActuales: 0, maxIntentos: 99 });
+    expect(r.estadoMarcacion).toBe('GESTIONADO');
   });
 });

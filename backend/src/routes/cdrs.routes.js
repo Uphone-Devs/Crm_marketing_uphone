@@ -123,7 +123,6 @@ router.patch('/:id/tipificar', async (req, res, next) => {
     if (!Number.isInteger(contactoId) || !Number.isInteger(tipificacionId)) {
       return res.status(400).json({ error: 'contactoId y tipificacionId son requeridos' });
     }
-    const maxIntentos = body.maxIntentos != null ? parseInt(body.maxIntentos) : undefined;
 
     // Actualización parcial (mismo criterio que PATCH /:id): lo que no viene
     // en el body no se toca. Un `?? null` acá borraría la grabación o el monto
@@ -163,9 +162,7 @@ router.patch('/:id/tipificar', async (req, res, next) => {
       if (!contacto) throw Object.assign(new Error('Contacto no encontrado'), { statusCode: 404 });
 
       const { estadoMarcacion, intentosRealizados } = decidirEstadoTrasTipificacion({
-        codigoTipificacion: tipificacion.codigo,
         intentosActuales: contacto.intentosRealizados || 0,
-        maxIntentos,
       });
 
       const cdr = await tx.cdr.update({ where: { id: cdrId }, data: cdrData });
