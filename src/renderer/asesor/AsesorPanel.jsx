@@ -3014,6 +3014,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       const vueltaPct   = c.t > 0 ? Math.round((vueltaGn / c.t) * 100) : 0;
                       const vueltaColor = [c.color, '#64b5f6', '#ce93d8', '#ffd54f', '#ffd54f'][vueltaN - 1];
                       const displayPct  = vueltaN === 1 ? pct : vueltaPct;
+                      // Lo que falta para cerrar la vuelta que esta tarjeta muestra.
+                      // El denominador ya excluye pagados y compromisos vigentes, asi
+                      // que esto es trabajo real por hacer, no un resto contable.
+                      const faltaMostrado = Math.max(0, c.t - vueltaGn);
                       const vueltaBadge = vueltaN > 1 ? `V${Math.min(vueltaN, 4)}` : null;
                       const title = `${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%${v1done ? ` · Vuelta ${Math.min(vueltaN, 4)}: ${vueltaGn}/${c.t} (${vueltaPct}%)` : ''}`;
                       return (
@@ -3034,11 +3038,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               display: 'flex', flexDirection: 'column', gap: 3,
                             }}
                           >
-                            {/* Fila 1: icono + label + % */}
+                            {/* Fila 1: icono + label + lo que falta (el % lo comunica la barra) */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                               <span className="material-symbols-outlined" style={{ fontSize: 13, color: vueltaColor, opacity: active ? 1 : 0.55 }}>{c.icon}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: active ? vueltaColor : 'rgba(255,255,255,0.6)', flex: 1 }}>{c.label}</span>
-                              <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7 }}>{displayPct}%</span>
+                              {faltaMostrado > 0 ? (
+                                <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7, whiteSpace: 'nowrap' }}>
+                                  <span style={{ fontWeight: 600, opacity: 0.6 }}>faltan </span>{faltaMostrado}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7 }}>completo</span>
+                              )}
                             </div>
                             {/* Fila 2: número + /total + vuelta */}
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
