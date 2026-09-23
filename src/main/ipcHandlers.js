@@ -358,10 +358,14 @@ function registerIpcHandlers() {
   });
 
   // ── Auto-update ────────────────────────────────────────
-  const { startUpdater, restartNow, checkNow } = require('./updater');
+  const { startUpdater, restartNow, checkNow, getVersionDescargada } = require('./updater');
   ipcMain.handle('updater:start', (_, { apiBase } = {}) => {
     try { startUpdater(apiBase); return { ok: true }; }
     catch (err) { return { error: err.message }; }
+  });
+  ipcMain.handle('updater:pendiente', () => {
+    try { return { version: getVersionDescargada() }; }
+    catch { return { version: null }; }
   });
   ipcMain.handle('updater:restartNow', () => {
     try { restartNow(); return { ok: true }; }

@@ -2071,6 +2071,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const filaPrevia = contactoSnapshot?.id
       ? (cartera.find(x => x.id === contactoSnapshot.id) || null)
       : null;
+    let escrituraConfirmada = false;
     if (contactoSnapshot?.id) {
       setCartera(prev => prev.map(x =>
         x.id === contactoSnapshot.id
@@ -2136,11 +2137,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
           resultado: tipificacion.descripcion,
           urlGrabacion: ultimoAudioPathRef.current,
           montoAcordado: montoAcordado ?? null,
-          maxIntentos: nIntentosMax,
           scheduledDatetime: agendamiento
             ? `${agendamiento.fecha}T${agendamiento.hora}:00`
             : undefined,
         });
+        // A partir de acá la gestión YA está guardada. Lo que siga (agendamiento,
+        // métricas, WS) es accesorio: si falla, no se revierte la fila.
+        escrituraConfirmada = true;
       } else if (!activeCdrId) {
         console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
       }
@@ -2244,12 +2247,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
     } catch (err) {
       console.error('[handleSaveTipificacion] Excepción crítica:', err);
-      // Revertir la fila a como estaba: la escritura es atómica, si falló no
-      // quedó nada guardado y la cartera no debe mostrarla como gestionada.
-      if (filaPrevia) {
-        setCartera(prev => prev.map(x => (x.id === filaPrevia.id ? filaPrevia : x)));
+      if (escrituraConfirmada) {
+        // La gestión sí quedó guardada; reventó algo accesorio (agendamiento,
+        // métricas, WS). Revertir la fila acá haría que el asesor la vuelva a
+        // trabajar y duplique la gestión.
+        showToast('Gestión guardada. Falló algo secundario — avisa si ves algo raro.', 'warning');
+      } else {
+        if (filaPrevia) {
+          setCartera(prev => prev.map(x => (x.id === filaPrevia.id ? filaPrevia : x)));
+        }
+        showToast(`No se pudo guardar la gestión: ${err.message || 'fallo interno'}. Vuelve a tipificar este cliente.`, 'error');
       }
-      showToast(`No se pudo guardar la gestión: ${err.message || 'fallo interno'}. Vuelve a tipificar este cliente.`, 'error');
     } finally {
       // Siempre limpiar estado de llamada activa — incluso si hubo error en DB/IPC.
       // Sin esto el form queda "pegado" abierto con enLlamada=true tras un fallo.
@@ -2804,11 +2812,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
             <div className="widget-card" style={{ width: '100%', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 100px)', overflow: 'hidden' }}>
               <div style={{ flexShrink: 0, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 4 }}>
               {(() => {
-                const cnt = (estado) => cartera.filter(c => c.estado_marcacion === estado).length;
+                // Los tres cubos particionan la cartera: Total = Pendientes + Gestionados + Ya pagó.
+                // Antes "Gestionados" contaba solo el estado GESTIONADO, asi que los agendados
+                // (llamados, con promesa agendada) y los que quedaban en EN_INTENTOS no caian en
+                // ningun cubo: la resta nunca cerraba. Ademas "Ya pagó" se cuenta por flag y podia
+                // solaparse con el estado, contando dos veces el mismo contacto.
                 const total = cartera.length;
-                const gestionados = cnt('GESTIONADO');
-                const pendientes = cnt('PENDIENTE');
-                const yaPagoCount = cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1).length;
+                const yaPago = cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1);
+                const yaPagoIds = new Set(yaPago.map(c => c.id));
+                const yaPagoCount = yaPago.length;
+                const pendientes = cartera.filter(c => !yaPagoIds.has(c.id) && c.estado_marcacion === 'PENDIENTE').length;
+                const gestionados = total - pendientes - yaPagoCount;
                 const validados = cartera.filter(c => c.validado_pago === 1);
                 const recaudado = montoRecaudadoDB > 0
                   ? montoRecaudadoDB
@@ -3000,6 +3014,10 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       const vueltaPct   = c.t > 0 ? Math.round((vueltaGn / c.t) * 100) : 0;
                       const vueltaColor = [c.color, '#64b5f6', '#ce93d8', '#ffd54f', '#ffd54f'][vueltaN - 1];
                       const displayPct  = vueltaN === 1 ? pct : vueltaPct;
+                      // Lo que falta para cerrar la vuelta que esta tarjeta muestra.
+                      // El denominador ya excluye pagados y compromisos vigentes, asi
+                      // que esto es trabajo real por hacer, no un resto contable.
+                      const faltaMostrado = Math.max(0, c.t - vueltaGn);
                       const vueltaBadge = vueltaN > 1 ? `V${Math.min(vueltaN, 4)}` : null;
                       const title = `${c.t} total · ${c.g} contactados · ${c.p} pagados · ${falta} por gestionar · ${pct}%${v1done ? ` · Vuelta ${Math.min(vueltaN, 4)}: ${vueltaGn}/${c.t} (${vueltaPct}%)` : ''}`;
                       return (
@@ -3020,11 +3038,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
                               display: 'flex', flexDirection: 'column', gap: 3,
                             }}
                           >
-                            {/* Fila 1: icono + label + % */}
+                            {/* Fila 1: icono + label + lo que falta (el % lo comunica la barra) */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                               <span className="material-symbols-outlined" style={{ fontSize: 13, color: vueltaColor, opacity: active ? 1 : 0.55 }}>{c.icon}</span>
                               <span style={{ fontSize: 11, fontWeight: 700, color: active ? vueltaColor : 'rgba(255,255,255,0.6)', flex: 1 }}>{c.label}</span>
-                              <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7 }}>{displayPct}%</span>
+                              {faltaMostrado > 0 ? (
+                                <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7, whiteSpace: 'nowrap' }}>
+                                  <span style={{ fontWeight: 600, opacity: 0.6 }}>faltan </span>{faltaMostrado}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: 10, fontWeight: 800, color: vueltaColor, opacity: active ? 1 : 0.7 }}>completo</span>
+                              )}
                             </div>
                             {/* Fila 2: número + /total + vuelta */}
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>

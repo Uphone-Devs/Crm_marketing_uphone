@@ -9,6 +9,17 @@
  * ejecutarse jamás contra la base de la VM.
  *
  *   node prisma/seed-catalogo.js
+ *
+ * CUIDADO EN PRODUCCIÓN: el upsert también pisa `descripcion`, y varias de la
+ * base están más refinadas que las de acá (CUE es "Llamada colgada" en la base
+ * contra "Cuenta inexistente" acá; REF es "Referencia" contra "Refutación";
+ * VOL_CALL es "Volver a llamar" contra "Voluntad de llamar"). Correrlo tal cual
+ * las revierte. Si solo hace falta sincronizar categorías, usar
+ * backend/scripts/corregir-categorias-tipificaciones.sql.
+ *
+ * Las `categoria` de abajo son las que confirmó la operación el 2026-09-23.
+ * INCUMP existe en la base pero no en esta lista, a propósito: el seed no lo
+ * toca para no inventarle un `requiereAgd`, que cambia el flujo de la UI.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
@@ -20,12 +31,12 @@ const TIPIFICACIONES = [
   { codigo: 'NO_CON',      descripcion: 'No contactado - No contesta',            requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'NO_CON_OCU',  descripcion: 'No contactado - Ocupado',                requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'INCORRECTO',  descripcion: 'Número incorrecto o fuera de servicio',  requiereAgd: false, categoria: 'NO CONTACTADO'     },
-  { codigo: 'BUZON',       descripcion: 'Ingresó a buzón de voz',                 requiereAgd: false, categoria: 'CONTACTO NEUTRO'   },
+  { codigo: 'BUZON',       descripcion: 'Ingresó a buzón de voz',                 requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'COLGADO',     descripcion: 'Llamada colgada antes de contacto',      requiereAgd: false, categoria: 'NO CONTACTADO'     },
-  { codigo: 'NEGOCIACION', descripcion: 'En negociación activa',                  requiereAgd: true,  categoria: 'CONTACTO EXITOSO'  },
+  { codigo: 'NEGOCIACION', descripcion: 'En negociación activa',                  requiereAgd: true,  categoria: 'CONTACTO NEUTRO'   },
   { codigo: 'PMP',         descripcion: 'Promesa de Pago',                        requiereAgd: true,  categoria: 'CONTACTO EXITOSO'  },
   { codigo: 'CUE',         descripcion: 'Cuenta inexistente',                     requiereAgd: false, categoria: 'NO CONTACTADO'     },
-  { codigo: 'NC',          descripcion: 'No contactado',                          requiereAgd: false, categoria: 'CONTACTO NEUTRO'   },
+  { codigo: 'NC',          descripcion: 'No contactado',                          requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'REF',         descripcion: 'Refutación',                             requiereAgd: false, categoria: 'CONTACTO NEUTRO'   },
   { codigo: 'EQ',          descripcion: 'Equivocado',                             requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'SUS',         descripcion: 'Suspendido',                             requiereAgd: false, categoria: 'NO CONTACTADO'     },
@@ -36,8 +47,8 @@ const TIPIFICACIONES = [
   { codigo: 'AB_PARC',     descripcion: 'Abono parcial',                          requiereAgd: false, categoria: 'CONTACTO EXITOSO'  },
   { codigo: 'PEND_COMP',   descripcion: 'Compromiso pendiente',                   requiereAgd: false, categoria: 'CONTACTO EXITOSO'  },
   { codigo: 'APAGADO',     descripcion: 'Teléfono apagado',                       requiereAgd: false, categoria: 'NO CONTACTADO'     },
-  { codigo: 'NO_DISP',     descripcion: 'No disponible',                          requiereAgd: false, categoria: 'CONTACTO NEUTRO'   },
-  { codigo: 'NO_WSP',      descripcion: 'No tiene WhatsApp',                      requiereAgd: false, categoria: 'CONTACTO NEUTRO'   },
+  { codigo: 'NO_DISP',     descripcion: 'No disponible',                          requiereAgd: false, categoria: 'NO CONTACTADO'     },
+  { codigo: 'NO_WSP',      descripcion: 'No tiene WhatsApp',                      requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'REF_ELIM',    descripcion: 'Referencia - eliminar',                  requiereAgd: false, categoria: 'NO CONTACTADO'     },
   { codigo: 'NOTIFICADO',  descripcion: 'Cliente notificado',                     requiereAgd: false, categoria: 'CONTACTO NEUTRO'   },
 ];
