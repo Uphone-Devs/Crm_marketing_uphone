@@ -2823,11 +2823,14 @@ export default function AsesorPanel({ usuario, onLogout }) {
                 const yaPagoCount = yaPago.length;
                 const pendientes = cartera.filter(c => !yaPagoIds.has(c.id) && c.estado_marcacion === 'PENDIENTE').length;
                 const gestionados = total - pendientes - yaPagoCount;
+                // Los agendados ya estan dentro de "gestionados"; se muestran aparte
+                // porque la operacion los filtra a diario y quedaban invisibles.
+                const agendados = cartera.filter(c => !yaPagoIds.has(c.id) && c.estado_marcacion === 'AGENDADO').length;
                 const validados = cartera.filter(c => c.validado_pago === 1);
                 const recaudado = montoRecaudadoDB > 0
                   ? montoRecaudadoDB
                   : validados.reduce((s, c) => s + (Number(c.monto_deuda) || 0), 0);
-                const StatItem = ({ label, value, color, onClick, active }) => {
+                const StatItem = ({ label, value, color, onClick, active, sub }) => {
                   const isBtn = !!onClick;
                   return (
                     <button type="button" onClick={onClick} title={label}
@@ -2858,6 +2861,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       <span style={{ fontSize: 15, fontWeight: 800, color: active ? color : `${color}dd`, lineHeight: 1.15, letterSpacing: '-0.01em' }}>
                         {value}
                       </span>
+                      {/* Subtotal: parte del valor de arriba, no se suma aparte */}
+                      {sub && (
+                        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', lineHeight: 1.2, whiteSpace: 'nowrap' }}>
+                          {sub}
+                        </span>
+                      )}
                     </button>
                   );
                 };
@@ -2875,7 +2884,8 @@ export default function AsesorPanel({ usuario, onLogout }) {
                       }}>
                         <StatItem label="Total" value={total} color="#00e676" />
                         <Sep /><StatItem label="Pendientes" value={pendientes} color="#ffb74d" />
-                        <Sep /><StatItem label="Gestionados" value={gestionados} color="#4caf50" />
+                        <Sep /><StatItem label="Gestionados" value={gestionados} color="#4caf50"
+                          sub={agendados > 0 ? `${agendados} agendados` : null} />
                         <Sep /><StatItem label="Ya pagó" value={yaPagoCount} color="#ce93d8"
                           onClick={() => setVistaYaPago(v => !v)} active={vistaYaPago} />
                         {validados.length > 0 && <><Sep /><StatItem label="Recaudado"
