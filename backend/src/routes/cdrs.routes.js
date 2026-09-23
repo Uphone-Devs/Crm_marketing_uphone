@@ -5,6 +5,8 @@
 const { Router } = require('express');
 const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
+const { decidirEstadoTrasTipificacion } = require('../domain/tipificacionEstado');
+const { parseNaiveComoUtc } = require('../utils/fechas');
 
 const router = Router();
 router.use(authMiddleware);
@@ -21,7 +23,7 @@ router.post('/', async (req, res, next) => {
       data: {
         contactoId:     parseInt(contactoId),
         usuarioId:      parseInt(usuarioId),
-        timestampInicio: new Date(tsInicio),
+        timestampInicio: parseNaiveComoUtc(tsInicio),
         canal:          'llamada',
       },
     });
@@ -40,7 +42,7 @@ router.patch('/:id', async (req, res, next) => {
     if (body.urlGrabacion  != null) data.urlGrabacion   = body.urlGrabacion;
     if (body.montoAcordado != null) data.montoAcordado  = Number(body.montoAcordado);
     if (body.timestampFin  || body.timestamp_fin)
-      data.timestampFin = new Date(body.timestampFin || body.timestamp_fin);
+      data.timestampFin = parseNaiveComoUtc(body.timestampFin || body.timestamp_fin);
     if (body.duracionSeg   != null) data.duracionSeg    = parseInt(body.duracionSeg);
     if (body.snapshotNombre != null) data.snapshotNombre = body.snapshotNombre;
     if (body.snapshotCedula != null) data.snapshotCedula = body.snapshotCedula;
@@ -48,7 +50,7 @@ router.patch('/:id', async (req, res, next) => {
     if (body.snapshotEmpresa != null) data.snapshotEmpresa = body.snapshotEmpresa;
     if (body.scheduledDatetime || body.scheduled_datetime) {
       const sd = body.scheduledDatetime || body.scheduled_datetime;
-      data.scheduledDatetime = new Date(sd);
+      data.scheduledDatetime = parseNaiveComoUtc(sd);
     }
 
     // El cliente asesor cierra el CDR con timestampFin pero sin duracionSeg,
@@ -106,6 +108,107 @@ router.patch('/:id', async (req, res, next) => {
       })();
     }
   } catch (err) { next(err); }
+});
+
+// PATCH /api/cdrs/:id/tipificar — Tipificación + estado del contacto en una sola transacción.
+// Reemplaza la secuencia del cliente (updateCdr + incrementarIntentoContacto + marcarContactoGestionado,
+// 3 escrituras HTTP independientes) que dejaba contactos.estado_marcacion en PENDIENTE si la
+// segunda mitad fallaba bajo carga, aunque el CDR ya tuviera la tipificación guardada.
+router.patch('/:id/tipificar', async (req, res, next) => {
+  try {
+    const cdrId = parseInt(req.params.id);
+    const body = req.body;
+    const contactoId = parseInt(body.contactoId ?? body.contacto_id);
+    const tipificacionId = parseInt(body.tipificacionId);
+    if (!Number.isInteger(contactoId) || !Number.isInteger(tipificacionId)) {
+      return res.status(400).json({ error: 'contactoId y tipificacionId son requeridos' });
+    }
+    const maxIntentos = body.maxIntentos != null ? parseInt(body.maxIntentos) : undefined;
+
+    // Actualización parcial (mismo criterio que PATCH /:id): lo que no viene
+    // en el body no se toca. Un `?? null` acá borraría la grabación o el monto
+    // de un CDR ya tipificado si el cliente reintenta sin esos campos.
+    const cdrData = { tipificacionId };
+    if (body.notas         != null) cdrData.notas         = body.notas;
+    if (body.resultado     != null) cdrData.resultado     = body.resultado;
+    if (body.urlGrabacion  != null) cdrData.urlGrabacion  = body.urlGrabacion;
+    if (body.montoAcordado != null) cdrData.montoAcordado = Number(body.montoAcordado);
+    if (body.duracionSeg   != null) cdrData.duracionSeg   = parseInt(body.duracionSeg);
+    if (body.scheduledDatetime || body.scheduled_datetime) {
+      cdrData.scheduledDatetime = parseNaiveComoUtc(body.scheduledDatetime || body.scheduled_datetime);
+    }
+    if (body.timestampFin || body.timestamp_fin) {
+      cdrData.timestampFin = parseNaiveComoUtc(body.timestampFin || body.timestamp_fin);
+    }
+
+    const tipificacion = await db.tipificacion.findUnique({
+      where: { id: tipificacionId },
+      select: { codigo: true, categoria: true },
+    });
+    if (!tipificacion) return res.status(404).json({ error: 'Tipificación no encontrada' });
+
+    const [updatedCdr, updatedContacto] = await db.$transaction(async (tx) => {
+      const cdrPrevio = await tx.cdr.findUnique({ where: { id: cdrId }, select: { timestampInicio: true } });
+      if (!cdrPrevio) throw Object.assign(new Error('CDR no encontrado'), { statusCode: 404 });
+
+      if (cdrData.duracionSeg == null && cdrData.timestampFin) {
+        const seg = Math.round((cdrData.timestampFin - cdrPrevio.timestampInicio) / 1000);
+        if (seg >= 0) cdrData.duracionSeg = seg;
+      }
+
+      const contacto = await tx.contacto.findUnique({
+        where: { id: contactoId },
+        select: { intentosRealizados: true },
+      });
+      if (!contacto) throw Object.assign(new Error('Contacto no encontrado'), { statusCode: 404 });
+
+      const { estadoMarcacion, intentosRealizados } = decidirEstadoTrasTipificacion({
+        codigoTipificacion: tipificacion.codigo,
+        intentosActuales: contacto.intentosRealizados || 0,
+        maxIntentos,
+      });
+
+      const cdr = await tx.cdr.update({ where: { id: cdrId }, data: cdrData });
+      const contactoActualizado = await tx.contacto.update({
+        where: { id: contactoId },
+        data: { intentosRealizados, estadoMarcacion },
+      });
+      return [cdr, contactoActualizado];
+    });
+
+    res.json({ cdr: updatedCdr, contacto: updatedContacto });
+
+    // ── Agregado diario incremental (fire-and-forget, igual que en PATCH /:id) ──
+    (async () => {
+      try {
+        const cat = tipificacion.categoria || '';
+        const esEf   = ['CONTACTO_EFECTIVO', 'CONTACTO EXITOSO'].includes(cat) ? 1 : 0;
+        const esNe   = ['CONTACTO_NEUTRO', 'CONTACTO NEUTRO'].includes(cat) ? 1 : 0;
+        const esNc   = ['NO_CONTACTADO', 'NO CONTACTADO'].includes(cat) ? 1 : 0;
+        const esComp = ['PMP', 'PAGO_REAL', 'AB_PARC', 'PEND_COMP'].includes(tipificacion.codigo) ? 1 : 0;
+        const monto  = Number(updatedCdr.montoAcordado || 0);
+        const segAire = Number(updatedCdr.duracionSeg || 0);
+        const ymd = updatedCdr.timestampInicio.toISOString().slice(0, 10);
+        await db.$executeRaw`
+          INSERT INTO metricas_diarias_asesor
+            (asesor_id, fecha, gestiones, efectivos, neutros, no_contact, compromisos, monto_acordado, tiempo_aire_seg, actualizado_en)
+          VALUES (${updatedCdr.usuarioId}, ${ymd}, 1, ${esEf}, ${esNe}, ${esNc}, ${esComp}, ${monto}, ${segAire}, NOW())
+          ON CONFLICT (asesor_id, fecha) DO UPDATE SET
+            gestiones       = metricas_diarias_asesor.gestiones + 1,
+            efectivos       = metricas_diarias_asesor.efectivos + ${esEf},
+            neutros         = metricas_diarias_asesor.neutros + ${esNe},
+            no_contact      = metricas_diarias_asesor.no_contact + ${esNc},
+            compromisos     = metricas_diarias_asesor.compromisos + ${esComp},
+            monto_acordado  = metricas_diarias_asesor.monto_acordado + ${monto},
+            tiempo_aire_seg = metricas_diarias_asesor.tiempo_aire_seg + ${segAire},
+            actualizado_en  = NOW()
+        `;
+      } catch (e) { console.error('[MDA_UPSERT]', e?.message || e); }
+    })();
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    next(err);
+  }
 });
 
 // GET /api/cdrs — Listar CDRs con filtros

@@ -407,6 +407,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
           options.method = 'PATCH';
           options.body = JSON.stringify(args[1]);
           break;
+        case 'db:tipificarGestion':
+          // args[0]=cdrId, args[1]=payload { contactoId, tipificacionId, maxIntentos, ... }
+          url = `${apiBase}/cdrs/${args[0]}/tipificar`;
+          options.method = 'PATCH';
+          options.body = JSON.stringify(args[1]);
+          break;
         case 'db:getTipificaciones':
           url = `${apiBase}/tipificaciones`;
           break;
@@ -2059,6 +2065,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
     // Optimistic UI: INMEDIATO — antes de cualquier await para que el contador suba al instante
     // cdrPrevio = CDR ya creado por handleAdbMarcar (la llamada). En ese caso gestiones_hoy
     // ya se incrementó allí. Solo se incrementa aquí para tipificación directa (sin llamada previa).
+    // Se guarda la fila previa para poder revertir si la escritura falla: la
+    // escritura es atómica en el backend, así que un fallo = no se guardó nada
+    // y dejar la fila pintada como GESTIONADO sería mentirle al asesor.
+    const filaPrevia = contactoSnapshot?.id
+      ? (cartera.find(x => x.id === contactoSnapshot.id) || null)
+      : null;
     if (contactoSnapshot?.id) {
       setCartera(prev => prev.map(x =>
         x.id === contactoSnapshot.id
@@ -2109,34 +2121,29 @@ export default function AsesorPanel({ usuario, onLogout }) {
       const nIntentosActual = intentosContactoRef.current;
       const nIntentosMax = Number(intentosConfig);
 
-      // Paralelizar todas las escrituras a BD — reduce latencia de ~6s a ~1-2s
-      const dbWrites = [];
-      if (activeCdrId) {
-        dbWrites.push(callApi('db:updateCdr', activeCdrId, {
+      // Una sola escritura transaccional en el backend (CDR + estado del
+      // contacto) — antes eran 3 llamadas HTTP independientes
+      // (updateCdr + incrementarIntentoContacto + marcarContactoGestionado)
+      // sin nada que las atara: si la segunda mitad fallaba bajo carga, el
+      // CDR quedaba con la tipificación pero el contacto se quedaba en
+      // PENDIENTE — la gestión "se perdía" para el resto del equipo.
+      if (activeCdrId && typeof contactoSnapshot?.id === 'number') {
+        await callApi('db:tipificarGestion', activeCdrId, {
+          contactoId: contactoSnapshot.id,
           tipificacionId,
           notas,
           timestampFin: nowLocalISO(),
           resultado: tipificacion.descripcion,
           urlGrabacion: ultimoAudioPathRef.current,
           montoAcordado: montoAcordado ?? null,
+          maxIntentos: nIntentosMax,
           scheduledDatetime: agendamiento
             ? `${agendamiento.fecha}T${agendamiento.hora}:00`
             : undefined,
-        }));
-      } else {
+        });
+      } else if (!activeCdrId) {
         console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
       }
-      if (contactoSnapshot?.id && typeof contactoSnapshot.id === 'number') {
-        // SECUENCIAL, no paralelo: /intentar también escribe estado_marcacion
-        // (EN_INTENTOS) y en paralelo pisaba al GESTIONADO de /gestionar según
-        // quién llegara último (race) — al recargar cartera los contadores
-        // "se reiniciaban". Orden fijo: intentar primero, GESTIONADO gana.
-        dbWrites.push(
-          callApi('db:incrementarIntentoContacto', contactoSnapshot.id, nIntentosMax)
-            .then(() => callApi('db:marcarContactoGestionado', contactoSnapshot.id))
-        );
-      }
-      await Promise.all(dbWrites);
 
       // CDR de este contacto ya finalizado → liberar para que un reintento cree uno nuevo.
       if (contactoSnapshot?.id) delete cdrPorContactoRef.current[contactoSnapshot.id];
@@ -2237,7 +2244,12 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
     } catch (err) {
       console.error('[handleSaveTipificacion] Excepción crítica:', err);
-      showToast(`Error: ${err.message || 'Fallo interno al guardar tipificación'}`, 'error');
+      // Revertir la fila a como estaba: la escritura es atómica, si falló no
+      // quedó nada guardado y la cartera no debe mostrarla como gestionada.
+      if (filaPrevia) {
+        setCartera(prev => prev.map(x => (x.id === filaPrevia.id ? filaPrevia : x)));
+      }
+      showToast(`No se pudo guardar la gestión: ${err.message || 'fallo interno'}. Vuelve a tipificar este cliente.`, 'error');
     } finally {
       // Siempre limpiar estado de llamada activa — incluso si hubo error en DB/IPC.
       // Sin esto el form queda "pegado" abierto con enLlamada=true tras un fallo.
