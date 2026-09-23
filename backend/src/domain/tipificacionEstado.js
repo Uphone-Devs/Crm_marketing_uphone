@@ -8,36 +8,30 @@
  * incrementarIntentoContacto() y marcarContactoGestionado() en el cliente.
  */
 
-// Códigos que indican que NO hubo contacto humano genuino (no contestó,
-// sonó buzón) — el contacto sigue vivo para reintento. Cualquier otro
-// código (efectivo, decisivo, número malo, fallecido, etc.) cierra la
-// gestión de una.
-const CODIGOS_REINTENTABLES = ['NC', 'BUZON'];
-
 /**
+ * Regla de negocio: si el asesor llamó y eligió CUALQUIER tipificación
+ * (buzón, no contesta, compromiso, lo que sea), la gestión está hecha y el
+ * contacto queda GESTIONADO. El estado persiste; no vuelve a pendiente ni
+ * queda "en intento" esperando algo.
+ *
+ * Esto es lo que hacía el flujo anterior (incrementarIntentoContacto seguido
+ * de marcarContactoGestionado, que forzaba GESTIONADO siempre). Un intento
+ * de "mejora" del 2026-09-22 dejó NC y BUZON en EN_INTENTOS leyendo mal un
+ * comentario del código viejo; en producción eso dejó gestiones reales sin
+ * contabilizar. No volver a cambiarlo sin confirmarlo con la operación.
+ *
+ * El reintento automático de NC/BUZON lo decide el cliente (dialingMode
+ * AUTOMATICA + intentosConfig en AsesorPanel), no el estado del contacto.
+ *
  * @param {object} args
- * @param {string} args.codigoTipificacion
  * @param {number} [args.intentosActuales=0]
- * @param {number} [args.maxIntentos] — indefinido/0 = sin tope, nunca fuerza GESTIONADO por intentos
- * @returns {{ estadoMarcacion: 'GESTIONADO'|'EN_INTENTOS', intentosRealizados: number }}
+ * @returns {{ estadoMarcacion: 'GESTIONADO', intentosRealizados: number }}
  */
-function decidirEstadoTrasTipificacion({ codigoTipificacion, intentosActuales = 0, maxIntentos }) {
-  // El intento se hizo, haya contestado o no — se cuenta siempre, igual que
-  // hacía el PATCH /contactos/:id/intentar del flujo anterior. Lo que cambia
-  // según el código es el ESTADO, no el conteo.
-  const intentosRealizados = intentosActuales + 1;
-  const esReintentable = CODIGOS_REINTENTABLES.includes(codigoTipificacion);
-
-  if (!esReintentable) {
-    return { estadoMarcacion: 'GESTIONADO', intentosRealizados };
-  }
-
-  const alcanzoMaximo = Number.isInteger(maxIntentos) && maxIntentos > 0 && intentosRealizados >= maxIntentos;
-
+function decidirEstadoTrasTipificacion({ intentosActuales = 0 } = {}) {
   return {
-    estadoMarcacion: alcanzoMaximo ? 'GESTIONADO' : 'EN_INTENTOS',
-    intentosRealizados,
+    estadoMarcacion: 'GESTIONADO',
+    intentosRealizados: intentosActuales + 1,
   };
 }
 
-module.exports = { decidirEstadoTrasTipificacion, CODIGOS_REINTENTABLES };
+module.exports = { decidirEstadoTrasTipificacion };
