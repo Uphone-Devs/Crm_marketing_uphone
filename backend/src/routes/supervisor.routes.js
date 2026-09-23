@@ -11,6 +11,7 @@ const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { broadcastToAll, broadcastToJefeTeam, getConnectedStats } = require('../wsServer');
 const cache = require('../utils/cache');
+const { parseNaiveComoUtc } = require('../utils/fechas');
 
 const router = Router();
 router.use(authMiddleware);
@@ -3254,7 +3255,7 @@ router.post('/agendamientos', async (req, res, next) => {
         contactoId,
         asesorId,
         tipo,
-        fechaHora: new Date(fechaHora),
+        fechaHora: parseNaiveComoUtc(fechaHora),
         notas:  body.notas || null,
         estado: 'pendiente',
       },
@@ -3505,7 +3506,7 @@ router.post('/reagendar-compromiso', async (req, res, next) => {
           contactoId: cdr.contactoId,
           asesorId: cdr.usuarioId,
           tipo: 'PMP',
-          fechaHora: new Date(`${nuevaFecha}T${nuevaHora}:00`),
+          fechaHora: parseNaiveComoUtc(`${nuevaFecha}T${nuevaHora}:00`),
           estado: 'pendiente',
         },
       });
