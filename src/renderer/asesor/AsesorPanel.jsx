@@ -2812,11 +2812,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
             <div className="widget-card" style={{ width: '100%', display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 100px)', overflow: 'hidden' }}>
               <div style={{ flexShrink: 0, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 4 }}>
               {(() => {
-                const cnt = (estado) => cartera.filter(c => c.estado_marcacion === estado).length;
+                // Los tres cubos particionan la cartera: Total = Pendientes + Gestionados + Ya pagó.
+                // Antes "Gestionados" contaba solo el estado GESTIONADO, asi que los agendados
+                // (llamados, con promesa agendada) y los que quedaban en EN_INTENTOS no caian en
+                // ningun cubo: la resta nunca cerraba. Ademas "Ya pagó" se cuenta por flag y podia
+                // solaparse con el estado, contando dos veces el mismo contacto.
                 const total = cartera.length;
-                const gestionados = cnt('GESTIONADO');
-                const pendientes = cnt('PENDIENTE');
-                const yaPagoCount = cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1).length;
+                const yaPago = cartera.filter(c => c.ya_pago === 1 || c.validado_pago === 1);
+                const yaPagoIds = new Set(yaPago.map(c => c.id));
+                const yaPagoCount = yaPago.length;
+                const pendientes = cartera.filter(c => !yaPagoIds.has(c.id) && c.estado_marcacion === 'PENDIENTE').length;
+                const gestionados = total - pendientes - yaPagoCount;
                 const validados = cartera.filter(c => c.validado_pago === 1);
                 const recaudado = montoRecaudadoDB > 0
                   ? montoRecaudadoDB
