@@ -2071,6 +2071,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
     const filaPrevia = contactoSnapshot?.id
       ? (cartera.find(x => x.id === contactoSnapshot.id) || null)
       : null;
+    let escrituraConfirmada = false;
     if (contactoSnapshot?.id) {
       setCartera(prev => prev.map(x =>
         x.id === contactoSnapshot.id
@@ -2136,11 +2137,13 @@ export default function AsesorPanel({ usuario, onLogout }) {
           resultado: tipificacion.descripcion,
           urlGrabacion: ultimoAudioPathRef.current,
           montoAcordado: montoAcordado ?? null,
-          maxIntentos: nIntentosMax,
           scheduledDatetime: agendamiento
             ? `${agendamiento.fecha}T${agendamiento.hora}:00`
             : undefined,
         });
+        // A partir de acá la gestión YA está guardada. Lo que siga (agendamiento,
+        // métricas, WS) es accesorio: si falla, no se revierte la fila.
+        escrituraConfirmada = true;
       } else if (!activeCdrId) {
         console.warn('[TIPIFICACION] Sin CDR activo ni respaldo — gestión sin referencia CDR');
       }
@@ -2244,12 +2247,17 @@ export default function AsesorPanel({ usuario, onLogout }) {
 
     } catch (err) {
       console.error('[handleSaveTipificacion] Excepción crítica:', err);
-      // Revertir la fila a como estaba: la escritura es atómica, si falló no
-      // quedó nada guardado y la cartera no debe mostrarla como gestionada.
-      if (filaPrevia) {
-        setCartera(prev => prev.map(x => (x.id === filaPrevia.id ? filaPrevia : x)));
+      if (escrituraConfirmada) {
+        // La gestión sí quedó guardada; reventó algo accesorio (agendamiento,
+        // métricas, WS). Revertir la fila acá haría que el asesor la vuelva a
+        // trabajar y duplique la gestión.
+        showToast('Gestión guardada. Falló algo secundario — avisa si ves algo raro.', 'warning');
+      } else {
+        if (filaPrevia) {
+          setCartera(prev => prev.map(x => (x.id === filaPrevia.id ? filaPrevia : x)));
+        }
+        showToast(`No se pudo guardar la gestión: ${err.message || 'fallo interno'}. Vuelve a tipificar este cliente.`, 'error');
       }
-      showToast(`No se pudo guardar la gestión: ${err.message || 'fallo interno'}. Vuelve a tipificar este cliente.`, 'error');
     } finally {
       // Siempre limpiar estado de llamada activa — incluso si hubo error en DB/IPC.
       // Sin esto el form queda "pegado" abierto con enLlamada=true tras un fallo.

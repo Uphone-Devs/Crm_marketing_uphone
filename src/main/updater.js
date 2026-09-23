@@ -11,6 +11,11 @@ const { isDentroDeVentana } = require('./updateWindow');
 let apiBase = null;      // ej. http://127.0.0.1:3001/api
 let timer = null;
 let intervalMin = 30;
+// Version ya descargada y esperando reinicio. Se guarda porque el evento
+// 'update-downloaded' puede dispararse ANTES de que el panel del renderer
+// exista (si el instalador ya estaba en cache, sale instantaneo al login,
+// y el panel recien se monta ~2.8s despues) — el broadcast se perderia.
+let versionDescargada = null;
 
 function log(...args) {
   console.log('[UPDATER]', ...args);
@@ -67,6 +72,7 @@ function startUpdater(base) {
   autoUpdater.removeAllListeners();
   autoUpdater.on('update-downloaded', (info) => {
     log('update-downloaded', info.version);
+    versionDescargada = info.version;
     broadcast('updater:downloaded', { version: info.version });
   });
   autoUpdater.on('error', (err) => log('autoUpdater error:', err.message));
@@ -86,4 +92,7 @@ function stopUpdater() {
 
 function checkNow() { tick(); }
 
-module.exports = { startUpdater, restartNow, stopUpdater, checkNow };
+/** La consulta el renderer al montarse, por si el evento salio antes que el. */
+function getVersionDescargada() { return versionDescargada; }
+
+module.exports = { startUpdater, restartNow, stopUpdater, checkNow, getVersionDescargada };

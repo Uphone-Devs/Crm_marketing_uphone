@@ -9,6 +9,13 @@ export default function UpdaterListener() {
 
   useEffect(() => {
     const off = window.api.on('updater:downloaded', ({ version }) => setVersion(version));
+    // El evento puede haber salido antes de que este componente existiera
+    // (instalador ya en cache -> se emite al instante tras el login, y el
+    // panel se monta ~2.8s despues). Preguntamos al main si hay una version
+    // esperando, en vez de depender de llegar a tiempo al evento.
+    window.api.invoke('updater:pendiente')
+      .then(r => { if (r?.version) setVersion(r.version); })
+      .catch(() => {});
     return off;
   }, []);
 
