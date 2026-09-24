@@ -23,15 +23,14 @@
  * El reintento automático de NC/BUZON lo decide el cliente (dialingMode
  * AUTOMATICA + intentosConfig en AsesorPanel), no el estado del contacto.
  *
- * @param {object} args
- * @param {number} [args.intentosActuales=0]
- * @returns {{ estadoMarcacion: 'GESTIONADO', intentosRealizados: number }}
+ * El conteo del intento NO se calcula acá: lo hace la propia base con
+ * `intentos_realizados + 1`, para no tener que leer el contacto antes de
+ * escribirlo y para que dos gestiones simultáneas no se pisen.
+ *
+ * @returns {{ estadoMarcacion: 'GESTIONADO' }}
  */
-function decidirEstadoTrasTipificacion({ intentosActuales = 0 } = {}) {
-  return {
-    estadoMarcacion: 'GESTIONADO',
-    intentosRealizados: intentosActuales + 1,
-  };
+function decidirEstadoTrasTipificacion() {
+  return { estadoMarcacion: 'GESTIONADO' };
 }
 
 module.exports = { decidirEstadoTrasTipificacion };

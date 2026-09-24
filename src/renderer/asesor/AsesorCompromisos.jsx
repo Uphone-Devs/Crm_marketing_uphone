@@ -177,6 +177,43 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
     });
   }, [registros, textoFiltro, tipoFiltro, mostrarPagados]);
 
+  // Orden por defecto: hora comprometida ascendente — lo que vence primero, arriba.
+  // Antes heredaba el orden del backend (hora de llamada, mas reciente primero),
+  // y como llamar a un cliente crea un CDR nuevo, trabajar una fila la saltaba al
+  // tope y corria a las demas en la recarga de 30s. Ordenar por el compromiso deja
+  // las filas quietas: gestionarlas no cambia su hora comprometida.
+  const [orden, setOrden] = useState({ col: 'fecha_promesa', dir: 'asc' });
+  const alternarOrden = (col) => setOrden(o =>
+    o.col === col ? { col, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' }
+  );
+
+  const ordenados = useMemo(() => {
+    const TEXTO = new Set(['nombre_deudor', 'notas']);
+    const valor = (r) => {
+      const v = r[orden.col];
+      if (v == null || v === '') return null;
+      if (TEXTO.has(orden.col)) return String(v).toLowerCase();
+      if (orden.col === 'fecha_promesa' || orden.col === 'hora_gestion') {
+        const t = new Date(String(v).replace(' ', 'T').replace(/Z$/i, '')).getTime();
+        return isNaN(t) ? null : t;
+      }
+      return Number(v);
+    };
+    const signo = orden.dir === 'asc' ? 1 : -1;
+    // Copia: no mutar el array del useMemo anterior.
+    return [...filtrados].sort((a, b) => {
+      const va = valor(a), vb = valor(b);
+      // Los vacios siempre al final, ordene como ordene.
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (va < vb) return -1 * signo;
+      if (va > vb) return 1 * signo;
+      // Desempate por id: mismo orden en cada recarga, sin saltos.
+      return (a.cdr_id || 0) - (b.cdr_id || 0);
+    });
+  }, [filtrados, orden]);
+
   // KPIs específicos del asesor
   const cntPagados   = registros.filter(r => r.resultado === 'COMP_CUM').length;
   const cntPMP       = filtrados.filter(r => r.tipificacion_codigo === 'PMP').length;
@@ -309,7 +346,8 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
       return /[",\n;]/.test(s) ? `"${s}"` : s;
     };
     const headers = ['Hora gestión', 'Cliente', 'Cédula', 'Teléfono', 'Empresa', 'Contrato', 'Tipificación', 'Monto acordado', 'Fecha promesa', 'Mora cliente', 'Notas'];
-    const rows = filtrados.map(r => [
+    // Exporta en el mismo orden que ve el asesor en pantalla.
+    const rows = ordenados.map(r => [
       fmtHora(r.hora_gestion), r.nombre_deudor || '',
       r.cedula || '', r.telefono || '', r.empresa || '', r.contrato || '',
       TIPO_LABEL[r.tipificacion_codigo] || r.tipificacion_desc || '',
@@ -463,18 +501,34 @@ export default function AsesorCompromisos({ usuario, onGestionar, callApi, showT
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: 'rgba(255,255,255,0.04)', textAlign: 'left' }}>
-                <th style={th}>Hora llamada</th>
-                <th style={th}>Cliente</th>
-                <th style={{ ...th, textAlign: 'center' }}>Días imp.</th>
-                <th style={th}>Hora comprometida</th>
-                <th style={th}>Fecha de pago</th>
-                <th style={{ ...th, textAlign: 'right' }}>Monto</th>
-                <th style={th}>Nota</th>
+                {[
+                  { label: 'Hora llamada',      col: 'hora_gestion' },
+                  { label: 'Cliente',           col: 'nombre_deudor' },
+                  { label: 'Días imp.',         col: 'dias_mora',      align: 'center' },
+                  { label: 'Hora comprometida', col: 'fecha_promesa' },
+                  { label: 'Fecha de pago',     col: 'fecha_promesa' },
+                  { label: 'Monto',             col: 'monto_acordado', align: 'right' },
+                  { label: 'Nota',              col: 'notas' },
+                ].map(({ label, col, align }) => {
+                  const activa = orden.col === col;
+                  return (
+                    <th key={label}
+                      onClick={() => alternarOrden(col)}
+                      title={`Ordenar por ${label.toLowerCase()}`}
+                      style={{ ...th, textAlign: align || 'left', cursor: 'pointer', userSelect: 'none', color: activa ? 'var(--color-primary)' : undefined }}
+                    >
+                      {label}
+                      <span style={{ opacity: activa ? 0.9 : 0.25, marginLeft: 3, fontSize: 9 }}>
+                        {activa ? (orden.dir === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </th>
+                  );
+                })}
                 <th style={th}></th>
               </tr>
             </thead>
             <tbody>
-              {filtrados.map(r => {
+              {ordenados.map(r => {
                 const isOpen = expandedId === r.cdr_id;
                 const esIncumplido = r.tipificacion_codigo === 'INCUMP' || r.resultado === 'INCUMP';
                 const color = TIPO_COLOR[r.tipificacion_codigo] || { bg: 'rgba(255,255,255,0.08)', fg: '#ccc' };

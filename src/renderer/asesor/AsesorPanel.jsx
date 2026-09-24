@@ -10,7 +10,6 @@ import CampaignSelector from './CampaignSelector';
 import TipificacionDialog from './TipificacionDialog';
 import AsesorCompromisos from './AsesorCompromisos';
 import AsesorMensajes from './AsesorMensajes';
-import IndicadoresPanel from './IndicadoresPanel';
 import DashboardProductividad from './DashboardProductividad';
 import RankingLideres from './RankingLideres';
 import { nowLocalISO, todayLocalISO } from '../shared/timeUtils';
@@ -1079,19 +1078,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario.id]); // Solo usuario.id — handleDial/enviarMetricasWS via refs para no recrear WS
 
-  useEffect(() => {
-    const handleAudioChunk = (chunk) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          tipo: 'AUDIO_CHUNK',
-          asesor_id: usuario.id,
-          data: chunk
-        }));
-      }
-    };
-    window.api.on('audio:chunk', handleAudioChunk);
-    return () => window.api.removeAllListeners('audio:chunk');
-  }, [usuario.id]);
+  // El audio de las llamadas YA NO se reenvia por WebSocket.
+  //
+  // La escucha en vivo no funciona en el supervisor, pero el asesor seguia
+  // subiendo cada fragmento de cada llamada por el tunel, en JSON (~33% mas
+  // pesado que binario), hacia una pantalla que no lo reproduce. Con el equipo
+  // completo hablando eso era trafico cifrado constante, y se veia: cloudflared
+  // sostenido entre 35% y 47% de CPU mientras Postgres estaba al 1,6%.
+  //
+  // La grabacion local no cambia: recorder:start sigue igual y urlGrabacion se
+  // sigue guardando en el CDR.
+  //
+  // Para reactivar la escucha en vivo no alcanza con devolver este envio: hay
+  // que hacer que el asesor empiece a transmitir SOLO cuando un supervisor lo
+  // pide, en vez de siempre por las dudas.
 
   // ── MONITOREO DEL ESTADO FÍSICO DE LA LLAMADA ──
   useEffect(() => {
@@ -1491,11 +1491,26 @@ export default function AsesorPanel({ usuario, onLogout }) {
       .catch(() => {});
   }, [usuario?.id, callApi]);
 
-  // Cargar tipificaciones al montar — cache para guardar sin abrir diálogo
+  // Cargar tipificaciones al montar — cache para guardar sin abrir diálogo.
+  // Si esta carga falla, el asesor no puede tipificar de un clic, asi que se
+  // reintenta en vez de quedarse con el catalogo vacio en silencio.
   useEffect(() => {
-    callApi('db:getTipificaciones').then(data => {
-      if (Array.isArray(data)) setTipificacionesCache(data);
-    }).catch(() => {});
+    let cancelado = false;
+    let intentos = 0;
+    const cargar = () => {
+      callApi('db:getTipificaciones').then(data => {
+        if (cancelado) return;
+        if (Array.isArray(data) && data.length) { setTipificacionesCache(data); return; }
+        reintentar();
+      }).catch(() => { if (!cancelado) reintentar(); });
+    };
+    const reintentar = () => {
+      if (intentos >= 5) return;
+      intentos += 1;
+      setTimeout(cargar, 3000 * intentos);
+    };
+    cargar();
+    return () => { cancelado = true; };
   }, [callApi]);
 
   // Tiempo real: actualizar métricas al instante cuando se marca un lote enviado
@@ -3967,7 +3982,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     // Buzón de voz). Con value controlado, onChange no dispara
                                     // al reelegir el mismo valor. El estado real vive en tipifSelects.
                                     value=""
-                                    onChange={(e) => {
+                                    onChange={async (e) => {
                                       const val = e.target.value;
                                       if (!val) return;
                                       const codeMap = {
@@ -3982,8 +3997,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       if (code === 'PMP') {
                                         setContactoActual(c); setCdrId(null); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true);
                                       } else {
-                                        const tipif = tipificacionesCache.find(t => t.codigo === code);
-                                        if (!tipif) { setContactoActual(c); setCdrId(null); setTipifInicial(code); setTipifMarcaLlamada(true); setShowTipificacion(true); return; }
+                                        let tipif = tipificacionesCache.find(t => t.codigo === code);
+                                        if (!tipif) {
+                                          // El catalogo se carga una vez al abrir la app y si esa
+                                          // llamada falla queda vacio para siempre: entonces TODA
+                                          // tipificacion abria el dialogo en vez de guardar de una,
+                                          // que es lo que frenaba a los asesores. Se recarga aca y
+                                          // se sigue de largo; el dialogo deja de ser el respaldo.
+                                          try {
+                                            const data = await callApi('db:getTipificaciones');
+                                            if (Array.isArray(data) && data.length) {
+                                              setTipificacionesCache(data);
+                                              tipif = data.find(t => t.codigo === code);
+                                            }
+                                          } catch (_) { /* se avisa abajo */ }
+                                        }
+                                        if (!tipif) {
+                                          showToast('No se pudo cargar el catálogo de tipificaciones. Revisa la conexión.', 'error');
+                                          return;
+                                        }
                                         setTipifSelects(prev => ({ ...prev, [c.id]: val }));
                                         handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true, _nuevaGestion: true });
                                       }
@@ -5012,8 +5044,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
             </div>
           ) : activePage === 'mensajes_sv' ? (
               <AsesorMensajes usuario={usuario} callApi={callApi} showToast={showToast} />
-          ) : activePage === 'indicadores' ? (
-              <IndicadoresPanel usuario={usuario} callApi={callApi} />
           ) : activePage === 'campanas_correo' ? (
               <div className="widget-card" style={{ maxWidth: 900, margin: '0 auto', padding: 40, textAlign: 'center' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>mail</span>

@@ -43,8 +43,6 @@ const NAV_ITEMS_ASESOR = [
   },
   { id: 'compromisos',    icon: 'handshake',              label: 'Mis Compromisos' },
   { id: 'mensajes_sv',    icon: 'mark_unread_chat_alt',   label: 'Mensajes' },
-  { id: 'indicadores',    icon: 'bar_chart',              label: 'Indicadores' },
-
 ];
 
 export default function NavigationDrawer({ userRole, activePage, onNavigate, usuario, onLogout, compactContent, collapsed = false, onToggleCollapse }) {
