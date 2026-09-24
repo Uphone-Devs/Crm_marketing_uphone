@@ -146,32 +146,31 @@ router.patch('/:id/tipificar', async (req, res, next) => {
     });
     if (!tipificacion) return res.status(404).json({ error: 'Tipificación no encontrada' });
 
-    const [updatedCdr, updatedContacto] = await db.$transaction(async (tx) => {
-      const cdrPrevio = await tx.cdr.findUnique({ where: { id: cdrId }, select: { timestampInicio: true } });
-      if (!cdrPrevio) throw Object.assign(new Error('CDR no encontrado'), { statusCode: 404 });
+    // Las lecturas van FUERA de la transaccion. La version anterior metia cuatro
+    // consultas dentro de una transaccion interactiva, y con el pool saturado
+    // cada una esperaba su conexion: la transaccion superaba los 5s de limite y
+    // Prisma la mataba, devolviendo 500 al asesor en plena gestion.
+    const cdrPrevio = await db.cdr.findUnique({ where: { id: cdrId }, select: { timestampInicio: true } });
+    if (!cdrPrevio) return res.status(404).json({ error: 'CDR no encontrado' });
 
-      if (cdrData.duracionSeg == null && cdrData.timestampFin) {
-        const seg = Math.round((cdrData.timestampFin - cdrPrevio.timestampInicio) / 1000);
-        if (seg >= 0) cdrData.duracionSeg = seg;
-      }
+    if (cdrData.duracionSeg == null && cdrData.timestampFin) {
+      const seg = Math.round((cdrData.timestampFin - cdrPrevio.timestampInicio) / 1000);
+      if (seg >= 0) cdrData.duracionSeg = seg;
+    }
 
-      const contacto = await tx.contacto.findUnique({
+    const { estadoMarcacion } = decidirEstadoTrasTipificacion();
+
+    // Transaccion en lote, no interactiva: las dos escrituras viajan juntas en
+    // una sola conexion, sin idas y vueltas. El intento se suma con increment en
+    // SQL, asi no hace falta leer el contacto antes y de paso desaparece la
+    // condicion de carrera entre dos gestiones simultaneas del mismo contacto.
+    const [updatedCdr, updatedContacto] = await db.$transaction([
+      db.cdr.update({ where: { id: cdrId }, data: cdrData }),
+      db.contacto.update({
         where: { id: contactoId },
-        select: { intentosRealizados: true },
-      });
-      if (!contacto) throw Object.assign(new Error('Contacto no encontrado'), { statusCode: 404 });
-
-      const { estadoMarcacion, intentosRealizados } = decidirEstadoTrasTipificacion({
-        intentosActuales: contacto.intentosRealizados || 0,
-      });
-
-      const cdr = await tx.cdr.update({ where: { id: cdrId }, data: cdrData });
-      const contactoActualizado = await tx.contacto.update({
-        where: { id: contactoId },
-        data: { intentosRealizados, estadoMarcacion },
-      });
-      return [cdr, contactoActualizado];
-    });
+        data: { estadoMarcacion, intentosRealizados: { increment: 1 } },
+      }),
+    ]);
 
     res.json({ cdr: updatedCdr, contacto: updatedContacto });
 
@@ -204,6 +203,9 @@ router.patch('/:id/tipificar', async (req, res, next) => {
     })();
   } catch (err) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    // P2025: el CDR o el contacto ya no existen. Es un 404, no un fallo del
+    // servidor — si devuelve 500 el asesor reintenta para siempre.
+    if (err.code === 'P2025') return res.status(404).json({ error: 'CDR o contacto no encontrado' });
     next(err);
   }
 });

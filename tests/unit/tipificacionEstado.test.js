@@ -5,32 +5,26 @@
  * llamó y tipificó, la gestión cuenta — el contacto queda GESTIONADO con
  * cualquier código. Una versión anterior dejaba NC y BUZON en EN_INTENTOS y
  * eso dejó gestiones reales sin contabilizar en producción.
+ *
+ * El conteo del intento no vive acá: lo hace la base con
+ * `intentos_realizados + 1` desde el endpoint transaccional.
  */
 const { decidirEstadoTrasTipificacion } = require('../../backend/src/domain/tipificacionEstado');
 
 describe('decidirEstadoTrasTipificacion', () => {
-  const CODIGOS = ['NC', 'BUZON', 'PMP', 'PAGO_REAL', 'AB_PARC', 'VOL_CALL', 'INCUMP'];
-
-  it.each(CODIGOS)('con código %s el contacto queda GESTIONADO', (codigo) => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: codigo, intentosActuales: 0 });
-    expect(r.estadoMarcacion).toBe('GESTIONADO');
+  it('siempre deja el contacto GESTIONADO', () => {
+    expect(decidirEstadoTrasTipificacion()).toEqual({ estadoMarcacion: 'GESTIONADO' });
   });
 
-  it('cuenta el intento realizado', () => {
-    expect(decidirEstadoTrasTipificacion({ intentosActuales: 0 }).intentosRealizados).toBe(1);
-    expect(decidirEstadoTrasTipificacion({ intentosActuales: 4 }).intentosRealizados).toBe(5);
+  it('no depende del código de tipificación: ninguno deja la gestión sin contabilizar', () => {
+    const CODIGOS = ['NC', 'BUZON', 'PMP', 'PAGO_REAL', 'AB_PARC', 'VOL_CALL', 'INCUMP', 'NEG', 'NOTIFICADO'];
+    for (const codigo of CODIGOS) {
+      expect(decidirEstadoTrasTipificacion({ codigoTipificacion: codigo }).estadoMarcacion).toBe('GESTIONADO');
+    }
   });
 
-  it('sin intentosActuales arranca en 1', () => {
-    expect(decidirEstadoTrasTipificacion({})).toEqual({ estadoMarcacion: 'GESTIONADO', intentosRealizados: 1 });
-  });
-
-  it('sin argumentos no revienta (el endpoint siempre pasa el contacto, pero no debe romper)', () => {
-    expect(decidirEstadoTrasTipificacion()).toEqual({ estadoMarcacion: 'GESTIONADO', intentosRealizados: 1 });
-  });
-
-  it('maxIntentos ya no influye en el estado — nunca deja el contacto sin gestionar', () => {
-    const r = decidirEstadoTrasTipificacion({ codigoTipificacion: 'NC', intentosActuales: 0, maxIntentos: 99 });
-    expect(r.estadoMarcacion).toBe('GESTIONADO');
+  it('ignora argumentos sobrantes sin romper (el endpoint no le pasa ninguno)', () => {
+    expect(decidirEstadoTrasTipificacion({ intentosActuales: 7, maxIntentos: 3 }))
+      .toEqual({ estadoMarcacion: 'GESTIONADO' });
   });
 });
