@@ -1490,11 +1490,26 @@ export default function AsesorPanel({ usuario, onLogout }) {
       .catch(() => {});
   }, [usuario?.id, callApi]);
 
-  // Cargar tipificaciones al montar — cache para guardar sin abrir diálogo
+  // Cargar tipificaciones al montar — cache para guardar sin abrir diálogo.
+  // Si esta carga falla, el asesor no puede tipificar de un clic, asi que se
+  // reintenta en vez de quedarse con el catalogo vacio en silencio.
   useEffect(() => {
-    callApi('db:getTipificaciones').then(data => {
-      if (Array.isArray(data)) setTipificacionesCache(data);
-    }).catch(() => {});
+    let cancelado = false;
+    let intentos = 0;
+    const cargar = () => {
+      callApi('db:getTipificaciones').then(data => {
+        if (cancelado) return;
+        if (Array.isArray(data) && data.length) { setTipificacionesCache(data); return; }
+        reintentar();
+      }).catch(() => { if (!cancelado) reintentar(); });
+    };
+    const reintentar = () => {
+      if (intentos >= 5) return;
+      intentos += 1;
+      setTimeout(cargar, 3000 * intentos);
+    };
+    cargar();
+    return () => { cancelado = true; };
   }, [callApi]);
 
   // Tiempo real: actualizar métricas al instante cuando se marca un lote enviado
@@ -3966,7 +3981,7 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                     // Buzón de voz). Con value controlado, onChange no dispara
                                     // al reelegir el mismo valor. El estado real vive en tipifSelects.
                                     value=""
-                                    onChange={(e) => {
+                                    onChange={async (e) => {
                                       const val = e.target.value;
                                       if (!val) return;
                                       const codeMap = {
@@ -3981,8 +3996,25 @@ export default function AsesorPanel({ usuario, onLogout }) {
                                       if (code === 'PMP') {
                                         setContactoActual(c); setCdrId(null); setTipifInicial('PMP'); setTipifMarcaLlamada(true); setShowTipificacion(true);
                                       } else {
-                                        const tipif = tipificacionesCache.find(t => t.codigo === code);
-                                        if (!tipif) { setContactoActual(c); setCdrId(null); setTipifInicial(code); setTipifMarcaLlamada(true); setShowTipificacion(true); return; }
+                                        let tipif = tipificacionesCache.find(t => t.codigo === code);
+                                        if (!tipif) {
+                                          // El catalogo se carga una vez al abrir la app y si esa
+                                          // llamada falla queda vacio para siempre: entonces TODA
+                                          // tipificacion abria el dialogo en vez de guardar de una,
+                                          // que es lo que frenaba a los asesores. Se recarga aca y
+                                          // se sigue de largo; el dialogo deja de ser el respaldo.
+                                          try {
+                                            const data = await callApi('db:getTipificaciones');
+                                            if (Array.isArray(data) && data.length) {
+                                              setTipificacionesCache(data);
+                                              tipif = data.find(t => t.codigo === code);
+                                            }
+                                          } catch (_) { /* se avisa abajo */ }
+                                        }
+                                        if (!tipif) {
+                                          showToast('No se pudo cargar el catálogo de tipificaciones. Revisa la conexión.', 'error');
+                                          return;
+                                        }
                                         setTipifSelects(prev => ({ ...prev, [c.id]: val }));
                                         handleSaveTipificacion({ tipificacionId: tipif.id, notas: '', tipificacion: { id: tipif.id, codigo: tipif.codigo, descripcion: tipif.descripcion }, agendamiento: null, montoAcordado: null, _contacto: c, _marcacion: true, _nuevaGestion: true });
                                       }
