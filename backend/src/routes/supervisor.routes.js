@@ -2551,14 +2551,24 @@ router.get('/mensajes-broadcast', requireRole('jefe_area', 'admin', 'asesor'), a
       const empresaClause = userEmpresa
         ? Prisma.sql`AND (mb.empresa IS NULL OR mb.empresa = ${userEmpresa})`
         : Prisma.sql`AND TRUE`;
+      // Al asesor se le manda una sola fila por combinación (empresa, segmento,
+      // canal) y solo las activas: el cliente descarta las inactivas y elige con
+      // .find(), o sea que del resto nunca lee nada. Mandarle las 973 filas era
+      // enviar 117 MB por respuesta — ver
+      // .agentes/adr/20260924-imagenes-broadcast-fuera-de-la-fila.md
       rows = await db.$queryRaw`
-        SELECT mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
-               mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
-        FROM mensajes_broadcast mb
-        LEFT JOIN usuarios u ON u.id = mb.supervisor_id
-        WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
-          ${empresaClause}
-        ORDER BY mb.creado_en DESC
+        SELECT * FROM (
+          SELECT DISTINCT ON (mb.empresa, mb.segmento_destino, mb.canal)
+                 mb.id, mb.mensaje, mb.segmento_destino, mb.canal, mb.empresa, mb.asunto, mb.imagen_url,
+                 mb.activo, mb.creado_en, u.nombre AS supervisor_nombre
+          FROM mensajes_broadcast mb
+          LEFT JOIN usuarios u ON u.id = mb.supervisor_id
+          WHERE mb.supervisor_id = (SELECT supervisor_id FROM usuarios WHERE id = ${req.user.id})
+            AND mb.activo
+            ${empresaClause}
+          ORDER BY mb.empresa, mb.segmento_destino, mb.canal, mb.creado_en DESC
+        ) vigentes
+        ORDER BY creado_en DESC
       `;
     } else if (req.user.rol === 'jefe_area') {
       // Solo los mensajes del propio jefe
