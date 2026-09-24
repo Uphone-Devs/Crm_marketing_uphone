@@ -1078,19 +1078,20 @@ export default function AsesorPanel({ usuario, onLogout }) {
     }
   }, [usuario.id]); // Solo usuario.id — handleDial/enviarMetricasWS via refs para no recrear WS
 
-  useEffect(() => {
-    const handleAudioChunk = (chunk) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
-          tipo: 'AUDIO_CHUNK',
-          asesor_id: usuario.id,
-          data: chunk
-        }));
-      }
-    };
-    window.api.on('audio:chunk', handleAudioChunk);
-    return () => window.api.removeAllListeners('audio:chunk');
-  }, [usuario.id]);
+  // El audio de las llamadas YA NO se reenvia por WebSocket.
+  //
+  // La escucha en vivo no funciona en el supervisor, pero el asesor seguia
+  // subiendo cada fragmento de cada llamada por el tunel, en JSON (~33% mas
+  // pesado que binario), hacia una pantalla que no lo reproduce. Con el equipo
+  // completo hablando eso era trafico cifrado constante, y se veia: cloudflared
+  // sostenido entre 35% y 47% de CPU mientras Postgres estaba al 1,6%.
+  //
+  // La grabacion local no cambia: recorder:start sigue igual y urlGrabacion se
+  // sigue guardando en el CDR.
+  //
+  // Para reactivar la escucha en vivo no alcanza con devolver este envio: hay
+  // que hacer que el asesor empiece a transmitir SOLO cuando un supervisor lo
+  // pide, en vez de siempre por las dudas.
 
   // ── MONITOREO DEL ESTADO FÍSICO DE LA LLAMADA ──
   useEffect(() => {
