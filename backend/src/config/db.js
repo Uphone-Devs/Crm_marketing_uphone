@@ -1,34 +1,14 @@
 /**
  * db.js — Singleton de PrismaClient para Prisma 7 + PostgreSQL
- * Usa el adapter @prisma/adapter-pg con la URL de .env
- * 
+ * Usa el adapter @prisma/adapter-pg sobre el pool de config/pool.js
+ *
  * IMPORTANTE: require('dotenv').config() DEBE ejecutarse ANTES de
  * importar este módulo (se hace en index.js línea 1).
  */
 
-const { Pool } = require('pg');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
-
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  console.error('❌ ERROR: DATABASE_URL no está definida en .env');
-  console.error('   Asegúrate de que el archivo backend/.env existe y contiene DATABASE_URL');
-  process.exit(1);
-}
-
-const pool = new Pool({
-  connectionString,
-  max: 30,                    // 100 max_connections − 70 reserva
-  idleTimeoutMillis: 30_000,  // liberar conexiones inactivas después de 30s
-  connectionTimeoutMillis: 15_000, // 15s — más margen en picos de reconexión simultánea
-  allowExitOnIdle: true,
-});
-
-pool.on('error', (err) => {
-  console.error('[DB POOL] Error inesperado en cliente idle:', err.message);
-});
+const { pool, connectionString } = require('./pool');
 
 const adapter = new PrismaPg(pool);
 
