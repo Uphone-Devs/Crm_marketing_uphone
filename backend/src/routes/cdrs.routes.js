@@ -7,6 +7,8 @@ const db = require('../config/db');
 const { authMiddleware, requireRole } = require('../middleware/auth.middleware');
 const { decidirEstadoTrasTipificacion } = require('../domain/tipificacionEstado');
 const { parseNaiveComoUtc } = require('../utils/fechas');
+const { pool } = require('../config/pool');
+const { snapshotPool, formatearSnapshot, veredicto, esMaxWaitVencido } = require('../infra/poolMetrics');
 
 const router = Router();
 router.use(authMiddleware);
@@ -115,6 +117,8 @@ router.patch('/:id', async (req, res, next) => {
 // 3 escrituras HTTP independientes) que dejaba contactos.estado_marcacion en PENDIENTE si la
 // segunda mitad fallaba bajo carga, aunque el CDR ya tuviera la tipificación guardada.
 router.patch('/:id/tipificar', async (req, res, next) => {
+  // Fuera del try: el catch necesita leerlo para diagnosticar el fallo.
+  let poolAlIntentar = snapshotPool(pool);
   try {
     const cdrId = parseInt(req.params.id);
     const body = req.body;
@@ -164,6 +168,11 @@ router.patch('/:id/tipificar', async (req, res, next) => {
     // una sola conexion, sin idas y vueltas. El intento se suma con increment en
     // SQL, asi no hace falta leer el contacto antes y de paso desaparece la
     // condicion de carrera entre dos gestiones simultaneas del mismo contacto.
+    // Estado del pool ANTES de intentar. Si la transaccion falla por `maxWait`,
+    // este es el dato que dice si fue el pool o el event loop: leerlo despues no
+    // sirve porque en los 2s de espera el pool ya se drena y aparece holgado.
+    poolAlIntentar = snapshotPool(pool);
+
     const [updatedCdr, updatedContacto] = await db.$transaction([
       db.cdr.update({ where: { id: cdrId }, data: cdrData }),
       db.contacto.update({
@@ -206,6 +215,18 @@ router.patch('/:id/tipificar', async (req, res, next) => {
     // P2025: el CDR o el contacto ya no existen. Es un 404, no un fallo del
     // servidor — si devuelve 500 el asesor reintenta para siempre.
     if (err.code === 'P2025') return res.status(404).json({ error: 'CDR o contacto no encontrado' });
+
+    // Diagnostico del `maxWait` vencido: el mensaje es el mismo si el pool llego
+    // a su techo o si el event loop se bloqueo con conexiones libres, y lo que
+    // los separa es `esperando`. Se loguea solo en este fallo, no en cada
+    // request, para no inundar el log.
+    if (esMaxWaitVencido(err)) {
+      console.error(
+        `[TIPIFICAR_MAXWAIT] ${formatearSnapshot(poolAlIntentar)} (al intentar) | ` +
+        `${formatearSnapshot(snapshotPool(pool))} (al fallar) | ` +
+        `veredicto=${veredicto(poolAlIntentar)} | cdr=${req.params.id}`
+      );
+    }
     next(err);
   }
 });
