@@ -39,6 +39,8 @@ export default function AsesorMensajes({ usuario, cartera, compact = false, call
   const [inactivos, setInactivos] = useState([]);
   const [mostrarInactivos, setMostrarInactivos] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Modo compacto (barra lateral): que mensaje tiene el texto desplegado.
+  const [textoAbierto, setTextoAbierto] = useState(null);
 
   const cargarMensajes = useCallback(async () => {
     try {
@@ -117,29 +119,53 @@ export default function AsesorMensajes({ usuario, cartera, compact = false, call
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '30vh', overflowY: 'auto', paddingRight: 4 }}>
         <h4 style={{ fontSize: 12, margin: 0, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mensajes Activos</h4>
-        {mensajes.map((msg) => (
-          <div key={msg.id} style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 6, padding: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-              <span style={{ 
-                fontSize: 12, fontWeight: 800, padding: '2px 4px', borderRadius: 4, 
-                background: `${getSegmentoColor(msg.segmento_destino)}22`, color: getSegmentoColor(msg.segmento_destino),
-              }}>
-                {getSegmentoLabel(msg.segmento_destino)}
-              </span>
+        {mensajes.map((msg) => {
+          const color = getSegmentoColor(msg.segmento_destino);
+          const abierto = textoAbierto === msg.id;
+          const iconBtn = {
+            width: 24, height: 24, borderRadius: 5, flexShrink: 0,
+            background: 'transparent', border: '1px solid rgba(255,255,255,0.12)',
+            color: '#00e5ff', cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          };
+          return (
+            <div key={msg.id} style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 6px' }}>
+              {/* Fila unica: etiqueta + acciones. Antes cada mensaje ocupaba ~110px
+                  con el texto completo desplegado, asi que con tres ya habia que
+                  scrollear para llegar al boton de copiar del ultimo. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  fontSize: 11, fontWeight: 800, padding: '2px 5px', borderRadius: 4,
+                  background: `${color}22`, color, flexShrink: 0,
+                }}>
+                  {getSegmentoLabel(msg.segmento_destino)}
+                </span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 11, opacity: 0.45, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {msg.mensaje}
+                </span>
+                <button type="button" title={abierto ? 'Ocultar mensaje' : 'Ver mensaje completo'}
+                  onClick={() => setTextoAbierto(abierto ? null : msg.id)}
+                  style={iconBtn}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+                    {abierto ? 'visibility_off' : 'visibility'}
+                  </span>
+                </button>
+                <button type="button" title="Copiar mensaje"
+                  onClick={() => handleCopiar(msg.mensaje)}
+                  style={iconBtn}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>content_copy</span>
+                </button>
+              </div>
+              {abierto && (
+                <p style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.4, opacity: 0.9, maxHeight: 120, overflowY: 'auto' }}>
+                  {msg.mensaje}
+                </p>
+              )}
             </div>
-            <p style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.4, opacity: 0.9, maxHeight: 60, overflowY: 'auto' }}>
-              {msg.mensaje}
-            </p>
-            <button type="button" 
-              className="btn btn-outline" 
-              onClick={() => handleCopiar(msg.mensaje)}
-              style={{ width: '100%', fontSize: 12, padding: '4px 8px', borderColor: 'rgba(0, 229, 255, 0.2)', color: '#00e5ff', display: 'flex', justifyContent: 'center' }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 12, marginRight: 4 }}>content_copy</span>
-              Copiar
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   }
