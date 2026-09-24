@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 // Cache de módulo: persiste entre desmontajes al cambiar de tab
 const _cache = { metricas: null, rankingGeneral: [], metasCampanas: [], indicadoresGlob: null, metasSegmentos: null };
@@ -97,7 +97,21 @@ export default function DashboardProductividad({ usuario, callApi, tiempoProduct
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [usuario.id, campana?.id]);
 
-  useEffect(() => { if (refreshTrigger > 0) fetchAll(); }, [refreshTrigger]);
+  // Refresco tras tipificar, agrupado. Antes cada gestion disparaba fetchAll al
+  // instante y eso son 5 peticiones; un asesor que tipifica cinco clientes
+  // seguidos generaba 25 viajes por el tunel. Varios de esos endpoints
+  // responden desde cache del servidor, asi que la base no lo sufria — pero el
+  // tunel cifra y reenvia igual, y ahi se le iba el CPU a cloudflared.
+  // Agrupando, esa rafaga cuesta un solo refresco. El intervalo de 60s de
+  // arriba sigue como respaldo.
+  const refrescoRef = useRef(null);
+  useEffect(() => {
+    if (!refreshTrigger) return;
+    clearTimeout(refrescoRef.current);
+    refrescoRef.current = setTimeout(fetchAll, 8000);
+    return () => clearTimeout(refrescoRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTrigger]);
 
   /* ── KPIs derivados ── */
   const tiempoAire   = tiempoProductivoSeg   !== undefined ? Math.floor(tiempoProductivoSeg / 60)   : Math.floor((metricas?.tiempo_al_aire || 0) / 60);
