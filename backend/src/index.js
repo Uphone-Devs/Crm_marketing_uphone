@@ -12,6 +12,7 @@ const helmet = require('helmet');
 const db = require('./config/db');
 const setupWsServer = require('./wsServer');
 const { authMiddleware } = require('./middleware/auth.middleware');
+const { traficoMiddleware } = require('./middleware/trafico.middleware');
 
 const app = express();
 // El backend siempre corre detrás de cloudflared en la misma VM (Internet -> Cloudflare
@@ -44,6 +45,9 @@ const corsOptions = {
 };
 
 // ── Middleware global ─────────────────────────────────────────
+// El de tráfico va primero para que vea TODAS las respuestas, incluidas las
+// estáticas de /updates y /uploads, que son las que pueden mover más bytes.
+app.use(traficoMiddleware());
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
