@@ -10,7 +10,6 @@ import CampaignSelector from './CampaignSelector';
 import TipificacionDialog from './TipificacionDialog';
 import AsesorCompromisos from './AsesorCompromisos';
 import AsesorMensajes from './AsesorMensajes';
-import IndicadoresPanel from './IndicadoresPanel';
 import DashboardProductividad from './DashboardProductividad';
 import RankingLideres from './RankingLideres';
 import { nowLocalISO, todayLocalISO } from '../shared/timeUtils';
@@ -5012,8 +5011,6 @@ export default function AsesorPanel({ usuario, onLogout }) {
             </div>
           ) : activePage === 'mensajes_sv' ? (
               <AsesorMensajes usuario={usuario} callApi={callApi} showToast={showToast} />
-          ) : activePage === 'indicadores' ? (
-              <IndicadoresPanel usuario={usuario} callApi={callApi} />
           ) : activePage === 'campanas_correo' ? (
               <div className="widget-card" style={{ maxWidth: 900, margin: '0 auto', padding: 40, textAlign: 'center' }}>
                 <span className="material-symbols-outlined" style={{ fontSize: 48, opacity: 0.3 }}>mail</span>
